@@ -18,19 +18,9 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Télécharger le fichier depuis Supabase Storage
-    const fileRes = await fetch(fileUrl)
-    if (!fileRes.ok) {
-      return new Response(
-        JSON.stringify({ error: 'Impossible de télécharger le fichier : ' + fileRes.status }),
-        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-    const fileBuffer = await fileRes.arrayBuffer()
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)))
-
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
 
+    // Passer l'URL directement à Claude — pas de téléchargement ni de base64
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -47,7 +37,7 @@ Deno.serve(async (req) => {
             content: [
               {
                 type: 'document',
-                source: { type: 'base64', media_type: mediaType, data: base64 },
+                source: { type: 'url', url: fileUrl },
               },
               { type: 'text', text: prompt },
             ],
