@@ -9,6 +9,8 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 )
 
+const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY
+
 // ─── Champs et prompts ───────────────────────────────────────────────────────
 
 const SECTIONS = [
@@ -285,13 +287,40 @@ function getMediaType(file) {
     : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 }
 
-async function uploadToStorage(file) {
-  const ext = file.name.split('.').pop().toLowerCase()
-  const path = `uploads/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
-  const { error } = await supabase.storage.from('leases').upload(path, file, { contentType: getMediaType(file) })
-  if (error) throw new Error('Upload Storage échoué : ' + error.message)
-  const { data } = supabase.storage.from('leases').getPublicUrl(path)
-  return { url: data.publicUrl, path }
+function toBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader()
+    r.onload  = () => res(r.result.split(',')[1])
+    r.onerror = () => rej(new Error('Lecture du fichier échouée'))
+    r.readAsDataURL(file)
+  })
+}
+
+async function callClaude(base64, mediaType, prompt) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-opus-4-5',
+      max_tokens: 4096,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text: prompt }
+        ]
+      }]
+    })
+  })
+  if (!res.ok) throw new Error('Claude API error: ' + await res.text())
+  const data = await res.json()
+  const raw = data.content.map(b => b.text ?? '').join('').trim()
+    .replace(/^```json\s*/, '').replace(/\s*```$/, '').trim()
+  return JSON.parse(raw)
 }
 
 function formatDate(iso) {
@@ -521,27 +550,20 @@ export default function App() {
 
   async function extractOne(file, index) {
     setStatus(index, 'loading')
+    const base64 = await toBase64(file)
     const mediaType = getMediaType(file)
 
-    // 1. Upload vers Supabase Storage (contourne la limite de taille du body)
-    const { url: fileUrl, path: storagePath } = await uploadToStorage(file)
-
-    // 2. Détection bail / avenant
+    // 1. Détection bail / avenant
     const detectPrompt = `Ce document est-il un bail original ou un avenant ? Réponds UNIQUEMENT par le JSON suivant sans markdown : {"type": "bail"} ou {"type": "avenant"}`
-    const { data: d1 } = await supabase.functions.invoke('extract-lease', { body: { fileUrl, mediaType, prompt: detectPrompt } })
-    if (d1?.error) throw new Error(d1.error)
     let docType = 'bail'
-    try { const p = typeof d1.result==='string' ? JSON.parse(d1.result) : d1.result; docType = p?.type==='avenant' ? 'avenant' : 'bail' } catch(_) {}
+    try {
+      const r = await callClaude(base64, mediaType, detectPrompt)
+      docType = r?.type === 'avenant' ? 'avenant' : 'bail'
+    } catch(_) {}
 
-    // 3. Extraction complète
-    const { data: d2, error: fnErr } = await supabase.functions.invoke('extract-lease', { body: { fileUrl, mediaType, prompt: docType==='avenant' ? AVENANT_PROMPT : EXTRACTION_PROMPT } })
-
-    // 4. Nettoyage Storage après extraction
-    await supabase.storage.from('leases').remove([storagePath])
-
-    if (fnErr) throw new Error(fnErr.message)
-    if (d2?.error) throw new Error(d2.error)
-    return { extracted: d2.result, docType }
+    // 2. Extraction complète
+    const extracted = await callClaude(base64, mediaType, docType === 'avenant' ? AVENANT_PROMPT : EXTRACTION_PROMPT)
+    return { extracted, docType }
   }
 
   async function saveExtraction(file, extracted, docType, parentId) {
