@@ -287,7 +287,7 @@ function getMediaType(file) {
 
 async function uploadToStorage(file) {
   const ext = file.name.split('.').pop().toLowerCase()
-  const path = \`uploads/\${Date.now()}_\${Math.random().toString(36).slice(2)}.\${ext}\`
+  const path = `uploads/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
   const { error } = await supabase.storage.from('leases').upload(path, file, { contentType: getMediaType(file) })
   if (error) throw new Error('Upload Storage échoué : ' + error.message)
   const { data } = supabase.storage.from('leases').getPublicUrl(path)
