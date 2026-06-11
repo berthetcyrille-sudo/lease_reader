@@ -9,7 +9,6 @@ const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 )
 
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY
 
 // ─── Champs et prompts ───────────────────────────────────────────────────────
 
@@ -297,13 +296,9 @@ function toBase64(file) {
 }
 
 async function callClaude(base64, mediaType, prompt) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('https://vmtmwsbebzkwxfkdpqky.supabase.co/functions/v1/hyper-action', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'claude-opus-4-5',
       max_tokens: 4096,
@@ -316,11 +311,13 @@ async function callClaude(base64, mediaType, prompt) {
       }]
     })
   })
-  if (!res.ok) throw new Error('Claude API error: ' + await res.text())
+  if (!res.ok) throw new Error('Erreur API: ' + res.status)
   const data = await res.json()
   const raw = data.content.map(b => b.text ?? '').join('').trim()
-    .replace(/^```json\s*/, '').replace(/\s*```$/, '').trim()
-  return JSON.parse(raw)
+    .replace(/```json|```/g, '').trim()
+  const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
+  if (s === -1) throw new Error('Pas de JSON dans la réponse')
+  return JSON.parse(raw.slice(s, e + 1))
 }
 
 function formatDate(iso) {
