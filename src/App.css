@@ -233,6 +233,87 @@
   color: var(--color-danger);
 }
 
+/* ── File queue ── */
+.file-queue { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+
+.queue-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text-2);
+  font-size: 13px;
+}
+.queue-item.loading { border-color: #B5D4F4; background: #E6F1FB; }
+.queue-item.done    { border-color: #9FE1CB; background: #E1F5EE; }
+.queue-item.error   { border-color: #F09595; background: #FCEBEB; }
+
+.queue-name { font-weight: 500; color: var(--color-text); flex: 1; }
+.queue-size { font-size: 12px; color: var(--color-text-3); }
+.queue-status { font-size: 12px; margin-left: auto; }
+.queue-status.success { color: var(--color-success); }
+.queue-status.error   { color: var(--color-danger); cursor: help; }
+.queue-remove {
+  margin-left: auto; background: none; border: none;
+  color: var(--color-text-3); cursor: pointer; font-size: 14px; padding: 0 2px;
+}
+.queue-remove:hover { color: var(--color-danger); }
+
+.extract-bar { display: flex; gap: 8px; margin-top: 16px; }
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  padding: 24px;
+  width: 480px;
+  max-width: 94vw;
+  max-height: 80vh;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.modal-title { font-size: 15px; font-weight: 600; color: var(--color-text); }
+.modal-sub   { font-size: 13px; color: var(--color-text-2); }
+.modal-list  { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; max-height: 280px; }
+
+.modal-bail-item {
+  display: block; width: 100%; text-align: left;
+  padding: 10px 12px; border-radius: var(--radius);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  cursor: pointer; transition: background 0.15s;
+}
+.modal-bail-item:hover    { background: var(--color-surface-2); }
+.modal-bail-item.selected { border-color: var(--color-accent); background: var(--color-accent-light); }
+
+.modal-bail-name { font-size: 13px; font-weight: 500; color: var(--color-text); }
+.modal-bail-meta { font-size: 11px; color: var(--color-text-3); margin-top: 2px; }
+.modal-actions   { display: flex; gap: 8px; justify-content: flex-end; padding-top: 4px; }
+
+/* ── Avenant banner ── */
+.avenant-banner {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: #E6F1FB; border: 1px solid #B5D4F4;
+  border-radius: var(--radius); padding: 12px 14px;
+  font-size: 13px; color: #0C447C; margin-bottom: 20px;
+}
+.avenant-date { margin-left: auto; font-size: 12px; white-space: nowrap; }
+
+/* ── Avenant history items ── */
+.avenant-item { padding-left: 24px !important; border-left: 2px solid #B5D4F4 !important; margin-left: 8px; }
+.avenant-tag {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 3px;
+  background: #185FA5; color: #fff; font-size: 10px; font-weight: 700;
+  margin-right: 6px; flex-shrink: 0;
+}
+
 /* ── Results ── */
 .results { display: flex; flex-direction: column; gap: 0; }
 
