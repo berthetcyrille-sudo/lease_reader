@@ -9,14 +9,25 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { base64, mediaType, prompt } = await req.json()
+    const { fileUrl, mediaType, prompt } = await req.json()
 
-    if (!base64 || !mediaType || !prompt) {
+    if (!fileUrl || !mediaType || !prompt) {
       return new Response(
-        JSON.stringify({ error: 'Paramètres manquants (base64, mediaType, prompt)' }),
+        JSON.stringify({ error: 'Paramètres manquants (fileUrl, mediaType, prompt)' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    // Télécharger le fichier depuis Supabase Storage
+    const fileRes = await fetch(fileUrl)
+    if (!fileRes.ok) {
+      return new Response(
+        JSON.stringify({ error: 'Impossible de télécharger le fichier : ' + fileRes.status }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+    const fileBuffer = await fileRes.arrayBuffer()
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)))
 
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
 
