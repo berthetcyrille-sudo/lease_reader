@@ -209,6 +209,12 @@ button, input, select { font-family: inherit; font-size: 13px; cursor: pointer; 
 .history-name { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .history-meta { font-size: 11px; color: var(--text3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .avenant-item { padding-left: 24px !important; border-left: 2px solid #B5D4F4 !important; margin-left: 8px; }
+.history-delete {
+  background: none; border: none; color: var(--text3); font-size: 12px;
+  padding: 4px 6px; cursor: pointer; flex-shrink: 0; border-radius: var(--r);
+  transition: color .15s, background .15s;
+}
+.history-delete:hover { color: var(--danger); background: var(--danger-light); }
 .avenant-tag { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 3px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; margin-right: 6px; flex-shrink: 0; }
 
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -481,7 +487,7 @@ function ResultsView({ item }) {
   )
 }
 
-function HistoryPanel({ tree, onSelect, activeId, onClear }) {
+function HistoryPanel({ tree, onSelect, activeId, onDelete, onClear }) {
   return (
     <>
       <div className="history-list">
@@ -489,15 +495,21 @@ function HistoryPanel({ tree, onSelect, activeId, onClear }) {
           ? <div className="history-empty">Aucune extraction sauvegardée</div>
           : tree.map(bail => (
             <div key={bail.id}>
-              <button className={`history-item${bail.id===activeId?' active':''}`} onClick={() => onSelect(bail)}>
-                <div className="history-name">{bail.data?.immeuble||bail.data?.adresse||bail.file_name}</div>
-                <div className="history-meta">{bail.data?.preneur||'—'} · {formatDate(bail.created_at)}</div>
-              </button>
-              {bail.avenants?.map(av => (
-                <button key={av.id} className={`history-item avenant-item${av.id===activeId?' active':''}`} onClick={() => onSelect(av)}>
-                  <div className="history-name"><span className="avenant-tag">A</span>{av.data?.objet_avenant||av.file_name}</div>
-                  <div className="history-meta">{formatDate(av.created_at)}</div>
+              <div style={{display:'flex', alignItems:'center', gap:0}}>
+                <button className={`history-item${bail.id===activeId?' active':''}`} style={{flex:1}} onClick={() => onSelect(bail)}>
+                  <div className="history-name">{bail.data?.immeuble||bail.data?.adresse||bail.file_name}</div>
+                  <div className="history-meta">{bail.data?.preneur||'—'} · {formatDate(bail.created_at)}</div>
                 </button>
+                <button className="history-delete" onClick={e => onDelete(bail, e)} title="Supprimer">✕</button>
+              </div>
+              {bail.avenants?.map(av => (
+                <div key={av.id} style={{display:'flex', alignItems:'center'}}>
+                  <button className={`history-item avenant-item${av.id===activeId?' active':''}`} style={{flex:1}} onClick={() => onSelect(av)}>
+                    <div className="history-name"><span className="avenant-tag">A</span>{av.data?.objet_avenant||av.file_name}</div>
+                    <div className="history-meta">{formatDate(av.created_at)}</div>
+                  </button>
+                  <button className="history-delete" onClick={e => onDelete(av, e)} title="Supprimer">✕</button>
+                </div>
               ))}
             </div>
           ))
@@ -626,6 +638,22 @@ export default function App() {
 
   function handleClear() { setFiles([]); setStatuses([]); setActiveItem(null) }
 
+  async function handleDeleteItem(item, e) {
+    e.stopPropagation()
+    const label = item.document_type === 'avenant'
+      ? (item.data?.objet_avenant || item.file_name)
+      : (item.data?.immeuble || item.data?.adresse || item.file_name)
+    if (!window.confirm(`Supprimer "${label}" ? Cette action est irréversible.`)) return
+    await supabase.from('extractions').delete().eq('id', item.id)
+    if (activeItem?.id === item.id) setActiveItem(null)
+    setHistory(prev => {
+      // Si c'est un bail, supprimer aussi ses avenants de l'affichage
+      const filtered = prev.filter(b => b.id !== item.id)
+      // Si c'est un avenant, le retirer du bail parent
+      return filtered.map(b => ({ ...b, avenants: (b.avenants || []).filter(a => a.id !== item.id) }))
+    })
+  }
+
   return (
     <>
       <style>{CSS}</style>
@@ -670,6 +698,7 @@ export default function App() {
               onSelect={item => { setActiveItem(item); setTab('extract') }}
               activeId={activeItem?.id}
               onClear={handleClearHistory}
+              onDelete={handleDeleteItem}
             />
           )}
         </aside>
@@ -679,21 +708,25 @@ export default function App() {
             <h1 className="page-title">
               {activeItem ? (activeItem.data?.immeuble||activeItem.data?.adresse||activeItem.file_name) : 'Extraction de bail'}
             </h1>
-            {activeItem && (
-              <div className="topbar-actions">
-                <button className="btn" onClick={() => exportToExcel(
-                  activeItem.document_type==='avenant' ? activeItem.data?.champs_modifies||{} : activeItem.data||{},
-                  activeItem.file_name
-                )}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
-                  Excel
-                </button>
-                <button className="btn danger-outline" onClick={handleClear}>Nouveau</button>
-              </div>
-            )}
+            <div className="topbar-actions">
+              {activeItem && (
+                <>
+                  <button className="btn" onClick={() => exportToExcel(
+                    activeItem.document_type==='avenant' ? activeItem.data?.champs_modifies||{} : activeItem.data||{},
+                    activeItem.file_name
+                  )}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Excel
+                  </button>
+                  <button className="btn danger-outline" onClick={handleClear}>
+                    ← Nouvelle extraction
+                  </button>
+                </>
+              )}
+            </div>
           </header>
           <div className="content">
             {!activeItem && (
