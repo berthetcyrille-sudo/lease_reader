@@ -541,6 +541,11 @@ function DropZone({ onFiles, disabled }) {
       <div className="drop-title">Déposez un ou plusieurs fichiers ici</div>
       <div className="drop-sub">PDF ou DOCX · baux et avenants acceptés</div>
     </div>
+  )
+}
+
+function PageLimitWarning() {
+  return (
     <div style={{marginTop:'12px',padding:'10px 14px',borderRadius:'var(--r)',background:'var(--amber-bg)',border:'0.5px solid #E8C97A',fontSize:'12px',color:'var(--amber)',lineHeight:'1.6',display:'flex',gap:'8px',alignItems:'flex-start'}}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{flexShrink:0,marginTop:'1px'}}>
         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
@@ -1103,6 +1108,7 @@ export default function App() {
             {!activeItem && (
               <div className="extract-wrap">
                 <DropZone onFiles={setFiles} disabled={loading} />
+                <PageLimitWarning />
                 <div className="file-queue">
                   {files.map((f, i) => {
                     const st = statuses[i] || {}
