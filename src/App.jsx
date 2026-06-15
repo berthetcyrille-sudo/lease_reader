@@ -485,7 +485,14 @@ async function callClaude(base64, mediaType, prompt) {
   })
   if (!res.ok) throw new Error('Erreur API: ' + res.status)
   const data = await res.json()
-  // hyper-action peut retourner différentes structures
+  // Gestion erreur API Anthropic
+  if (data.type === 'error') {
+    const msg = data.error?.message || 'Erreur Anthropic inconnue'
+    if (msg.includes('100 PDF pages')) {
+      throw new Error('Ce PDF dépasse la limite de 100 pages acceptée par Claude. Compressez-le ou découpez-le en plusieurs fichiers.')
+    }
+    throw new Error('Erreur Claude API : ' + msg)
+  }
   let raw = ''
   if (data.content && Array.isArray(data.content)) {
     raw = data.content.map(b => (b && b.text) ? b.text : '').join('')
@@ -533,6 +540,13 @@ function DropZone({ onFiles, disabled }) {
       </div>
       <div className="drop-title">Déposez un ou plusieurs fichiers ici</div>
       <div className="drop-sub">PDF ou DOCX · baux et avenants acceptés</div>
+    </div>
+    <div style={{marginTop:'12px',padding:'10px 14px',borderRadius:'var(--r)',background:'var(--amber-bg)',border:'0.5px solid #E8C97A',fontSize:'12px',color:'var(--amber)',lineHeight:'1.6',display:'flex',gap:'8px',alignItems:'flex-start'}}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{flexShrink:0,marginTop:'1px'}}>
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <span><strong>Limite : 100 pages maximum par fichier.</strong> Si votre bail dépasse cette limite, retirez les annexes (plans, états des lieux, catalogue de charges) avant de déposer. Seules les pages de clauses sont nécessaires à l'extraction.</span>
     </div>
   )
 }
