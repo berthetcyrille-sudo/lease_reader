@@ -487,8 +487,12 @@ async function callClaude(base64, mediaType, prompt) {
   const data = await res.json()
   const raw = (Array.isArray(data.content) ? data.content : []).map(b => (b && b.text) ? b.text : '').join('').trim().replace(/```json|```/g,'').trim()
   const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
-  if (s === -1) throw new Error('Pas de JSON')
-  return sanitizeExtracted(JSON.parse(raw.slice(s, e+1)))
+  if (s === -1) throw new Error('Pas de JSON dans la réponse Claude. Réponse reçue : ' + raw.slice(0, 200))
+  try {
+    return sanitizeExtracted(JSON.parse(raw.slice(s, e+1)))
+  } catch(parseErr) {
+    throw new Error('JSON invalide : ' + parseErr.message + ' — Extrait : ' + raw.slice(s, s+200))
+  }
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
