@@ -375,18 +375,75 @@ function findBestMatch(ref, bails) {
 
 function exportToExcel(data, fileName) {
   const wb = XLSX.utils.book_new()
-  const flat = { ...data }
-  if (Array.isArray(flat.break_options)) flat.break_options = flat.break_options.join(' / ')
-  if (Array.isArray(flat.indemnites)) flat.indemnites = flat.indemnites.map(i => `${i.motif} — ${i.due_par} — ${i.montant} — ${i.date_limite}`).join('\n')
-  const headers = ALL_FIELDS.map(f => f.label)
-  const values  = ALL_FIELDS.map(f => flat[f.key] ?? '')
-  const ws1 = XLSX.utils.aoa_to_sheet([headers, values])
-  ws1['!cols'] = headers.map(() => ({ wch: 26 }))
-  XLSX.utils.book_append_sheet(wb, ws1, 'Tableau')
-  const rows = [['Section','Champ','Valeur'], ...SECTIONS.flatMap(s => s.fields.map(f => [s.label, f.label, flat[f.key] ?? '']))]
-  const ws2 = XLSX.utils.aoa_to_sheet(rows)
-  ws2['!cols'] = [{ wch: 28 }, { wch: 36 }, { wch: 70 }]
-  XLSX.utils.book_append_sheet(wb, ws2, 'Fiche')
+
+  // Champs simples (hors tableaux structurés)
+  const simpleFields = ALL_FIELDS.filter(f => !['break_options','franchise_periodes','indemnites'].includes(f.key))
+
+  // Colonnes dynamiques pour break_options (max 4)
+  const MAX_BREAKS = 4
+  const breakCols = []
+  for (let i = 0; i < MAX_BREAKS; i++) breakCols.push(`Break option ${i+1}`)
+
+  // Colonnes dynamiques pour franchise_periodes (max 3 périodes × 6 champs)
+  const MAX_FRANCHISE = 3
+  const franchiseCols = []
+  for (let i = 0; i < MAX_FRANCHISE; i++) {
+    franchiseCols.push(
+      `Franchise P${i+1} - Date début`,
+      `Franchise P${i+1} - Date fin`,
+      `Franchise P${i+1} - Durée`,
+      `Franchise P${i+1} - Montant`,
+      `Franchise P${i+1} - Indexation incluse`,
+      `Franchise P${i+1} - Condition`
+    )
+  }
+
+  // Colonnes dynamiques pour indemnites (max 4 × 4 champs)
+  const MAX_INDEM = 4
+  const indemnCols = []
+  for (let i = 0; i < MAX_INDEM; i++) {
+    indemnCols.push(
+      `Indemnité ${i+1} - Motif`,
+      `Indemnité ${i+1} - Due par`,
+      `Indemnité ${i+1} - Montant`,
+      `Indemnité ${i+1} - Date/Condition`
+    )
+  }
+
+  // Construction de la ligne
+  const headers = [
+    ...simpleFields.map(f => f.label),
+    ...breakCols,
+    ...franchiseCols,
+    ...indemnCols
+  ]
+
+  const breaks = Array.isArray(data.break_options) ? data.break_options : data.break_options ? [data.break_options] : []
+  const franchise = Array.isArray(data.franchise_periodes) ? data.franchise_periodes : []
+  const indem = Array.isArray(data.indemnites) ? data.indemnites : []
+
+  const values = [
+    ...simpleFields.map(f => data[f.key] ?? ''),
+    ...Array.from({ length: MAX_BREAKS }, (_, i) => breaks[i] ?? ''),
+    ...Array.from({ length: MAX_FRANCHISE }, (_, i) => [
+      franchise[i]?.date_debut ?? '',
+      franchise[i]?.date_fin ?? '',
+      franchise[i]?.duree ?? '',
+      franchise[i]?.montant ?? '',
+      franchise[i]?.indexation_incluse ?? '',
+      franchise[i]?.condition ?? '',
+    ]).flat(),
+    ...Array.from({ length: MAX_INDEM }, (_, i) => [
+      indem[i]?.motif ?? '',
+      indem[i]?.due_par ?? '',
+      indem[i]?.montant ?? '',
+      indem[i]?.date_limite ?? '',
+    ]).flat()
+  ]
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, values])
+  ws['!cols'] = headers.map(() => ({ wch: 24 }))
+  XLSX.utils.book_append_sheet(wb, ws, 'Base de données')
   XLSX.writeFile(wb, `lease_abstract_${(fileName||'bail').replace(/\.[^.]+$/, '')}.xlsx`)
 }
 
@@ -666,14 +723,19 @@ function ResultsView({ item }) {
               <Field label="Loyer à la signature — détail complet" value={d.loyer_signature} verbose />
             </div>
           )}
-          {/* Franchise pair */}
-          {show('franchise_duree') && (
-            <PairBlock
-              keyLabel="Franchise — durée"
-              keyValue={d.franchise_duree}
-              verboseLabel="Franchise — modalités complètes"
-              verboseValue={d.franchise}
-            />
+          {/* Franchise tableau */}
+          {show('franchise_periodes') && (d.franchise_periodes || d.franchise) && (
+            <div style={{marginTop:'8px'}}>
+              {Array.isArray(d.franchise_periodes) && d.franchise_periodes.length > 0 && (
+                <div style={{marginBottom:'4px'}}>
+                  <div className="field-lbl" style={{marginBottom:'6px'}}>Franchise — périodes</div>
+                  <div className="g2"><FranchiseTable periodes={d.franchise_periodes} /></div>
+                </div>
+              )}
+              {d.franchise && (
+                <Field label="Franchise — modalités complètes" value={d.franchise} verbose />
+              )}
+            </div>
           )}
           <div className="g2" style={{marginTop:'8px'}}>
             {show('charges') && <Field label="Charges / TEOM" value={d.charges} verbose />}
