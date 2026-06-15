@@ -485,7 +485,20 @@ async function callClaude(base64, mediaType, prompt) {
   })
   if (!res.ok) throw new Error('Erreur API: ' + res.status)
   const data = await res.json()
-  const raw = (Array.isArray(data.content) ? data.content : []).map(b => (b && b.text) ? b.text : '').join('').trim().replace(/```json|```/g,'').trim()
+  // hyper-action peut retourner différentes structures
+  let raw = ''
+  if (data.content && Array.isArray(data.content)) {
+    raw = data.content.map(b => (b && b.text) ? b.text : '').join('')
+  } else if (data.content && typeof data.content === 'string') {
+    raw = data.content
+  } else if (typeof data === 'string') {
+    raw = data
+  } else if (data.text) {
+    raw = data.text
+  } else {
+    throw new Error('Structure réponse inattendue : ' + JSON.stringify(data).slice(0, 300))
+  }
+  raw = raw.trim().replace(/```json|```/g,'').trim()
   const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
   if (s === -1) throw new Error('Pas de JSON dans la réponse Claude. Réponse reçue : ' + raw.slice(0, 200))
   try {
