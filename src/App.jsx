@@ -447,6 +447,30 @@ function exportToExcel(data, fileName) {
   XLSX.writeFile(wb, `lease_abstract_${(fileName||'bail').replace(/\.[^.]+$/, '')}.xlsx`)
 }
 
+function ensureArray(val) {
+  if (!val) return null
+  if (Array.isArray(val)) return val
+  if (typeof val === 'string') {
+    try { const p = JSON.parse(val); return Array.isArray(p) ? p : [val] } catch(_) { return [val] }
+  }
+  return null
+}
+
+function sanitizeExtracted(data) {
+  if (!data || typeof data !== 'object') return data
+  const d = { ...data }
+  d.break_options       = ensureArray(d.break_options)
+  d.franchise_periodes  = ensureArray(d.franchise_periodes)
+  d.indemnites          = ensureArray(d.indemnites)
+  if (d.champs_modifies) {
+    d.champs_modifies = { ...d.champs_modifies }
+    d.champs_modifies.break_options      = ensureArray(d.champs_modifies.break_options)
+    d.champs_modifies.franchise_periodes = ensureArray(d.champs_modifies.franchise_periodes)
+    d.champs_modifies.indemnites         = ensureArray(d.champs_modifies.indemnites)
+  }
+  return d
+}
+
 async function callClaude(base64, mediaType, prompt) {
   const res = await fetch('https://vmtmwsbebzkwxfkdpqky.supabase.co/functions/v1/hyper-action', {
     method: 'POST',
@@ -464,7 +488,7 @@ async function callClaude(base64, mediaType, prompt) {
   const raw = data.content.map(b => b.text ?? '').join('').trim().replace(/```json|```/g,'').trim()
   const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
   if (s === -1) throw new Error('Pas de JSON')
-  return JSON.parse(raw.slice(s, e+1))
+  return sanitizeExtracted(JSON.parse(raw.slice(s, e+1)))
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
