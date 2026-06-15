@@ -418,7 +418,7 @@ function exportToExcel(data, fileName) {
     ...indemnCols
   ]
 
-  const breaks = Array.isArray(data.break_options) ? data.break_options : data.break_options ? [data.break_options] : []
+  const breaks = Array.isArray(data.break_options) ? data.break_options : []
   const franchise = Array.isArray(data.franchise_periodes) ? data.franchise_periodes : []
   const indem = Array.isArray(data.indemnites) ? data.indemnites : []
 
@@ -485,7 +485,7 @@ async function callClaude(base64, mediaType, prompt) {
   })
   if (!res.ok) throw new Error('Erreur API: ' + res.status)
   const data = await res.json()
-  const raw = data.content.map(b => b.text ?? '').join('').trim().replace(/```json|```/g,'').trim()
+  const raw = (Array.isArray(data.content) ? data.content : []).map(b => (b && b.text) ? b.text : '').join('').trim().replace(/```json|```/g,'').trim()
   const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
   if (s === -1) throw new Error('Pas de JSON')
   return sanitizeExtracted(JSON.parse(raw.slice(s, e+1)))
@@ -545,7 +545,9 @@ function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue }) 
 }
 
 function IndemniteTable({ indemnites }) {
-  if (!Array.isArray(indemnites) || !indemnites.length) return null
+  const safe = Array.isArray(indemnites) ? indemnites : []
+  if (!safe.length) return null
+  const indemnites2 = safe
   return (
     <div className="field full" style={{padding:0,overflow:'hidden'}}>
       <table className="indemnites-table">
@@ -558,7 +560,7 @@ function IndemniteTable({ indemnites }) {
           </tr>
         </thead>
         <tbody>
-          {indemnites.map((row, i) => (
+          {indemnites2.map((row, i) => (
             <tr key={i}>
               <td>{row.motif||'—'}</td>
               <td>
@@ -606,7 +608,11 @@ function AvenantLinkModal({ suggestion, bails, onConfirm, onSkip }) {
 
 function ResultsView({ item }) {
   const isAv = item.document_type === 'avenant'
-  const d = isAv ? item.data?.champs_modifies || {} : item.data || {}
+  let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
+  d = { ...d }
+  if (!Array.isArray(d.break_options)) d.break_options = d.break_options ? [String(d.break_options)] : []
+  if (!Array.isArray(d.franchise_periodes)) d.franchise_periodes = []
+  if (!Array.isArray(d.indemnites)) d.indemnites = d.indemnites ? [d.indemnites] : []
   const meta = item.data || {}
 
   const breaks = Array.isArray(d.break_options) ? d.break_options : d.break_options ? [d.break_options] : []
