@@ -240,11 +240,11 @@ function sanitizeExtracted(data) {
 }
 
 async function callClaude(base64, mediaType, prompt) {
-  const res = await fetch('https://vmtmwsbebzkwxfkdpqky.supabase.co/functions/v1/hyper-action', {
+  const res = await fetch('https://hlpttewlizjhfzgyeblw.supabase.co/functions/v1/extract-lease', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'claude-opus-4-5', max_tokens: 4096,
+      model: 'claude-sonnet-4-6', max_tokens: 4096,
       messages: [{ role: 'user', content: [
         { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
         { type: 'text', text: prompt }
