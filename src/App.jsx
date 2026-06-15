@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import './index.css'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 
@@ -832,7 +833,6 @@ export default function App() {
 
   return (
     <>
-      <style>{CSS}</style>
       <div className="app">
         {avenantModal && (
           <AvenantLinkModal
