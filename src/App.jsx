@@ -725,6 +725,7 @@ export default function App() {
   const [histLoaded,   setHistLoaded]   = useState(false)
   const [tab,          setTab]          = useState('extract')
   const [avenantModal, setAvenantModal] = useState(null)
+  const [docTypes,     setDocTypes]     = useState([]) // 'bail' | 'avenant' per file
 
   function buildTree(rows) {
     const bails    = rows.filter(r => r.document_type === 'bail')
@@ -744,13 +745,10 @@ export default function App() {
   function switchTab(t) { setTab(t); if (t === 'history') loadHistory() }
   function setStatus(i, state, error) { setStatuses(prev => { const n=[...prev]; n[i]={state,error}; return n }) }
 
-  async function extractOne(file, index) {
+  async function extractOne(file, index, docType) {
     setStatus(index, 'loading')
     const base64 = await toBase64(file)
     const mediaType = getMediaType(file)
-    const detectPrompt = `Ce document est-il un bail original ou un avenant ? Réponds UNIQUEMENT : {"type": "bail"} ou {"type": "avenant"}`
-    let docType = 'bail'
-    try { const r = await callClaude(base64, mediaType, detectPrompt); docType = r?.type === 'avenant' ? 'avenant' : 'bail' } catch(_) {}
     const extracted = await callClaude(base64, mediaType, docType === 'avenant' ? AVENANT_PROMPT : EXTRACTION_PROMPT)
     return { extracted, docType }
   }
@@ -769,8 +767,9 @@ export default function App() {
     const allBails = history.filter(h => h.document_type === 'bail')
     for (let i = 0; i < files.length; i++) {
       try {
-        const { extracted, docType } = await extractOne(files[i], i)
-        if (docType === 'avenant') {
+        const docType = docTypes[i] || 'bail'
+        const { extracted, docType: dt } = await extractOne(files[i], i, docType)
+        if (dt === 'avenant') {
           const match = findBestMatch(extracted?.bail_reference, allBails)
           await new Promise(resolve => setAvenantModal({ index: i, file: files[i], extracted, suggestion: match, resolve }))
         } else {
@@ -825,7 +824,7 @@ export default function App() {
     setHistory([]); setHistLoaded(false); setActiveItem(null)
   }
 
-  function handleClear() { setFiles([]); setStatuses([]); setActiveItem(null) }
+  function handleClear() { setFiles([]); setStatuses([]); setActiveItem(null); setDocTypes([]) }
 
   const d = activeItem?.data || {}
   const resultTitle = d.immeuble || d.adresse || activeItem?.file_name || ''
@@ -924,7 +923,19 @@ export default function App() {
                         {st.state==='loading' && <span className="queue-status">En cours…</span>}
                         {st.state==='done'    && <span className="queue-status ok">✓ Extrait</span>}
                         {st.state==='error'   && <span className="queue-status err" title={st.error}>✕ Erreur</span>}
-                        {!st.state && <button className="queue-remove" onClick={() => { setFiles(p=>p.filter((_,j)=>j!==i)); setStatuses(p=>p.filter((_,j)=>j!==i)) }}>✕</button>}
+                        {!st.state && (
+                        <>
+                          <div style={{display:'flex',gap:0,border:'0.5px solid var(--border2)',borderRadius:'6px',overflow:'hidden',flexShrink:0}}>
+                            <button
+                              style={{padding:'3px 8px',fontSize:'11px',fontWeight:500,border:'none',background:(!docTypes[i]||docTypes[i]==='bail')?'var(--accent)':'transparent',color:(!docTypes[i]||docTypes[i]==='bail')?'#fff':'var(--text2)',cursor:'pointer'}}
+                              onClick={() => setDocTypes(p => { const n=[...p]; n[i]='bail'; return n })}>Bail</button>
+                            <button
+                              style={{padding:'3px 8px',fontSize:'11px',fontWeight:500,border:'none',borderLeft:'0.5px solid var(--border2)',background:docTypes[i]==='avenant'?'var(--accent)':'transparent',color:docTypes[i]==='avenant'?'#fff':'var(--text2)',cursor:'pointer'}}
+                              onClick={() => setDocTypes(p => { const n=[...p]; n[i]='avenant'; return n })}>Avenant</button>
+                          </div>
+                          <button className="queue-remove" onClick={() => { setFiles(p=>p.filter((_,j)=>j!==i)); setStatuses(p=>p.filter((_,j)=>j!==i)); setDocTypes(p=>p.filter((_,j)=>j!==i)) }}>✕</button>
+                        </>
+                      )}
                       </div>
                     )
                   })}
