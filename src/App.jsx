@@ -347,6 +347,41 @@ function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue }) 
   )
 }
 
+function FranchiseTable({ periodes }) {
+  const safe = Array.isArray(periodes) ? periodes : []
+  if (!safe.length) return null
+  return (
+    <div className="field full" style={{padding:0,overflow:'hidden'}}>
+      <table className="indemnites-table">
+        <thead>
+          <tr>
+            <th>Date début</th><th>Date fin</th><th>Durée</th>
+            <th>Montant exonéré</th><th>Indexation incluse</th><th>Condition</th>
+          </tr>
+        </thead>
+        <tbody>
+          {safe.map((row, i) => (
+            <tr key={i}>
+              <td>{row.date_debut||'—'}</td>
+              <td>{row.date_fin||'—'}</td>
+              <td style={{fontWeight:500}}>{row.duree||'—'}</td>
+              <td style={{fontWeight:500}}>{row.montant||'—'}</td>
+              <td>
+                {row.indexation_incluse && (
+                  <span className={`due-par ${row.indexation_incluse==='Oui'?'due-bailleur':row.indexation_incluse==='Non'?'due-preneur':''}`}>
+                    {row.indexation_incluse}
+                  </span>
+                )}
+              </td>
+              <td style={{color:'var(--text2)',fontStyle:row.condition?'normal':'italic'}}>{row.condition||'—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function IndemniteTable({ indemnites }) {
   const safe = Array.isArray(indemnites) ? indemnites : []
   if (!safe.length) return null
