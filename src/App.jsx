@@ -283,18 +283,22 @@ async function callClaude(base64, mediaType, prompt) {
   try {
     return sanitizeExtracted(JSON.parse(jsonStr))
   } catch(parseErr) {
-    // Tentative de nettoyage : remplacer les retours à la ligne dans les valeurs
     try {
-      const cleaned = jsonStr
-        .replace(/:\s*"((?:[^"\]|\.)*)"/gs, (match, val) => {
-          const fixed = val.replace(/
-/g, ' ').replace(/
-/g, '').replace(/	/g, ' ')
-          return ': "' + fixed + '"'
-        })
+      let cleaned = ''
+      let inString = false
+      let esc = false
+      for (let i = 0; i < jsonStr.length; i++) {
+        const c = jsonStr[i]
+        if (esc) { cleaned += c; esc = false; continue }
+        if (c === '\\') { cleaned += c; esc = true; continue }
+        if (c === '"') { inString = !inString; cleaned += c; continue }
+        if (inString && c === '\n') { cleaned += ' '; continue }
+        if (inString && c === '\r') { continue }
+        cleaned += c
+      }
       return sanitizeExtracted(JSON.parse(cleaned))
     } catch(e2) {
-      throw new Error('JSON invalide : ' + parseErr.message + ' — Extrait : ' + jsonStr.slice(s, s+200))
+      throw new Error('JSON invalide : ' + parseErr.message + ' — Extrait : ' + jsonStr.slice(0, 200))
     }
   }
 }
