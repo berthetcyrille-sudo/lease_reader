@@ -279,10 +279,23 @@ async function callClaude(base64, mediaType, prompt) {
   raw = raw.trim().replace(/```json|```/g,'').trim()
   const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
   if (s === -1) throw new Error('Pas de JSON dans la réponse Claude. Réponse reçue : ' + raw.slice(0, 200))
+  let jsonStr = raw.slice(s, e+1)
   try {
-    return sanitizeExtracted(JSON.parse(raw.slice(s, e+1)))
+    return sanitizeExtracted(JSON.parse(jsonStr))
   } catch(parseErr) {
-    throw new Error('JSON invalide : ' + parseErr.message + ' — Extrait : ' + raw.slice(s, s+200))
+    // Tentative de nettoyage : remplacer les retours à la ligne dans les valeurs
+    try {
+      const cleaned = jsonStr
+        .replace(/:\s*"((?:[^"\]|\.)*)"/gs, (match, val) => {
+          const fixed = val.replace(/
+/g, ' ').replace(/
+/g, '').replace(/	/g, ' ')
+          return ': "' + fixed + '"'
+        })
+      return sanitizeExtracted(JSON.parse(cleaned))
+    } catch(e2) {
+      throw new Error('JSON invalide : ' + parseErr.message + ' — Extrait : ' + jsonStr.slice(s, s+200))
+    }
   }
 }
 
