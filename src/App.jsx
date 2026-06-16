@@ -88,15 +88,16 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Utilise uniquement des guillemets droits ASCII dans le JSON. Remplace tout caractère typographique par son equivalent ASCII. Pas de retour a la ligne dans les valeurs. Echappe les guillemets internes avec backslash. break_options=tableau strings. franchise_periodes=tableau objets. indemnites=tableau objets. Champs _montant=chiffres bruts. null si absent.
 
 Retourne exactement cette structure avec les valeurs du document:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"surface_bureaux":null,"surface_totale":null,"parking":null,"rie":null,"autres_surfaces":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"surface_bureaux":null,"surface_totale":null,"parking_nb_places":null,"parking":null,"rie":null,"autres_surfaces":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}
 
-Formats: surfaces_detail=[{"typologie":"Bureaux","localisation":"5ème étage","surface_m2":"2224.98","prix_unitaire":"290","loyer_annuel":"645244"}] | break_options=["31/08/2027","31/08/2030"] | franchise_periodes=[{"date_debut":"jj/mm/aa","date_fin":"jj/mm/aa","duree":"3 mois","montant":"123405","indexation_incluse":"Oui/Non/Non précisé","condition":null}] | indemnites=[{"motif":"...","due_par":"Preneur ou Bailleur","montant":"...","date_limite":"..."}]`
+Parking: cherche le nombre EXACT de places (intérieures, extérieures, vélos) même si exprimé en lots ou annexes. Mets dans parking_nb_places le décompte total ex: "114 places (98 intérieures + 16 extérieures)" et dans surfaces_detail inclus une ligne par type de stationnement avec le nombre de places dans surface_m2.
+Formats: surfaces_detail=[{"categorie":"Bureaux","niveau":"5ème étage","surface_m2":"2224.98","prix_unitaire":"290","loyer_annuel":"645244"}] (categorie=type de surface: Bureaux/Archives/Stationnement/Commerce/RIE/Autres; niveau=localisation précise: étage ou zone) | break_options=["31/08/2027","31/08/2030"] | franchise_periodes=[{"date_debut":"jj/mm/aa","date_fin":"jj/mm/aa","duree":"3 mois","montant":"123405","indexation_incluse":"Oui/Non/Non précisé","condition":null}] | indemnites=[{"motif":"...","due_par":"Preneur ou Bailleur","montant":"...","date_limite":"..."}]`
 
 const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON valide uniquement, sans markdown.
 
 RÈGLES: Ne renseigne dans champs_modifies QUE les champs modifiés. null pour les autres. break_options/franchise_periodes/indemnites=tableaux si modifiés.
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"surface_bureaux":null,"surface_totale":null,"parking":null,"rie":null,"autres_surfaces":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}`
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"surface_bureaux":null,"surface_totale":null,"parking_nb_places":null,"parking":null,"rie":null,"autres_surfaces":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}`
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -377,13 +378,17 @@ function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue }) 
 function SurfaceTable({ surfaces }) {
   const safe = Array.isArray(surfaces) ? surfaces : []
   if (!safe.length) return null
-  const total = safe.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2).replace(/[^0-9.]/g,'')) || 0), 0)
+  const total = safe.reduce((acc, r) => {
+    const cat = (r.categorie || r.typologie || '').toLowerCase()
+    if (cat.includes('station') || cat.includes('parking') || cat.includes('place')) return acc
+    return acc + (parseFloat(String(r.surface_m2).replace(/[^0-9.]/g,'')) || 0)
+  }, 0)
   return (
     <div className="field full" style={{padding:0,overflow:'hidden'}}>
       <table className="indemnites-table">
         <thead>
           <tr>
-            <th>Typologie</th><th>Niveau / Localisation</th>
+            <th>Catégorie</th><th>Niveau / Localisation</th>
             <th style={{textAlign:'right'}}>Surface (m²)</th>
             <th style={{textAlign:'right'}}>Prix (€/m²)</th>
             <th style={{textAlign:'right'}}>Loyer annuel (€)</th>
@@ -392,8 +397,8 @@ function SurfaceTable({ surfaces }) {
         <tbody>
           {safe.map((row, i) => (
             <tr key={i}>
-              <td style={{fontWeight:500}}>{row.typologie||'—'}</td>
-              <td style={{color:'var(--text2)'}}>{row.localisation||'—'}</td>
+              <td style={{fontWeight:500}}>{row.categorie||row.typologie||'—'}</td>
+              <td style={{color:'var(--text2)'}}>{row.niveau||row.localisation||'—'}</td>
               <td style={{textAlign:'right',fontWeight:500}}>{row.surface_m2||'—'}</td>
               <td style={{textAlign:'right'}}>{row.prix_unitaire||'—'}</td>
               <td style={{textAlign:'right',fontWeight:500}}>{row.loyer_annuel||'—'}</td>
@@ -610,7 +615,7 @@ function ResultsView({ item }) {
       )}
 
       {/* Surfaces */}
-      {(show('surface_bureaux') || show('surface_totale_m2')) && (
+      {(show('surfaces_detail') || show('surface_totale_m2')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-dot"/><div className="sec-label">Surfaces</div></div>
           <div className="g3">
@@ -620,7 +625,12 @@ function ResultsView({ item }) {
                 <div className="field-val mono">{d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}</div>
               </div>
             )}
-            {show('parking') && <Field label="Parking" value={d.parking} />}
+            {show('parking_nb_places') && (
+              <div className="field">
+                <div className="field-lbl">Nombre de places de parking</div>
+                <div className={`field-val${!d.parking_nb_places?' empty':' mono'}`}>{d.parking_nb_places||'Non renseigné'}</div>
+              </div>
+            )}
             {show('rie') && d.rie && <Field label="RIE" value={d.rie} />}
           </div>
           {show('surfaces_detail') && d.surfaces_detail?.length > 0 && (
@@ -629,14 +639,9 @@ function ResultsView({ item }) {
               <SurfaceTable surfaces={d.surfaces_detail} />
             </div>
           )}
-          {show('surface_bureaux') && d.surface_bureaux && (
+          {show('parking') && d.parking && (
             <div style={{marginTop:'8px'}}>
-              <Field label="Détail surfaces bureaux" value={d.surface_bureaux} verbose />
-            </div>
-          )}
-          {show('autres_surfaces') && d.autres_surfaces && (
-            <div style={{marginTop:'8px'}}>
-              <Field label="Autres surfaces" value={d.autres_surfaces} verbose />
+              <Field label="Parking — détail complet" value={d.parking} verbose />
             </div>
           )}
         </div>
