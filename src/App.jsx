@@ -83,7 +83,7 @@ const ALL_FIELDS = SECTIONS.flatMap(s => s.fields)
 
 // ─── Prompts ─────────────────────────────────────────────────────────────────
 
-const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les données du document. JSON valide uniquement, sans markdown.
+const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les données du document. Retourne UNIQUEMENT du JSON minifié sur UNE SEULE LIGNE, sans indentation, sans saut de ligne, sans markdown. Chaque valeur string doit tenir sur une ligne.
 
 REGLES: Utilise uniquement des guillemets droits ASCII dans le JSON. Remplace tout caractère typographique par son equivalent ASCII. Pas de retour a la ligne dans les valeurs. Echappe les guillemets internes avec backslash. break_options=tableau strings. franchise_periodes=tableau objets. indemnites=tableau objets. Champs _montant=chiffres bruts. null si absent.
 
@@ -282,53 +282,53 @@ async function callClaude(base64, mediaType, prompt) {
   if (s === -1) throw new Error('Pas de JSON dans la réponse Claude. Réponse reçue : ' + raw.slice(0, 200))
   let jsonStr = raw.slice(s, e+1)
 
+  // Nettoyage robuste du JSON
   function cleanJson(str) {
-    // 1. Remplacer caractères typographiques
-    let r = str
-      .replace(/‘|’||/g, "'")
-      .replace(/“|”||/g, "'")
-      .replace(/–|—/g, '-')
-      .replace(/ /g, ' ')
-    // 2. Parser caractère par caractère pour nettoyer les strings JSON
     let out = ''
     let inStr = false
     let esc = false
-    let i = 0
-    while (i < r.length) {
-      const c = r[i]
-      if (esc) { out += c; esc = false; i++; continue }
-      if (c === '\\') { out += c; esc = true; i++; continue }
-      if (!inStr && c === '"') {
-        // Ouverture de string — chercher la vraie fermeture
-        // La fermeture valide est un " suivi de : , } ] espace newline
-        inStr = true; out += c; i++; continue
-      }
-      if (inStr && c === '"') {
-        // Vérifier si c'est une vraie fermeture
+    for (let i = 0; i < str.length; i++) {
+      const code = str.charCodeAt(i)
+      const c = str[i]
+      if (esc) { out += c; esc = false; continue }
+      // Backslash
+      if (inStr && code === 92) { out += c; esc = true; continue }
+      // Guillemet
+      if (code === 34) {
+        if (!inStr) { inStr = true; out += c; continue }
+        // Fermeture : vérifier ce qui suit (hors espaces)
         let j = i + 1
-        while (j < r.length && (r[j] === ' ' || r[j].charCodeAt(0) === 10 || r[j].charCodeAt(0) === 13 || r[j].charCodeAt(0) === 9)) j++
-        const next = r[j]
-        if (next === ':' || next === ',' || next === '}' || next === ']' || j >= r.length) {
-          // Vraie fermeture
-          inStr = false; out += c; i++; continue
+        while (j < str.length && (str.charCodeAt(j) === 32 || str.charCodeAt(j) === 10 || str.charCodeAt(j) === 13 || str.charCodeAt(j) === 9)) j++
+        const nc = str.charCodeAt(j)
+        if (nc === 58 || nc === 44 || nc === 125 || nc === 93 || j >= str.length) {
+          inStr = false; out += c
         } else {
-          // Guillemet interne non échappé — l'échapper
-          out += '\\"'; i++; continue
+          // Guillemet interne — échapper
+          out += '\\"'
         }
+        continue
       }
-      if (inStr && (c.charCodeAt(0) === 10 || c.charCodeAt(0) === 13 || c.charCodeAt(0) === 9)) {
-        out += ' '; i++; continue
+      // Dans une string : nettoyer sauts de ligne et caractères spéciaux
+      if (inStr) {
+        if (code === 10 || code === 13 || code === 9) { out += ' '; continue }
+        // Apostrophe typographique
+        if (code === 8216 || code === 8217) { out += "'"; continue }
+        // Tiret long
+        if (code === 8211 || code === 8212) { out += '-'; continue }
+        // Espace insécable
+        if (code === 160) { out += ' '; continue }
       }
-      out += c; i++
+      out += c
     }
     return out
   }
 
   try { return sanitizeExtracted(JSON.parse(jsonStr)) } catch(_) {}
-  try { return sanitizeExtracted(JSON.parse(cleanJson(jsonStr))) } catch(e2) {
+  const cleaned = cleanJson(jsonStr)
+  try { return sanitizeExtracted(JSON.parse(cleaned)) } catch(e2) {
     const pos = parseInt(e2.message.match(/position (\d+)/)?.[1] || '0')
-    const ctx = cleanJson(jsonStr).slice(Math.max(0, pos - 300), pos + 50)
-    throw new Error('JSON invalide pos ' + pos + ' — contexte : ' + ctx)
+    const ctx = cleaned.slice(Math.max(0, pos - 300), pos + 100)
+    throw new Error('JSON pos ' + pos + ' : ' + ctx)
   }
 }
 
