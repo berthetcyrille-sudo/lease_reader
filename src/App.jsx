@@ -280,41 +280,34 @@ async function callClaude(base64, mediaType, prompt) {
   const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
   if (s === -1) throw new Error('Pas de JSON dans la réponse Claude. Réponse reçue : ' + raw.slice(0, 200))
   let jsonStr = raw.slice(s, e+1)
-  try {
-    return sanitizeExtracted(JSON.parse(jsonStr))
-  } catch(parseErr) {
-    try {
-      // Nettoyage des caractères problématiques
-      let cleaned = jsonStr
-        .replace(/\u2018|\u2019|\u0091|\u0092/g, "\'")   // apostrophes typographiques
-        .replace(/\u201C|\u201D|\u0093|\u0094/g, '\\"')  // guillemets courbes
-        .replace(/\u2013|\u2014/g, '-')                       // tirets longs
-        .replace(/\u00A0/g, ' ')                               // espace insécable
-      // Retirer sauts de ligne dans les valeurs string
-      let result = ''
-      let inStr = false, esc2 = false
-      for (let i = 0; i < cleaned.length; i++) {
-        const c = cleaned[i]
-        if (esc2) { result += c; esc2 = false; continue }
-        if (c === '\\') { result += c; esc2 = true; continue }
-        if (c === '"') { inStr = !inStr; result += c; continue }
-        if (inStr && (c === '\n' || c === '\r' || c === '\t')) { result += ' '; continue }
-        result += c
-      }
-      return sanitizeExtracted(JSON.parse(result))
-    } catch(e2) {
-      // Tentative 3 : fixer les guillemets non échappés dans les valeurs
-      try {
-        // Remplacer les guillemets non échappés à l'intérieur des valeurs string
-        const fixed = result.replace(/"([^"]*?)(?<!\\)"(?=[^:,{}\[\]]*")/g, (m, p1) => '"' + p1.replace(/"/g, '\\"') + '"')
-        return sanitizeExtracted(JSON.parse(fixed))
-      } catch(e3) {
-        // Afficher le contexte autour de l'erreur
-        const pos = parseInt(parseErr.message.match(/position (\d+)/)?.[1] || '0')
-        const ctx = result.slice(Math.max(0, pos-100), pos+100)
-        throw new Error('JSON invalide pos ' + pos + ' : ' + ctx)
-      }
+
+  function cleanJson(str) {
+    // 1. Remplacer caractères typographiques
+    let r = str
+      .replace(/‘|’||/g, "'")
+      .replace(/“|”||/g, "'")
+      .replace(/–|—/g, '-')
+      .replace(/ /g, ' ')
+    // 2. Retirer sauts de ligne à l'intérieur des strings JSON
+    let out = '', inStr = false, esc = false
+    for (let i = 0; i < r.length; i++) {
+      const c = r[i]
+      if (esc) { out += c; esc = false; continue }
+      if (c === '\\') { out += c; esc = true; continue }
+      if (c === '"') { inStr = !inStr; out += c; continue }
+      if (inStr && (c === '
+' || c === '
+' || c === '	')) { out += ' '; continue }
+      out += c
     }
+    return out
+  }
+
+  try { return sanitizeExtracted(JSON.parse(jsonStr)) } catch(_) {}
+  try { return sanitizeExtracted(JSON.parse(cleanJson(jsonStr))) } catch(e2) {
+    const pos = parseInt(e2.message.match(/position (\d+)/)?.[1] || '0')
+    const ctx = cleanJson(jsonStr).slice(Math.max(0, pos - 150), pos + 150)
+    throw new Error('JSON invalide pos ' + pos + ' — contexte : ' + ctx)
   }
 }
 
