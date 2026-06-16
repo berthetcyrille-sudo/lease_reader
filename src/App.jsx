@@ -768,40 +768,152 @@ function ResultsView({ item }) {
   )
 }
 
-function HistoryPanel({ tree, onSelect, activeId, onDelete, onClear }) {
+function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
+  const [sort, setSort] = useState('date')
+  const [filter, setFilter] = useState('all') // all | bail | avenant
+
+  // Flatten all items for table
+  const rows = []
+  tree.forEach(bail => {
+    rows.push({ ...bail, _level: 0, _parentName: null })
+    ;(bail.avenants || []).forEach(av => {
+      rows.push({ ...av, _level: 1, _parentName: bail.data?.immeuble || bail.data?.adresse || bail.file_name })
+    })
+  })
+
+  const filtered = rows.filter(r => {
+    if (filter === 'bail') return r.document_type === 'bail'
+    if (filter === 'avenant') return r.document_type === 'avenant'
+    return true
+  })
+
   return (
-    <>
-      <div className="history-list">
-        {!tree.length
-          ? <div className="history-empty">Aucune extraction sauvegardée</div>
-          : tree.map(bail => (
-            <div key={bail.id}>
-              <div className="history-row">
-                <button className={`history-btn${bail.id === activeId ? ' active' : ''}`} onClick={() => onSelect(bail)}>
-                  <div className="history-name">{bail.data?.immeuble || bail.data?.adresse || bail.file_name}</div>
-                  <div className="history-meta">{bail.data?.preneur?.split(',')[0] || '—'} · {formatDate(bail.created_at)}</div>
-                </button>
-                <button className="history-del" onClick={e => onDelete(bail, e)} title="Supprimer">✕</button>
-              </div>
-              {bail.avenants?.map(av => (
-                <div key={av.id} className="history-row av-row">
-                  <button className={`history-btn${av.id === activeId ? ' active' : ''}`} onClick={() => onSelect(av)}>
-                    <div className="history-name"><span className="av-tag">A</span>{av.data?.objet_avenant || av.file_name}</div>
-                    <div className="history-meta">{formatDate(av.created_at)}</div>
-                  </button>
-                  <button className="history-del" onClick={e => onDelete(av, e)} title="Supprimer">✕</button>
-                </div>
-              ))}
-            </div>
-          ))
-        }
+    <div className="dashboard">
+      {/* Toolbar */}
+      <div className="dash-toolbar">
+        <div className="dash-stats">
+          <span className="dash-stat">{tree.length} bail{tree.length !== 1 ? 'x' : ''}</span>
+          <span className="dash-stat">{rows.filter(r => r.document_type === 'avenant').length} avenant{rows.filter(r => r.document_type === 'avenant').length !== 1 ? 's' : ''}</span>
+        </div>
+        <div className="dash-filters">
+          {['all','bail','avenant'].map(f => (
+            <button key={f} className={`dash-filter${filter === f ? ' active' : ''}`} onClick={() => setFilter(f)}>
+              {f === 'all' ? 'Tous' : f === 'bail' ? 'Baux' : 'Avenants'}
+            </button>
+          ))}
+        </div>
+        {tree.length > 0 && <button className="btn-clear" style={{ width: 'auto', padding: '5px 12px' }} onClick={onClear}>Vider</button>}
       </div>
-      {tree.length > 0 && (
-        <div className="sidebar-footer">
-          <button className="btn-clear" onClick={onClear}>Vider l'historique</button>
+
+      {/* Table */}
+      {!filtered.length ? (
+        <div className="dash-empty">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ color: 'rgba(255,255,255,0.2)', marginBottom: '10px' }}>
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <div>Aucune extraction</div>
+        </div>
+      ) : (
+        <div className="dash-table">
+          <div className="dash-thead">
+            <div className="dash-th" style={{ gridColumn: '1' }}>Actif / Document</div>
+            <div className="dash-th" style={{ gridColumn: '2' }}>Type</div>
+            <div className="dash-th" style={{ gridColumn: '3' }}>Bail lié</div>
+            <div className="dash-th" style={{ gridColumn: '4' }}>Date effet</div>
+            <div className="dash-th" style={{ gridColumn: '5' }}>Date fin</div>
+            <div className="dash-th" style={{ gridColumn: '6' }}>Break</div>
+            <div className="dash-th dash-th-right" style={{ gridColumn: '7' }}>Loyer HT/HC</div>
+            <div style={{ gridColumn: '8' }}/>
+          </div>
+          {filtered.map(row => {
+            const d = row.document_type === 'avenant'
+              ? { ...(row.data?.champs_modifies || {}), ...row.data }
+              : (row.data || {})
+            const isNew = newIds?.includes(row.id)
+            const isAv = row.document_type === 'avenant'
+            const breaks = Array.isArray(d.break_options) ? d.break_options : []
+            return (
+              <div
+                key={row.id}
+                className={`dash-row${isNew ? ' dash-row-new' : ''}`}
+                onClick={() => onSelect(row)}
+              >
+                {/* Actif */}
+                <div className="dash-td" style={{ paddingLeft: row._level ? '28px' : '16px' }}>
+                  {row._level > 0 && (
+                    <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', width: '10px', height: '1px', background: 'var(--border2)' }}/>
+                  )}
+                  <div style={{ fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                    {d.immeuble || d.adresse || row.file_name}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {isAv ? (d.objet_avenant || row.file_name) : (d.preneur?.split(' ')[0] || row.file_name)}
+                  </div>
+                </div>
+
+                {/* Type */}
+                <div className="dash-td">
+                  <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`}>
+                    {isAv ? 'Avenant' : 'Bail'}
+                  </span>
+                </div>
+
+                {/* Bail lié */}
+                <div className="dash-td">
+                  {isAv && row._parentName ? (
+                    <span style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                      {row._parentName}
+                    </span>
+                  ) : <span/>}
+                </div>
+
+                {/* Date effet */}
+                <div className="dash-td">
+                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{d.date_effet || '—'}</span>
+                </div>
+
+                {/* Date fin */}
+                <div className="dash-td">
+                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{d.date_fin || '—'}</span>
+                </div>
+
+                {/* Break */}
+                <div className="dash-td">
+                  {breaks.length > 0 ? (
+                    <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                      {breaks.slice(0, 2).map((b, i) => (
+                        <span key={i} style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '3px', background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid rgba(26,95,168,0.2)' }}>{b}</span>
+                      ))}
+                      {breaks.length > 2 && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>+{breaks.length-2}</span>}
+                    </div>
+                  ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—</span>}
+                </div>
+
+                {/* Loyer */}
+                <div className="dash-td dash-td-right">
+                  {d.loyer_signature_montant ? (
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#fff', letterSpacing: '-0.01em' }}>
+                      {fmtEur(d.loyer_signature_montant)}
+                    </span>
+                  ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—</span>}
+                </div>
+
+                {/* Actions */}
+                <div className="dash-td dash-td-actions" onClick={e => e.stopPropagation()}>
+                  <button className="dash-action-btn" onClick={() => onSelect(row)} title="Voir le détail">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                  <button className="dash-action-btn dash-action-del" onClick={e => onDelete(row, e)} title="Supprimer">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                  </button>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -822,6 +934,7 @@ export default function App() {
   const [pertinents,   setPertinents]   = useState([])     // bool per file
   const [raisons,      setRaisons]      = useState([])     // raison non pertinent
   const [lastError,    setLastError]    = useState('')
+  const [newIds,       setNewIds]       = useState([])   // ids extraits dans le batch courant
 
   function buildTree(rows) {
     const bails    = rows.filter(r => r.document_type === 'bail')
@@ -954,6 +1067,7 @@ export default function App() {
         if (saved) {
           const bwa = { ...saved, avenants: [] }
           availableBails.push(bwa)
+          setNewIds(prev => [...prev, saved.id])
           setHistory(prev => [bwa, ...prev])
         }
         setStatus(i, 'done')
@@ -978,6 +1092,7 @@ export default function App() {
         const saved = await saveExtraction(files[i], extracted, 'avenant', parentId)
         if (saved) {
           lastSaved = saved
+          setNewIds(prev => [...prev, saved.id])
           setHistory(prev => parentId
             ? prev.map(b => b.id === parentId ? { ...b, avenants: [...(b.avenants || []), saved] } : b)
             : [saved, ...prev])
@@ -987,6 +1102,9 @@ export default function App() {
     }
 
     setLoading(false)
+    // Aller sur le dashboard après extraction
+    setTab('history')
+    loadHistory()
     if (lastSaved) setActiveItem(lastSaved)
   }
 
@@ -1040,18 +1158,10 @@ export default function App() {
                 <path d="M3.05 11a9 9 0 1 0 .5-4"/><polyline points="3 3 3 7 7 7"/>
               </svg>
               Historique
-              {history.length > 0 && <span className="badge">{history.length}</span>}
+              {history.length > 0 && <span className="badge">{history.reduce((a,b) => a + 1 + (b.avenants?.length||0), 0)}</span>}
             </button>
           </nav>
-          {tab === 'history' && (
-            <HistoryPanel
-              tree={history}
-              onSelect={item => { setActiveItem(item); setTab('extract') }}
-              activeId={activeItem?.id}
-              onDelete={handleDeleteItem}
-              onClear={handleClearHistory}
-            />
-          )}
+
         </aside>
 
         <main className="main">
@@ -1082,7 +1192,16 @@ export default function App() {
           )}
 
           <div className="content">
-            {!activeItem && (
+            {tab === 'history' && (
+              <Dashboard
+                tree={history}
+                onSelect={item => { setActiveItem(item); setTab('extract') }}
+                onDelete={handleDeleteItem}
+                onClear={handleClearHistory}
+                newIds={newIds}
+              />
+            )}
+            {tab === 'extract' && !activeItem && (
               <div className="extract-wrap">
 
                 {/* ── Queue principale ── */}
@@ -1259,7 +1378,8 @@ export default function App() {
               </div>
             )}
 
-                        {activeItem && <ResultsView item={activeItem} />}
+                        )}
+            {tab === 'extract' && activeItem && <ResultsView item={activeItem} />}
           </div>
         </main>
       </div>
