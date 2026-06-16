@@ -101,11 +101,12 @@ REGLES: Ne renseigne dans champs_modifies QUE les champs modifies. null pour les
 
 
 const DETECT_PROMPT = `Analyse ce document immobilier. Reponds UNIQUEMENT avec ce JSON sur une ligne:
-{"type":"bail ou avenant","pertinent":true,"raison":""}
+{"type":"bail","pertinent":true,"raison":"","preneur":"","bailleur":"","adresse":"","immeuble":""}
 Regles:
 - type: "bail" si bail original, "avenant" si avenant ou avenant rectificatif
 - pertinent: true si document est un bail/avenant valide et le bail semble actif ou potentiellement actif (un avenant peut prolonger un bail expire -> pertinent:true). false si ce n'est pas un bail/avenant, ou si le bail est clairement expire et sans prolongation, ou si le document est illisible/hors sujet
-- raison: courte explication seulement si pertinent:false (ex: "bail expire en 2019 sans prolongation", "document non immobilier")`
+- raison: courte explication seulement si pertinent:false
+- preneur, bailleur, adresse, immeuble: extrais ces valeurs meme partiellement, elles servent a identifier le bail associe (pour un avenant)`
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -878,9 +879,10 @@ export default function App() {
   // Détection automatique déclenchée au drop
   async function detectFiles(newFiles) {
     setDetecting(true)
-    const types     = new Array(newFiles.length).fill('')
-    const pertinents = new Array(newFiles.length).fill(null) // null=en cours, true/false
-    const raisons   = new Array(newFiles.length).fill('')
+    const types      = new Array(newFiles.length).fill('')
+    const pertinents = new Array(newFiles.length).fill(null)
+    const raisons    = new Array(newFiles.length).fill('')
+    const detectData = new Array(newFiles.length).fill(null) // bail_reference data
     const chunks = []
     for (let i = 0; i < newFiles.length; i += 3) chunks.push(newFiles.slice(i, i+3).map((_, j) => i+j))
     for (const chunk of chunks) {
@@ -892,25 +894,29 @@ export default function App() {
           types[i]      = data?.type === 'avenant' ? 'avenant' : 'bail'
           pertinents[i] = data?.pertinent !== false
           raisons[i]    = data?.raison || ''
+          detectData[i] = { preneur: data?.preneur, bailleur: data?.bailleur, adresse: data?.adresse, immeuble: data?.immeuble }
         } catch (_) { types[i] = 'bail'; pertinents[i] = true }
-        // Mettre à jour au fil de l'eau
         setDocTypes([...types])
         setPertinents([...pertinents])
         setRaisons([...raisons])
       }))
     }
-    // Ordonner baux d'abord
     const bailIdx    = types.map((t,i) => t === 'bail'    ? i : -1).filter(i => i >= 0)
     const avenantIdx = types.map((t,i) => t === 'avenant' ? i : -1).filter(i => i >= 0)
     setDocTypes([...types])
     setFileOrder([...bailIdx, ...avenantIdx])
-    // Auto-sélectionner bail lié si un seul bail en base
+    // Pré-remplir bail lié pour les avenants par matching
     const existingBails = history.filter(h => h.document_type === 'bail')
-    if (existingBails.length === 1) {
-      const autoLinks = {}
-      avenantIdx.forEach(i => { autoLinks[i] = existingBails[0].id })
-      setAvenantLinks(autoLinks)
-    }
+    const autoLinks = {}
+    avenantIdx.forEach(i => {
+      if (existingBails.length === 1) {
+        autoLinks[i] = existingBails[0].id
+      } else if (existingBails.length > 1 && detectData[i]) {
+        const match = findBestMatch(detectData[i], existingBails)
+        if (match) autoLinks[i] = match.item.id
+      }
+    })
+    setAvenantLinks(autoLinks)
     setDetecting(false)
   }
 
