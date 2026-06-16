@@ -1194,11 +1194,11 @@ export default function App() {
                     {files.length > 0 && (
                       <div style={{ marginTop: '10px' }}>
                         {/* En-tête colonnes */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 80px 100px 180px 40px', gap: '8px', padding: '0 4px 6px', borderBottom: '1px solid var(--border)', marginBottom: '4px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 100px 120px 220px 32px', gap: '8px', padding: '0 4px 6px', borderBottom: '1px solid var(--border)', marginBottom: '4px' }}>
                           <div/>
                           <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Fichier</div>
-                          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Type</div>
                           <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Pertinent</div>
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Type</div>
                           <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Bail lié</div>
                           <div/>
                         </div>
@@ -1224,7 +1224,7 @@ export default function App() {
                             ]
                             return (
                               <div key={fileIdx} className={`queue-item ${st.state || ''}`}
-                                style={{ display: 'grid', gridTemplateColumns: '20px 1fr 100px 100px 180px 40px', gap: '8px', alignItems: 'center', padding: '8px 4px', flexWrap: 'nowrap' }}>
+                                style={{ display: 'grid', gridTemplateColumns: '20px 1fr 100px 120px 220px 32px', gap: '8px', alignItems: 'center', padding: '8px 4px', flexWrap: 'nowrap' }}>
 
                                 {/* Ordre ▲▼ */}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
@@ -1244,7 +1244,22 @@ export default function App() {
                                   </div>
                                 </div>
 
-                                {/* Toggle Bail/Avenant — masqué si non pertinent */}
+                                {/* Pertinent */}
+                                <div>
+                                  {analyzing || pertinent === null ? (
+                                    <span style={{ fontSize: '11px', color: 'var(--text3)' }}>—</span>
+                                  ) : (
+                                    <span title={raison} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600,
+                                      padding: '2px 8px', borderRadius: '999px',
+                                      background: pertinent ? 'var(--success-bg)' : 'var(--danger-bg)',
+                                      color: pertinent ? 'var(--success)' : 'var(--danger)',
+                                      cursor: raison ? 'help' : 'default' }}>
+                                      {pertinent ? 'Oui' : 'Non'}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Toggle Bail/Avenant — grisé si non pertinent */}
                                 <div>
                                   {analyzing ? (
                                     <span style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic' }}>Analyse…</span>
@@ -1259,21 +1274,6 @@ export default function App() {
                                         style={{ padding: '3px 8px', fontSize: '11px', fontWeight: 600, border: 'none', borderLeft: '1px solid var(--border2)', background: isAvenant ? 'var(--accent)' : 'transparent', color: isAvenant ? '#fff' : 'var(--text2)', cursor: 'pointer' }}
                                         onClick={() => setDocType(fileIdx, 'avenant')}>Avenant</button>
                                     </div>
-                                  )}
-                                </div>
-
-                                {/* Pertinent */}
-                                <div>
-                                  {analyzing || pertinent === null ? (
-                                    <span style={{ fontSize: '11px', color: 'var(--text3)' }}>—</span>
-                                  ) : (
-                                    <span title={raison} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600,
-                                      padding: '2px 8px', borderRadius: '999px',
-                                      background: pertinent ? 'var(--success-bg)' : 'var(--danger-bg)',
-                                      color: pertinent ? 'var(--success)' : 'var(--danger)',
-                                      cursor: raison ? 'help' : 'default' }}>
-                                      {pertinent ? 'Oui' : 'Non'}
-                                    </span>
                                   )}
                                 </div>
 
