@@ -874,21 +874,38 @@ export default function App() {
     setLoading(true)
     setLastError('')
     setStatuses(files.map(() => ({})))
-    const allBails = history.filter(h => h.document_type === 'bail')
-    for (let i = 0; i < files.length; i++) {
+
+    // Séparer baux et avenants — traiter les baux EN PREMIER
+    const bailIndices    = files.map((_, i) => i).filter(i => (docTypes[i] || 'bail') === 'bail')
+    const avenantIndices = files.map((_, i) => i).filter(i => docTypes[i] === 'avenant')
+
+    // Pool de baux disponibles pour rattachement (existants + extraits dans ce batch)
+    const availableBails = [...history.filter(h => h.document_type === 'bail')]
+
+    // ── Étape 1 : extraire tous les baux ──
+    for (const i of bailIndices) {
       try {
-        const docType = docTypes[i] || 'bail'
-        const { extracted, docType: dt } = await extractOne(files[i], i, docType)
-        if (dt === 'avenant') {
-          const match = findBestMatch(extracted?.bail_reference, allBails)
-          await new Promise(resolve => setAvenantModal({ index: i, file: files[i], extracted, suggestion: match, resolve }))
-        } else {
-          const saved = await saveExtraction(files[i], extracted, 'bail', null)
-          if (saved) { setActiveItem(saved); setHistory(prev => [{ ...saved, avenants: [] }, ...prev]) }
-          setStatus(i, 'done')
+        const { extracted } = await extractOne(files[i], i, 'bail')
+        const saved = await saveExtraction(files[i], extracted, 'bail', null)
+        if (saved) {
+          const bailWithAvenants = { ...saved, avenants: [] }
+          availableBails.push(bailWithAvenants)
+          setActiveItem(saved)
+          setHistory(prev => [bailWithAvenants, ...prev])
         }
+        setStatus(i, 'done')
       } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
     }
+
+    // ── Étape 2 : extraire les avenants (baux du batch maintenant disponibles) ──
+    for (const i of avenantIndices) {
+      try {
+        const { extracted } = await extractOne(files[i], i, 'avenant')
+        const match = findBestMatch(extracted?.bail_reference, availableBails)
+        await new Promise(resolve => setAvenantModal({ index: i, file: files[i], extracted, suggestion: match, resolve }))
+      } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
+    }
+
     setLoading(false)
   }
 
@@ -1059,15 +1076,27 @@ export default function App() {
                     <button className="btn" onClick={handleClear}>Tout effacer</button>
                   </div>
                 )}
-                {lastError && (
-                  <div style={{ marginTop: '12px', padding: '12px 14px', borderRadius: 'var(--r)', background: 'var(--danger-bg)', border: '0.5px solid #F09595', fontSize: '12px', color: 'var(--danger)', lineHeight: '1.6' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                      <strong>Erreur :</strong>
-                      <button onClick={() => navigator.clipboard.writeText(lastError)} style={{ background: 'none', border: '0.5px solid var(--danger)', borderRadius: '4px', color: 'var(--danger)', fontSize: '11px', padding: '2px 6px', cursor: 'pointer', flexShrink: 0 }}>Copier</button>
+                {/* Récapitulatif après traitement */}
+                {!loading && statuses.length > 0 && statuses.some(s => s.state) && (() => {
+                  const done  = statuses.filter(s => s.state === 'done').length
+                  const errors = statuses.map((s, i) => s.state === 'error' ? { name: files[i]?.name, msg: s.error } : null).filter(Boolean)
+                  if (!errors.length) return null
+                  return (
+                    <div style={{ marginTop: '12px', padding: '12px 14px', borderRadius: 'var(--r)', background: 'var(--danger-bg)', border: '1px solid #E8A0A0', fontSize: '12px', color: 'var(--danger)', lineHeight: '1.7' }}>
+                      <div style={{ fontWeight: 700, marginBottom: '6px' }}>
+                        {done > 0 && <span style={{ color: 'var(--success)', marginRight: '12px' }}>✓ {done} extrait{done > 1 ? 's' : ''}</span>}
+                        ✕ {errors.length} erreur{errors.length > 1 ? 's' : ''}
+                      </div>
+                      {errors.map((e, i) => (
+                        <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginBottom: i < errors.length - 1 ? '6px' : 0 }}>
+                          <span style={{ fontWeight: 600, flexShrink: 0 }}>{e.name}</span>
+                          <span style={{ color: '#C04040' }}>— {e.msg}</span>
+                          <button onClick={() => navigator.clipboard.writeText(e.msg)} style={{ marginLeft: 'auto', background: 'none', border: '1px solid #E8A0A0', borderRadius: '4px', color: 'var(--danger)', fontSize: '11px', padding: '1px 6px', cursor: 'pointer', flexShrink: 0 }}>Copier</button>
+                        </div>
+                      ))}
                     </div>
-                    <div style={{ marginTop: '4px', wordBreak: 'break-all' }}>{lastError}</div>
-                  </div>
-                )}
+                  )
+                })()}
                 {loading && (
                   <div>
                     <div className="progress-track"><div className="progress-bar active" /></div>
