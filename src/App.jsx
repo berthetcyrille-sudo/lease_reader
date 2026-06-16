@@ -905,17 +905,27 @@ export default function App() {
     const avenantIdx = types.map((t,i) => t === 'avenant' ? i : -1).filter(i => i >= 0)
     setDocTypes([...types])
     setFileOrder([...bailIdx, ...avenantIdx])
-    // Pré-remplir bail lié pour les avenants par matching
+    // Pré-remplir bail lié : baux en base + baux du batch (id virtuel batch-N)
     const existingBails = history.filter(h => h.document_type === 'bail')
+    const batchBails = bailIdx
+      .filter(i => pertinents[i] !== false) // exclure non pertinents
+      .map(i => ({
+        id: `batch-${i}`,
+        file_name: newFiles[i].name,
+        data: { preneur: detectData[i]?.preneur, bailleur: detectData[i]?.bailleur, adresse: detectData[i]?.adresse, immeuble: detectData[i]?.immeuble }
+      }))
+    const allBailsForMatch = [...existingBails, ...batchBails]
     const autoLinks = {}
-    avenantIdx.forEach(i => {
-      if (existingBails.length === 1) {
-        autoLinks[i] = existingBails[0].id
-      } else if (existingBails.length > 1 && detectData[i]) {
-        const match = findBestMatch(detectData[i], existingBails)
-        if (match) autoLinks[i] = match.item.id
-      }
-    })
+    avenantIdx
+      .filter(i => pertinents[i] !== false) // exclure non pertinents
+      .forEach(i => {
+        if (allBailsForMatch.length === 1) {
+          autoLinks[i] = allBailsForMatch[0].id
+        } else if (allBailsForMatch.length > 1 && detectData[i]) {
+          const match = findBestMatch(detectData[i], allBailsForMatch)
+          if (match) autoLinks[i] = match.item.id
+        }
+      })
     setAvenantLinks(autoLinks)
     setDetecting(false)
   }
@@ -1203,9 +1213,10 @@ export default function App() {
                             const pertinent = pertinents[fileIdx]
                             const raison   = raisons[fileIdx] || ''
                             const analyzing = detecting && dt === ''
-                            // Baux disponibles = historique + fichiers du batch avec toggle=bail
+                            // Baux disponibles = historique + fichiers du batch avec toggle=bail ET pertinent
                             const batchBails = files
-                              .map((bf, bi) => docTypes[bi] === 'bail' && bi !== fileIdx ? { id: `batch-${bi}`, file_name: bf.name, _batchIdx: bi } : null)
+                              .map((bf, bi) => docTypes[bi] === 'bail' && bi !== fileIdx && pertinents[bi] !== false
+                                ? { id: `batch-${bi}`, file_name: bf.name, data: {} } : null)
                               .filter(Boolean)
                             const allBails = [
                               ...history.filter(h => h.document_type === 'bail'),
@@ -1233,10 +1244,12 @@ export default function App() {
                                   </div>
                                 </div>
 
-                                {/* Toggle Bail/Avenant */}
+                                {/* Toggle Bail/Avenant — masqué si non pertinent */}
                                 <div>
                                   {analyzing ? (
                                     <span style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic' }}>Analyse…</span>
+                                  ) : pertinent === false ? (
+                                    <span style={{ fontSize: '11px', color: 'var(--text3)' }}>—</span>
                                   ) : (
                                     <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border2)', borderRadius: '6px', overflow: 'hidden', width: 'fit-content' }}>
                                       <button
@@ -1266,7 +1279,7 @@ export default function App() {
 
                                 {/* Bail lié */}
                                 <div>
-                                  {isAvenant ? (
+                                  {isAvenant && pertinent !== false ? (
                                     <select
                                       value={avenantLinks[fileIdx] || ''}
                                       onChange={e => setAvenantLinks(prev => ({ ...prev, [fileIdx]: e.target.value || null }))}
