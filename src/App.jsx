@@ -327,7 +327,7 @@ async function callClaude(base64, mediaType, prompt) {
   try { return sanitizeExtracted(JSON.parse(jsonStr)) } catch(_) {}
   try { return sanitizeExtracted(JSON.parse(cleanJson(jsonStr))) } catch(e2) {
     const pos = parseInt(e2.message.match(/position (\d+)/)?.[1] || '0')
-    const ctx = cleanJson(jsonStr).slice(Math.max(0, pos - 150), pos + 150)
+    const ctx = cleanJson(jsonStr).slice(Math.max(0, pos - 300), pos + 50)
     throw new Error('JSON invalide pos ' + pos + ' — contexte : ' + ctx)
   }
 }
