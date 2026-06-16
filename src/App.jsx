@@ -1377,8 +1377,6 @@ export default function App() {
                 </>
               </div>
             )}
-
-                        )}
             {tab === 'extract' && activeItem && <ResultsView item={activeItem} />}
           </div>
         </main>
