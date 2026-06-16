@@ -303,7 +303,17 @@ async function callClaude(base64, mediaType, prompt) {
       }
       return sanitizeExtracted(JSON.parse(result))
     } catch(e2) {
-      throw new Error('JSON invalide : ' + parseErr.message + ' — Extrait : ' + jsonStr.slice(0, 200))
+      // Tentative 3 : fixer les guillemets non échappés dans les valeurs
+      try {
+        // Remplacer les guillemets non échappés à l'intérieur des valeurs string
+        const fixed = result.replace(/"([^"]*?)(?<!\\)"(?=[^:,{}\[\]]*")/g, (m, p1) => '"' + p1.replace(/"/g, '\\"') + '"')
+        return sanitizeExtracted(JSON.parse(fixed))
+      } catch(e3) {
+        // Afficher le contexte autour de l'erreur
+        const pos = parseInt(parseErr.message.match(/position (\d+)/)?.[1] || '0')
+        const ctx = result.slice(Math.max(0, pos-100), pos+100)
+        throw new Error('JSON invalide pos ' + pos + ' : ' + ctx)
+      }
     }
   }
 }
