@@ -602,7 +602,7 @@ function ResultsView({ item }) {
       {/* Parties */}
       {(show('preneur') || show('bailleur')) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-dot" /><div className="sec-label">Parties</div></div>
+          <div className="sec-hd"><div className="sec-label">Parties</div></div>
           <div className="g2">
             {show('preneur') && <div className="party-card"><div className="party-role">Preneur</div><div className="party-name">{d.preneur || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
             {show('bailleur') && <div className="party-card"><div className="party-role">Bailleur</div><div className="party-name">{d.bailleur || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
@@ -614,7 +614,7 @@ function ResultsView({ item }) {
       {/* Contrat */}
       {(show('type_bail') || show('duree_totale')) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-dot" /><div className="sec-label">Contrat et durée</div></div>
+          <div className="sec-hd"><div className="sec-label">Contrat et durée</div></div>
           <div className="g3">
             <Field label="Type de contrat" value={d.type_bail} />
             <Field label="Durée totale" value={d.duree_totale} />
@@ -626,7 +626,7 @@ function ResultsView({ item }) {
       {/* Dates */}
       {(dateFields.length > 0 || breaks.length > 0 || show('notice')) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-dot" /><div className="sec-label">Dates clés</div></div>
+          <div className="sec-hd"><div className="sec-label">Dates clés</div></div>
           {(dateFields.length > 0 || breaks.length > 0) && (
             <div className="date-strip" style={{ gridTemplateColumns: `repeat(${dateCols},1fr)`, marginBottom: '8px' }}>
               {dateFields.map(f => (
@@ -654,7 +654,7 @@ function ResultsView({ item }) {
       {/* Surfaces */}
       {(show('surfaces_detail') || show('surface_totale_m2')) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-dot" /><div className="sec-label">Surfaces</div></div>
+          <div className="sec-hd"><div className="sec-label">Surfaces</div></div>
           <div className="g3">
             {show('surface_totale_m2') && (
               <div className="field">
@@ -683,7 +683,7 @@ function ResultsView({ item }) {
       {/* Loyer */}
       {show('loyer_signature_montant') && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-dot" /><div className="sec-label">Loyer, taxes et charges</div></div>
+          <div className="sec-hd"><div className="sec-label">Loyer, taxes et charges</div></div>
           {d.loyer_signature_montant && (
             <div className="loyer-hero">
               <div>
@@ -722,7 +722,7 @@ function ResultsView({ item }) {
       {/* Dépôt de garantie */}
       {show('depot_garantie_montant') && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-dot" /><div className="sec-label">Dépôt de garantie</div></div>
+          <div className="sec-hd"><div className="sec-label">Dépôt de garantie</div></div>
           <PairBlock
             keyLabel="Montant"
             keyValue={fmtEur(d.depot_garantie_montant) || d.depot_garantie_montant}
@@ -736,7 +736,7 @@ function ResultsView({ item }) {
       {/* Participation travaux */}
       {show('travaux_montant') && (d.travaux_montant || d.travaux_modalites) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-dot" /><div className="sec-label">Participation travaux bailleur</div></div>
+          <div className="sec-hd"><div className="sec-label">Participation travaux bailleur</div></div>
           <div className="g3" style={{ marginBottom: '8px' }}>
             <div className="field">
               <div className="field-lbl">Montant</div>
@@ -755,7 +755,7 @@ function ResultsView({ item }) {
       {/* Indemnités */}
       {(indemnites || d.indemnites_detail) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-dot" /><div className="sec-label">Indemnités contractuelles liées aux échéances</div></div>
+          <div className="sec-hd"><div className="sec-label">Indemnités contractuelles liées aux échéances</div></div>
           {indemnites && <IndemniteTable indemnites={indemnites} />}
           {show('indemnites_detail') && d.indemnites_detail && (
             <div style={{ marginTop: indemnites ? '8px' : 0 }}>
@@ -768,7 +768,7 @@ function ResultsView({ item }) {
       {/* Jouissance */}
       {(show('destination') || show('article_606')) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-dot" /><div className="sec-label">Refacturation et jouissance</div></div>
+          <div className="sec-hd"><div className="sec-label">Refacturation et jouissance</div></div>
           <div className="g2">
             {show('destination') && <Field label="Destination" value={d.destination} />}
             {show('article_606') && <Field label="Article 606" value={d.article_606} />}
