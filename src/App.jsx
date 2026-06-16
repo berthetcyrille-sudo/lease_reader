@@ -775,9 +775,9 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
   // Flatten all items for table
   const rows = []
   tree.forEach(bail => {
-    rows.push({ ...bail, _level: 0, _parentName: null })
+    rows.push({ ...bail, _level: 0, _parentName: null, _bailData: bail.data })
     ;(bail.avenants || []).forEach(av => {
-      rows.push({ ...av, _level: 1, _parentName: bail.data?.immeuble || bail.data?.adresse || bail.file_name })
+      rows.push({ ...av, _level: 1, _parentName: bail.data?.immeuble || bail.data?.adresse || bail.file_name, _bailData: bail.data })
     })
   })
 
@@ -827,8 +827,9 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
             <div style={{ gridColumn: '8' }}/>
           </div>
           {filtered.map(row => {
+            // Pour l'affichage: immeuble/adresse/loyer depuis le bail parent si avenant
             const d = row.document_type === 'avenant'
-              ? { ...(row.data?.champs_modifies || {}), ...row.data }
+              ? { ...(row._bailData || {}), ...(row.data?.champs_modifies || {}), objet_avenant: row.data?.objet_avenant, date_effet_avenant: row.data?.date_effet_avenant }
               : (row.data || {})
             const isNew = newIds?.includes(row.id)
             const isAv = row.document_type === 'avenant'
@@ -839,16 +840,22 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
                 className={`dash-row${isNew ? ' dash-row-new' : ''}`}
                 onClick={() => onSelect(row)}
               >
-                {/* Actif */}
-                <div className="dash-td" style={{ paddingLeft: row._level ? '28px' : '16px' }}>
+                {/* Actif / Document */}
+                <div className="dash-td" style={{ paddingLeft: row._level ? '32px' : '16px', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
                   {row._level > 0 && (
-                    <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', width: '10px', height: '1px', background: 'var(--border2)' }}/>
+                    <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', width: '10px', height: '1px', background: 'var(--border2)' }}/>
                   )}
-                  <div style={{ fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                    {d.immeuble || d.adresse || row.file_name}
+                  <div style={{ fontWeight: 700, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', color: 'var(--text)' }}>
+                    {isAv
+                      ? (d.objet_avenant || row.file_name.replace(/\.[^.]+$/, ''))
+                      : (d.immeuble || d.adresse || row.file_name.replace(/\.[^.]+$/, ''))
+                    }
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {isAv ? (d.objet_avenant || row.file_name) : (d.preneur?.split(' ')[0] || row.file_name)}
+                  <div style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
+                    {isAv
+                      ? (row._parentName || '—')
+                      : (d.preneur?.split(',')[0]?.split(' SAS')[0]?.split(' SA')[0] || d.ville || '—')
+                    }
                   </div>
                 </div>
 
@@ -1102,9 +1109,13 @@ export default function App() {
     }
 
     setLoading(false)
-    // Aller sur le dashboard après extraction
+    // Recharger l'historique complet depuis Supabase et aller sur le dashboard
+    const { data: rows } = await supabase.from('extractions')
+      .select('id, file_name, created_at, data, document_type, parent_id')
+      .order('created_at', { ascending: false }).limit(100)
+    if (rows) setHistory(buildTree(rows))
+    setHistLoaded(true)
     setTab('history')
-    loadHistory()
     if (lastSaved) setActiveItem(lastSaved)
   }
 
