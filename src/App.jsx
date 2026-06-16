@@ -295,9 +295,7 @@ async function callClaude(base64, mediaType, prompt) {
       if (esc) { out += c; esc = false; continue }
       if (c === '\\') { out += c; esc = true; continue }
       if (c === '"') { inStr = !inStr; out += c; continue }
-      if (inStr && (c === '
-' || c === '
-' || c === '	')) { out += ' '; continue }
+      if (inStr && (c.charCodeAt(0) === 10 || c.charCodeAt(0) === 13 || c.charCodeAt(0) === 9)) { out += ' '; continue }
       out += c
     }
     return out
