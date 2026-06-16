@@ -892,6 +892,13 @@ export default function App() {
     const avenantIdx = newTypes.map((t,i) => t === 'avenant' ? i : -1).filter(i => i >= 0)
     setDocTypes(newTypes)
     setFileOrder([...bailIdx, ...avenantIdx])
+    // Auto-sélectionner le bail lié si un seul bail en base
+    const existingBails = history.filter(h => h.document_type === 'bail')
+    if (existingBails.length === 1) {
+      const autoLinks = {}
+      avenantIdx.forEach(i => { autoLinks[i] = existingBails[0].id })
+      setAvenantLinks(autoLinks)
+    }
     setDetecting(false)
     setDetected(true)
   }
@@ -919,7 +926,7 @@ export default function App() {
         if (saved) {
           const bailWithAvenants = { ...saved, avenants: [] }
           availableBails.push(bailWithAvenants)
-          setActiveItem(saved)
+          // Ne pas setActiveItem pendant le batch — attendre la fin
           setHistory(prev => [bailWithAvenants, ...prev])
         }
         extracted2[i] = { extracted, saved, docType: 'bail' }
@@ -961,7 +968,7 @@ export default function App() {
 
   // ── Phase 3 : Confirmer les rattachements ──
   async function handleConfirmLinks() {
-    const availableBails = [...history.filter(h => h.document_type === 'bail')]
+    let lastSaved = null
     for (const [iStr, { extracted, docType }] of Object.entries(extractedMap)) {
       const i = parseInt(iStr)
       if (docType !== 'avenant') continue
@@ -969,7 +976,7 @@ export default function App() {
       try {
         const saved = await saveExtraction(files[i], extracted, 'avenant', parentId)
         if (saved) {
-          setActiveItem(saved)
+          lastSaved = saved
           setHistory(prev => parentId
             ? prev.map(b => b.id === parentId ? { ...b, avenants: [...(b.avenants || []), saved] } : b)
             : [saved, ...prev])
@@ -979,6 +986,8 @@ export default function App() {
     setLinkPhase(false)
     setExtractedMap({})
     setAvenantLinks({})
+    // Afficher le dernier item sauvegardé
+    if (lastSaved) setActiveItem(lastSaved)
   }
 
   async function handleDeleteItem(item, e) {
@@ -1069,7 +1078,7 @@ export default function App() {
           )}
 
           <div className="content">
-            {!activeItem && (
+            {(!activeItem || linkPhase) && (
               <div className="extract-wrap">
 
                 {/* ── Phase 3 : Rattachement avenants ── */}
@@ -1148,7 +1157,21 @@ export default function App() {
                               </span>
                               <span className="queue-name">{f.name}</span>
                               <span className="queue-size">({(f.size / 1024).toFixed(0)} Ko)</span>
-
+                              {/* Bail lié — visible dès que détecté comme avenant */}
+                              {detected && isAvenant && !st.state && (
+                                <select
+                                  value={avenantLinks[i] || ''}
+                                  onChange={e => setAvenantLinks(prev => ({ ...prev, [i]: e.target.value || null }))}
+                                  style={{ fontSize: '11px', padding: '3px 7px', borderRadius: '6px', border: '1px solid var(--border2)', background: 'var(--surface)', color: avenantLinks[i] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', maxWidth: '180px', flexShrink: 0 }}
+                                >
+                                  <option value="">— Bail lié —</option>
+                                  {history.filter(h => h.document_type === 'bail').map(b => (
+                                    <option key={b.id} value={b.id}>
+                                      {b.data?.immeuble || b.data?.adresse || b.file_name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
                               {st.state === 'loading' && <span className="queue-status">En cours…</span>}
                               {st.state === 'done'    && <span className="queue-status ok">✓ Extrait</span>}
                               {st.state === 'error'   && <span className="queue-status err" title={st.error}>✕ Erreur</span>}
@@ -1170,11 +1193,35 @@ export default function App() {
                                 </>
                               )}
                               {!st.state && !detected && (
-                                <button className="queue-remove" onClick={() => {
-                                  setFiles(p => p.filter((_,j) => j!==i))
-                                  setDocTypes(p => p.filter((_,j) => j!==i))
-                                  setStatuses(p => p.filter((_,j) => j!==i))
-                                }}>✕</button>
+                                <>
+                                  {/* Flèches de réordonnancement */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flexShrink: 0 }}>
+                                    <button
+                                      onClick={() => {
+                                        const order = fileOrder.length ? [...fileOrder] : files.map((_,x) => x)
+                                        const pos = order.indexOf(i)
+                                        if (pos <= 0) return
+                                        ;[order[pos-1], order[pos]] = [order[pos], order[pos-1]]
+                                        setFileOrder(order)
+                                      }}
+                                      style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 4px', lineHeight: 1, fontSize: '10px' }}>▲</button>
+                                    <button
+                                      onClick={() => {
+                                        const order = fileOrder.length ? [...fileOrder] : files.map((_,x) => x)
+                                        const pos = order.indexOf(i)
+                                        if (pos >= order.length - 1) return
+                                        ;[order[pos+1], order[pos]] = [order[pos], order[pos+1]]
+                                        setFileOrder(order)
+                                      }}
+                                      style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '0 4px', lineHeight: 1, fontSize: '10px' }}>▼</button>
+                                  </div>
+                                  <button className="queue-remove" onClick={() => {
+                                    setFiles(p => p.filter((_,j) => j!==i))
+                                    setDocTypes(p => p.filter((_,j) => j!==i))
+                                    setStatuses(p => p.filter((_,j) => j!==i))
+                                    setFileOrder(fo => fo.filter(x => x!==i).map(x => x>i ? x-1 : x))
+                                  }}>✕</button>
+                                </>
                               )}
                             </div>
                           )
