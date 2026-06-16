@@ -726,6 +726,7 @@ export default function App() {
   const [tab,          setTab]          = useState('extract')
   const [avenantModal, setAvenantModal] = useState(null)
   const [docTypes,     setDocTypes]     = useState([]) // 'bail' | 'avenant' per file
+  const [lastError,    setLastError]    = useState('')
 
   function buildTree(rows) {
     const bails    = rows.filter(r => r.document_type === 'bail')
@@ -777,7 +778,7 @@ export default function App() {
           if (saved) { setActiveItem(saved); setHistory(prev => [{ ...saved, avenants: [] }, ...prev]) }
           setStatus(i, 'done')
         }
-      } catch(e) { setStatus(i, 'error', e.message) }
+      } catch(e) { setStatus(i, 'error', e.message); setLastError(e.message) }
     }
     setLoading(false)
   }
@@ -824,7 +825,7 @@ export default function App() {
     setHistory([]); setHistLoaded(false); setActiveItem(null)
   }
 
-  function handleClear() { setFiles([]); setStatuses([]); setActiveItem(null); setDocTypes([]) }
+  function handleClear() { setFiles([]); setStatuses([]); setActiveItem(null); setDocTypes([]); setLastError('') }
 
   const d = activeItem?.data || {}
   const resultTitle = d.immeuble || d.adresse || activeItem?.file_name || ''
@@ -946,6 +947,15 @@ export default function App() {
                       Extraire {files.length > 1 ? `les ${files.length} fichiers` : 'le fichier'}
                     </button>
                     <button className="btn" onClick={handleClear}>Tout effacer</button>
+                  </div>
+                )}
+                {lastError && (
+                  <div style={{marginTop:'12px',padding:'12px 14px',borderRadius:'var(--r)',background:'var(--danger-bg)',border:'0.5px solid #F09595',fontSize:'12px',color:'var(--danger)',lineHeight:'1.6'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}}>
+                      <strong>Erreur :</strong>
+                      <button onClick={() => {navigator.clipboard.writeText(lastError)}} style={{background:'none',border:'0.5px solid var(--danger)',borderRadius:'4px',color:'var(--danger)',fontSize:'11px',padding:'2px 6px',cursor:'pointer',flexShrink:0}}>Copier</button>
+                    </div>
+                    <div style={{marginTop:'4px',wordBreak:'break-all'}}>{lastError}</div>
                   </div>
                 )}
                 {loading && (
