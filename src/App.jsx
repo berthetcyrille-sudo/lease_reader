@@ -85,7 +85,7 @@ const ALL_FIELDS = SECTIONS.flatMap(s => s.fields)
 
 const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les données du document. JSON valide uniquement, sans markdown.
 
-RÈGLES: break_options=tableau strings. franchise_periodes=tableau objets. indemnites=tableau objets. Champs _montant=chiffres bruts. null si absent.
+REGLES: Utilise uniquement des guillemets droits ASCII dans le JSON. Remplace tout caractère typographique par son equivalent ASCII. Pas de retour a la ligne dans les valeurs. Echappe les guillemets internes avec backslash. break_options=tableau strings. franchise_periodes=tableau objets. indemnites=tableau objets. Champs _montant=chiffres bruts. null si absent.
 
 Retourne exactement cette structure avec les valeurs du document:
 {"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"surface_bureaux":null,"surface_totale":null,"parking":null,"rie":null,"autres_surfaces":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}
@@ -284,19 +284,24 @@ async function callClaude(base64, mediaType, prompt) {
     return sanitizeExtracted(JSON.parse(jsonStr))
   } catch(parseErr) {
     try {
-      let cleaned = ''
-      let inString = false
-      let esc = false
-      for (let i = 0; i < jsonStr.length; i++) {
-        const c = jsonStr[i]
-        if (esc) { cleaned += c; esc = false; continue }
-        if (c === '\\') { cleaned += c; esc = true; continue }
-        if (c === '"') { inString = !inString; cleaned += c; continue }
-        if (inString && c === '\n') { cleaned += ' '; continue }
-        if (inString && c === '\r') { continue }
-        cleaned += c
+      // Nettoyage des caractères problématiques
+      let cleaned = jsonStr
+        .replace(/\u2018|\u2019|\u0091|\u0092/g, "\'")   // apostrophes typographiques
+        .replace(/\u201C|\u201D|\u0093|\u0094/g, '\\"')  // guillemets courbes
+        .replace(/\u2013|\u2014/g, '-')                       // tirets longs
+        .replace(/\u00A0/g, ' ')                               // espace insécable
+      // Retirer sauts de ligne dans les valeurs string
+      let result = ''
+      let inStr = false, esc2 = false
+      for (let i = 0; i < cleaned.length; i++) {
+        const c = cleaned[i]
+        if (esc2) { result += c; esc2 = false; continue }
+        if (c === '\\') { result += c; esc2 = true; continue }
+        if (c === '"') { inStr = !inStr; result += c; continue }
+        if (inStr && (c === '\n' || c === '\r' || c === '\t')) { result += ' '; continue }
+        result += c
       }
-      return sanitizeExtracted(JSON.parse(cleaned))
+      return sanitizeExtracted(JSON.parse(result))
     } catch(e2) {
       throw new Error('JSON invalide : ' + parseErr.message + ' — Extrait : ' + jsonStr.slice(0, 200))
     }
