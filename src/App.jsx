@@ -289,15 +289,39 @@ async function callClaude(base64, mediaType, prompt) {
       .replace(/“|”||/g, "'")
       .replace(/–|—/g, '-')
       .replace(/ /g, ' ')
-    // 2. Retirer sauts de ligne à l'intérieur des strings JSON
-    let out = '', inStr = false, esc = false
-    for (let i = 0; i < r.length; i++) {
+    // 2. Parser caractère par caractère pour nettoyer les strings JSON
+    let out = ''
+    let inStr = false
+    let esc = false
+    let i = 0
+    while (i < r.length) {
       const c = r[i]
-      if (esc) { out += c; esc = false; continue }
-      if (c === '\\') { out += c; esc = true; continue }
-      if (c === '"') { inStr = !inStr; out += c; continue }
-      if (inStr && (c.charCodeAt(0) === 10 || c.charCodeAt(0) === 13 || c.charCodeAt(0) === 9)) { out += ' '; continue }
-      out += c
+      if (esc) { out += c; esc = false; i++; continue }
+      if (c === '\\') { out += c; esc = true; i++; continue }
+      if (!inStr && c === '"') {
+        // Ouverture de string — chercher la vraie fermeture
+        // La fermeture valide est un " suivi de : , } ] espace newline
+        inStr = true; out += c; i++; continue
+      }
+      if (inStr && c === '"') {
+        // Vérifier si c'est une vraie fermeture
+        let j = i + 1
+        while (j < r.length && (r[j] === ' ' || r[j] === '
+' || r[j] === '
+' || r[j] === '	')) j++
+        const next = r[j]
+        if (next === ':' || next === ',' || next === '}' || next === ']' || j >= r.length) {
+          // Vraie fermeture
+          inStr = false; out += c; i++; continue
+        } else {
+          // Guillemet interne non échappé — l'échapper
+          out += '\\"'; i++; continue
+        }
+      }
+      if (inStr && (c.charCodeAt(0) === 10 || c.charCodeAt(0) === 13 || c.charCodeAt(0) === 9)) {
+        out += ' '; i++; continue
+      }
+      out += c; i++
     }
     return out
   }
