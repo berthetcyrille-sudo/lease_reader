@@ -100,13 +100,13 @@ REGLES: Ne renseigne dans champs_modifies QUE les champs modifies. null pour les
 {"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}`
 
 
-const DETECT_PROMPT = `Analyse ce document immobilier. Reponds UNIQUEMENT avec ce JSON sur une ligne:
+const DETECT_PROMPT = `Analyse ce document. Le nom du fichier est un indice important. Reponds UNIQUEMENT avec ce JSON sur une ligne:
 {"type":"bail","pertinent":true,"raison":"","preneur":"","bailleur":"","adresse":"","immeuble":""}
-Regles:
-- type: "bail" si bail original, "avenant" si avenant ou avenant rectificatif
-- pertinent: true si document est un bail/avenant valide et le bail semble actif ou potentiellement actif (un avenant peut prolonger un bail expire -> pertinent:true). false si ce n'est pas un bail/avenant, ou si le bail est clairement expire et sans prolongation, ou si le document est illisible/hors sujet
-- raison: courte explication seulement si pertinent:false
-- preneur, bailleur, adresse, immeuble: extrais ces valeurs meme partiellement, elles servent a identifier le bail associe (pour un avenant)`
+Regles strictes:
+- pertinent: true UNIQUEMENT si le document est un bail commercial original ou un avenant a un bail commercial. false dans TOUS les autres cas: side letter, protocole TVA, courrier, facture, plan, etat des lieux, diagnostic, protocole, acte de cautionnement, garantie, assurance, mandat, proces-verbal, ou tout document qui n'est pas lui-meme un bail ou avenant
+- type: "bail" si bail commercial original, "avenant" si avenant/rectificatif/protocole modificatif d'un bail
+- raison: explication courte si pertinent:false (ex: "side letter TVA", "etat des lieux", "diagnostic energetique")
+- preneur, bailleur, adresse, immeuble: extrais ces valeurs du document pour identifier le bail associe`
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -890,7 +890,8 @@ export default function App() {
         try {
           const base64 = await toBase64(newFiles[i])
           const mediaType = getMediaType(newFiles[i])
-          const data = await callClaude(base64, mediaType, DETECT_PROMPT)
+          const promptWithName = DETECT_PROMPT + `\n\nNom du fichier: "${newFiles[i].name}"`
+          const data = await callClaude(base64, mediaType, promptWithName)
           types[i]      = data?.type === 'avenant' ? 'avenant' : 'bail'
           pertinents[i] = data?.pertinent !== false
           raisons[i]    = data?.raison || ''
