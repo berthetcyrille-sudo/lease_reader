@@ -306,9 +306,7 @@ async function callClaude(base64, mediaType, prompt) {
       if (inStr && c === '"') {
         // Vérifier si c'est une vraie fermeture
         let j = i + 1
-        while (j < r.length && (r[j] === ' ' || r[j] === '
-' || r[j] === '
-' || r[j] === '	')) j++
+        while (j < r.length && (r[j] === ' ' || r[j].charCodeAt(0) === 10 || r[j].charCodeAt(0) === 13 || r[j].charCodeAt(0) === 9)) j++
         const next = r[j]
         if (next === ':' || next === ',' || next === '}' || next === ']' || j >= r.length) {
           // Vraie fermeture
