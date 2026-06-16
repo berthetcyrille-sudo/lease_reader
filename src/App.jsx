@@ -945,9 +945,13 @@ export default function App() {
 
     // Phase 3 : rattachement si avenants extraits
     if (Object.keys(avenantResults).length > 0) {
+      // availableBails contient historique + baux du batch → alimenter le dropdown
       const initialLinks = {}
       Object.entries(avenantResults).forEach(([i, r]) => {
-        initialLinks[i] = r.suggestion?.id || null
+        // Auto-sélection : si un seul bail dispo, on le pré-sélectionne
+        // Sinon on utilise la suggestion de findBestMatch
+        const suggestion = r.suggestion
+        initialLinks[i] = suggestion?.id || (availableBails.length === 1 ? availableBails[0].id : null)
       })
       setExtractedMap({ ...extracted2, ...Object.fromEntries(Object.entries(avenantResults).map(([i, r]) => [i, { ...r, docType: 'avenant' }])) })
       setAvenantLinks(initialLinks)
@@ -1144,6 +1148,7 @@ export default function App() {
                               </span>
                               <span className="queue-name">{f.name}</span>
                               <span className="queue-size">({(f.size / 1024).toFixed(0)} Ko)</span>
+
                               {st.state === 'loading' && <span className="queue-status">En cours…</span>}
                               {st.state === 'done'    && <span className="queue-status ok">✓ Extrait</span>}
                               {st.state === 'error'   && <span className="queue-status err" title={st.error}>✕ Erreur</span>}
