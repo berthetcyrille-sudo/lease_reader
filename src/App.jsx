@@ -240,7 +240,7 @@ function sanitizeExtracted(data) {
 }
 
 async function callClaude(base64, mediaType, prompt) {
-  const res = await fetch('https://hlpttewlizjhfzgyeblw.supabase.co/functions/v1/extract-lease', {
+  const res = await fetch('https://vmtmwsbebzkwxfkdpqky.supabase.co/functions/v1/hyper-action', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
