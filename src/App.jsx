@@ -531,32 +531,6 @@ function IndemniteTable({ indemnites }) {
   )
 }
 
-function AvenantLinkModal({ suggestion, bails, onConfirm, onSkip }) {
-  const [selectedId, setSelectedId] = useState(suggestion?.item?.id || null)
-  return (
-    <div className="modal-overlay">
-      <div className="modal">
-        <div className="modal-title">Rattacher cet avenant à un bail</div>
-        <div className="modal-sub">
-          {suggestion ? `Bail détecté automatiquement (score ${Math.round(suggestion.score * 100)}%) — confirmez ou choisissez.` : "Sélectionnez le bail d'origine."}
-        </div>
-        <div className="modal-list">
-          {bails.map(b => (
-            <button key={b.id} className={`modal-bail${selectedId === b.id ? ' sel' : ''}`} onClick={() => setSelectedId(b.id)}>
-              <div className="modal-bail-name">{b.data?.immeuble || b.data?.adresse || b.file_name}</div>
-              <div className="modal-bail-meta">{b.data?.preneur || '—'} · {formatDate(b.created_at)}</div>
-            </button>
-          ))}
-        </div>
-        <div className="modal-actions">
-          <button className="btn" onClick={onSkip}>Sans rattachement</button>
-          <button className="btn primary" disabled={!selectedId} onClick={() => onConfirm(selectedId)}>Confirmer</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function ResultsView({ item }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
@@ -847,8 +821,6 @@ export default function App() {
   const [avenantLinks, setAvenantLinks] = useState({})     // index -> parentId
   const [pertinents,   setPertinents]   = useState([])     // bool per file
   const [raisons,      setRaisons]      = useState([])     // raison non pertinent
-  const [linkPhase,    setLinkPhase]    = useState(false)  // phase rattachement post-extraction
-  const [extractedMap, setExtractedMap] = useState({})     // index -> {extracted, docType}
   const [lastError,    setLastError]    = useState('')
 
   function buildTree(rows) {
@@ -988,43 +960,21 @@ export default function App() {
       } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
     }
 
-    // 2. Extraire les avenants
-    const avenantResults = {}
+    // 2. Extraire les avenants et sauvegarder directement avec le bail lié choisi
+    let lastSaved = null
     for (const i of avenantIndices) {
       try {
         setStatus(i, 'loading')
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
         const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
-        const match = findBestMatch(extracted?.bail_reference, availableBails)
-        avenantResults[i] = { extracted, docType: 'avenant' }
-        // Améliorer suggestion si findBestMatch trouve mieux que le choix user
-        if (!avenantLinks[i] && match?.item) {
-          setAvenantLinks(prev => ({ ...prev, [i]: match.item.id }))
+        // Résoudre batch- id en vrai id
+        let parentId = avenantLinks[i] || null
+        if (parentId && parentId.startsWith('batch-')) {
+          const batchIdx = parseInt(parentId.replace('batch-', ''))
+          const realBail = availableBails.find(b => b.file_name === files[batchIdx]?.name)
+          parentId = realBail?.id || null
         }
-        // Mettre à jour dropdown avec les baux du batch
-        setAvenantLinks(prev => {
-          if (prev[i]) return prev
-          return { ...prev, [i]: match?.item?.id || (availableBails.length === 1 ? availableBails[0].id : null) }
-        })
-        setStatus(i, 'done')
-      } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
-    }
-
-    setLoading(false)
-
-    if (Object.keys(avenantResults).length > 0) {
-      setExtractedMap(avenantResults)
-      setLinkPhase(true)
-    }
-  }
-
-  async function handleConfirmLinks() {
-    let lastSaved = null
-    for (const [iStr, { extracted }] of Object.entries(extractedMap)) {
-      const i = parseInt(iStr)
-      const parentId = avenantLinks[i] || null
-      try {
         const saved = await saveExtraction(files[i], extracted, 'avenant', parentId)
         if (saved) {
           lastSaved = saved
@@ -1032,12 +982,14 @@ export default function App() {
             ? prev.map(b => b.id === parentId ? { ...b, avenants: [...(b.avenants || []), saved] } : b)
             : [saved, ...prev])
         }
-      } catch (e) { setLastError(e.message) }
+        setStatus(i, 'done')
+      } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
     }
-    setLinkPhase(false)
-    setExtractedMap({})
+
+    setLoading(false)
     if (lastSaved) setActiveItem(lastSaved)
   }
+
 
   async function handleDeleteItem(item, e) {
     e.stopPropagation()
@@ -1056,8 +1008,7 @@ export default function App() {
 
   function handleClear() {
     setFiles([]); setStatuses([]); setActiveItem(null); setDocTypes([])
-    setLastError(''); setFileOrder([]); setLinkPhase(false)
-    setExtractedMap({}); setAvenantLinks({}); setPertinents([]); setRaisons([])
+    setLastError(''); setFileOrder([]); setAvenantLinks({}); setPertinents([]); setRaisons([])
   }
 
   const d = activeItem?.data || {}
@@ -1131,64 +1082,11 @@ export default function App() {
           )}
 
           <div className="content">
-            {(!activeItem || linkPhase) && (
+            {!activeItem && (
               <div className="extract-wrap">
 
-                {/* ── Phase rattachement avenants (post-extraction) ── */}
-                {linkPhase && (
-                  <div>
-                    <div style={{ marginBottom: '16px' }}>
-                      <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '4px' }}>Rattachement des avenants</div>
-                      <div style={{ fontSize: '13px', color: 'var(--text2)' }}>
-                        Les baux du batch ont été extraits. Vérifiez et confirmez le rattachement de chaque avenant.
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {Object.entries(extractedMap).map(([iStr, { extracted }]) => {
-                        const i = parseInt(iStr)
-                        const allBails = history.filter(h => h.document_type === 'bail')
-                        return (
-                          <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '12px 16px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '3px' }}>Avenant</div>
-                                <div style={{ fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{files[i]?.name}</div>
-                                {extracted?.bail_reference?.preneur && (
-                                  <div style={{ fontSize: '12px', color: 'var(--text2)', marginTop: '2px' }}>
-                                    Réf. : {extracted.bail_reference.preneur}{extracted.bail_reference.date_bail_origine ? ` · ${extracted.bail_reference.date_bail_origine}` : ''}
-                                  </div>
-                                )}
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flexShrink: 0 }}>
-                                <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Bail lié</div>
-                                <select
-                                  value={avenantLinks[i] || ''}
-                                  onChange={e => setAvenantLinks(prev => ({ ...prev, [i]: e.target.value || null }))}
-                                  style={{ fontSize: '12px', padding: '5px 10px', borderRadius: '6px', border: '1px solid var(--border2)', background: 'var(--surface)', color: avenantLinks[i] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', maxWidth: '280px' }}
-                                >
-                                  <option value="">— Sans rattachement —</option>
-                                  {allBails.map(b => (
-                                    <option key={b.id} value={b.id}>
-                                      {b.data?.immeuble || b.data?.adresse || b.file_name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-                      <button className="btn primary" onClick={handleConfirmLinks}>Confirmer les rattachements</button>
-                      <button className="btn" onClick={() => { setLinkPhase(false); setExtractedMap({}) }}>Annuler</button>
-                    </div>
-                  </div>
-                )}
-
                 {/* ── Queue principale ── */}
-                {!linkPhase && (
-                  <>
+                <>
                     <DropZone onFiles={handleFiles} disabled={loading || detecting} />
                     <PageLimitWarning />
 
@@ -1357,8 +1255,7 @@ export default function App() {
                         </div>
                       )
                     })()}
-                  </>
-                )}
+                </>
               </div>
             )}
 
