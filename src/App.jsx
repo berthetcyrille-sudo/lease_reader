@@ -100,7 +100,12 @@ REGLES: Ne renseigne dans champs_modifies QUE les champs modifies. null pour les
 {"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}`
 
 
-const DETECT_PROMPT = `Ce document est-il un bail original ou un avenant ? Reponds UNIQUEMENT avec ce JSON: {"type":"bail"} ou {"type":"avenant"}`
+const DETECT_PROMPT = `Analyse ce document immobilier. Reponds UNIQUEMENT avec ce JSON sur une ligne:
+{"type":"bail ou avenant","pertinent":true,"raison":""}
+Regles:
+- type: "bail" si bail original, "avenant" si avenant ou avenant rectificatif
+- pertinent: true si document est un bail/avenant valide et le bail semble actif ou potentiellement actif (un avenant peut prolonger un bail expire -> pertinent:true). false si ce n'est pas un bail/avenant, ou si le bail est clairement expire et sans prolongation, ou si le document est illisible/hors sujet
+- raison: courte explication seulement si pertinent:false (ex: "bail expire en 2019 sans prolongation", "document non immobilier")`
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -839,6 +844,8 @@ export default function App() {
   const [fileOrder,    setFileOrder]    = useState([])     // indices ordonnés
   const [detecting,    setDetecting]    = useState(false)  // détection en cours
   const [avenantLinks, setAvenantLinks] = useState({})     // index -> parentId
+  const [pertinents,   setPertinents]   = useState([])     // bool per file
+  const [raisons,      setRaisons]      = useState([])     // raison non pertinent
   const [linkPhase,    setLinkPhase]    = useState(false)  // phase rattachement post-extraction
   const [extractedMap, setExtractedMap] = useState({})     // index -> {extracted, docType}
   const [lastError,    setLastError]    = useState('')
@@ -871,8 +878,9 @@ export default function App() {
   // Détection automatique déclenchée au drop
   async function detectFiles(newFiles) {
     setDetecting(true)
-    const types = new Array(newFiles.length).fill('')
-    // Détecter en parallèle (max 3 simultanés)
+    const types     = new Array(newFiles.length).fill('')
+    const pertinents = new Array(newFiles.length).fill(null) // null=en cours, true/false
+    const raisons   = new Array(newFiles.length).fill('')
     const chunks = []
     for (let i = 0; i < newFiles.length; i += 3) chunks.push(newFiles.slice(i, i+3).map((_, j) => i+j))
     for (const chunk of chunks) {
@@ -881,16 +889,21 @@ export default function App() {
           const base64 = await toBase64(newFiles[i])
           const mediaType = getMediaType(newFiles[i])
           const data = await callClaude(base64, mediaType, DETECT_PROMPT)
-          types[i] = data?.type === 'avenant' ? 'avenant' : 'bail'
-        } catch (_) { types[i] = 'bail' }
+          types[i]      = data?.type === 'avenant' ? 'avenant' : 'bail'
+          pertinents[i] = data?.pertinent !== false
+          raisons[i]    = data?.raison || ''
+        } catch (_) { types[i] = 'bail'; pertinents[i] = true }
+        // Mettre à jour au fil de l'eau
+        setDocTypes([...types])
+        setPertinents([...pertinents])
+        setRaisons([...raisons])
       }))
     }
     // Ordonner baux d'abord
     const bailIdx    = types.map((t,i) => t === 'bail'    ? i : -1).filter(i => i >= 0)
     const avenantIdx = types.map((t,i) => t === 'avenant' ? i : -1).filter(i => i >= 0)
-    const order = [...bailIdx, ...avenantIdx]
-    setDocTypes(types)
-    setFileOrder(order)
+    setDocTypes([...types])
+    setFileOrder([...bailIdx, ...avenantIdx])
     // Auto-sélectionner bail lié si un seul bail en base
     const existingBails = history.filter(h => h.document_type === 'bail')
     if (existingBails.length === 1) {
@@ -907,6 +920,8 @@ export default function App() {
     setDocTypes(arr.map(() => ''))
     setFileOrder(arr.map((_, i) => i))
     setStatuses(arr.map(() => ({})))
+    setPertinents(arr.map(() => null))
+    setRaisons(arr.map(() => ''))
     setLastError('')
     setAvenantLinks({})
     detectFiles(arr)
@@ -1025,7 +1040,7 @@ export default function App() {
   function handleClear() {
     setFiles([]); setStatuses([]); setActiveItem(null); setDocTypes([])
     setLastError(''); setFileOrder([]); setLinkPhase(false)
-    setExtractedMap({}); setAvenantLinks({})
+    setExtractedMap({}); setAvenantLinks({}); setPertinents([]); setRaisons([])
   }
 
   const d = activeItem?.data || {}
@@ -1161,63 +1176,95 @@ export default function App() {
                     <PageLimitWarning />
 
                     {files.length > 0 && (
-                      <div className="file-queue" style={{ marginTop: '10px' }}>
-                        {(fileOrder.length ? fileOrder : files.map((_, i) => i)).map((fileIdx, pos) => {
-                          const f = files[fileIdx]
-                          const st = statuses[fileIdx] || {}
-                          const dt = docTypes[fileIdx] || ''
-                          const isAvenant = dt === 'avenant'
-                          const isBail = dt === 'bail'
-                          const allBails = history.filter(h => h.document_type === 'bail')
-                          return (
-                            <div key={fileIdx} className={`queue-item ${st.state || ''}`} style={{ flexWrap: 'wrap', gap: '6px' }}>
-                              {/* Boutons ordre */}
-                              {!st.state && !loading && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flexShrink: 0 }}>
-                                  <button onClick={() => moveFile(fileIdx, -1)} disabled={pos === 0}
-                                    style={{ background: 'none', border: 'none', color: pos === 0 ? 'var(--border)' : 'var(--text3)', cursor: pos === 0 ? 'default' : 'pointer', padding: '0 3px', fontSize: '9px', lineHeight: 1 }}>▲</button>
-                                  <button onClick={() => moveFile(fileIdx, 1)} disabled={pos === fileOrder.length - 1}
-                                    style={{ background: 'none', border: 'none', color: pos === fileOrder.length - 1 ? 'var(--border)' : 'var(--text3)', cursor: pos === fileOrder.length - 1 ? 'default' : 'pointer', padding: '0 3px', fontSize: '9px', lineHeight: 1 }}>▼</button>
+                      <div style={{ marginTop: '10px' }}>
+                        {/* En-tête colonnes */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 80px 100px 180px 40px', gap: '8px', padding: '0 4px 6px', borderBottom: '1px solid var(--border)', marginBottom: '4px' }}>
+                          <div/>
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Fichier</div>
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Type</div>
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Pertinent</div>
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Bail lié</div>
+                          <div/>
+                        </div>
+
+                        <div className="file-queue" style={{ marginTop: 0 }}>
+                          {(fileOrder.length ? fileOrder : files.map((_, i) => i)).map((fileIdx, pos) => {
+                            const f        = files[fileIdx]
+                            const st       = statuses[fileIdx] || {}
+                            const dt       = docTypes[fileIdx] || ''
+                            const isAvenant = dt === 'avenant'
+                            const isBail   = dt === 'bail'
+                            const pertinent = pertinents[fileIdx]
+                            const raison   = raisons[fileIdx] || ''
+                            const analyzing = detecting && dt === ''
+                            // Baux disponibles = historique + fichiers du batch avec toggle=bail
+                            const batchBails = files
+                              .map((bf, bi) => docTypes[bi] === 'bail' && bi !== fileIdx ? { id: `batch-${bi}`, file_name: bf.name, _batchIdx: bi } : null)
+                              .filter(Boolean)
+                            const allBails = [
+                              ...history.filter(h => h.document_type === 'bail'),
+                              ...batchBails
+                            ]
+                            return (
+                              <div key={fileIdx} className={`queue-item ${st.state || ''}`}
+                                style={{ display: 'grid', gridTemplateColumns: '20px 1fr 100px 100px 180px 40px', gap: '8px', alignItems: 'center', padding: '8px 4px', flexWrap: 'nowrap' }}>
+
+                                {/* Ordre ▲▼ */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                                  <button onClick={() => moveFile(fileIdx, -1)} disabled={pos === 0 || !!st.state}
+                                    style={{ background: 'none', border: 'none', color: (pos === 0 || st.state) ? 'var(--border)' : 'var(--text3)', cursor: (pos === 0 || st.state) ? 'default' : 'pointer', padding: 0, fontSize: '9px', lineHeight: 1 }}>▲</button>
+                                  <button onClick={() => moveFile(fileIdx, 1)} disabled={pos === fileOrder.length-1 || !!st.state}
+                                    style={{ background: 'none', border: 'none', color: (pos === fileOrder.length-1 || st.state) ? 'var(--border)' : 'var(--text3)', cursor: (pos === fileOrder.length-1 || st.state) ? 'default' : 'pointer', padding: 0, fontSize: '9px', lineHeight: 1 }}>▼</button>
                                 </div>
-                              )}
 
-                              {/* Icône fichier */}
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                <polyline points="14 2 14 8 20 8"/>
-                              </svg>
+                                {/* Nom */}
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: 500, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{(f.size/1024).toFixed(0)} Ko
+                                    {st.state === 'loading' && <span style={{ color: 'var(--accent)', marginLeft: '6px' }}>En cours…</span>}
+                                    {st.state === 'done'    && <span style={{ color: 'var(--success)', marginLeft: '6px' }}>✓ Extrait</span>}
+                                    {st.state === 'error'   && <span style={{ color: 'var(--danger)', marginLeft: '6px' }} title={st.error}>✕ Erreur</span>}
+                                  </div>
+                                </div>
 
-                              {/* Nom fichier */}
-                              <span className="queue-name">{f.name}</span>
-                              <span className="queue-size">({(f.size / 1024).toFixed(0)} Ko)</span>
-
-                              {/* Statut extraction */}
-                              {st.state === 'loading' && <span className="queue-status">En cours…</span>}
-                              {st.state === 'done'    && <span className="queue-status ok">✓ Extrait</span>}
-                              {st.state === 'error'   && <span className="queue-status err" title={st.error}>✕ Erreur</span>}
-
-                              {!st.state && (
-                                <>
-                                  {/* Toggle Bail / Avenant */}
-                                  {detecting && dt === '' ? (
-                                    <span style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', flexShrink: 0 }}>Analyse…</span>
+                                {/* Toggle Bail/Avenant */}
+                                <div>
+                                  {analyzing ? (
+                                    <span style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic' }}>Analyse…</span>
                                   ) : (
-                                    <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border2)', borderRadius: '6px', overflow: 'hidden', flexShrink: 0 }}>
+                                    <div style={{ display: 'flex', gap: 0, border: '1px solid var(--border2)', borderRadius: '6px', overflow: 'hidden', width: 'fit-content' }}>
                                       <button
-                                        style={{ padding: '3px 9px', fontSize: '11px', fontWeight: 600, border: 'none', background: isBail ? 'var(--accent)' : 'transparent', color: isBail ? '#fff' : 'var(--text2)', cursor: 'pointer' }}
+                                        style={{ padding: '3px 8px', fontSize: '11px', fontWeight: 600, border: 'none', background: isBail ? 'var(--accent)' : 'transparent', color: isBail ? '#fff' : 'var(--text2)', cursor: 'pointer' }}
                                         onClick={() => setDocType(fileIdx, 'bail')}>Bail</button>
                                       <button
-                                        style={{ padding: '3px 9px', fontSize: '11px', fontWeight: 600, border: 'none', borderLeft: '1px solid var(--border2)', background: isAvenant ? 'var(--accent)' : 'transparent', color: isAvenant ? '#fff' : 'var(--text2)', cursor: 'pointer' }}
+                                        style={{ padding: '3px 8px', fontSize: '11px', fontWeight: 600, border: 'none', borderLeft: '1px solid var(--border2)', background: isAvenant ? 'var(--accent)' : 'transparent', color: isAvenant ? '#fff' : 'var(--text2)', cursor: 'pointer' }}
                                         onClick={() => setDocType(fileIdx, 'avenant')}>Avenant</button>
                                     </div>
                                   )}
+                                </div>
 
-                                  {/* Dropdown bail lié — uniquement pour avenants */}
-                                  {isAvenant && (
+                                {/* Pertinent */}
+                                <div>
+                                  {analyzing || pertinent === null ? (
+                                    <span style={{ fontSize: '11px', color: 'var(--text3)' }}>—</span>
+                                  ) : (
+                                    <span title={raison} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600,
+                                      padding: '2px 8px', borderRadius: '999px',
+                                      background: pertinent ? 'var(--success-bg)' : 'var(--danger-bg)',
+                                      color: pertinent ? 'var(--success)' : 'var(--danger)',
+                                      cursor: raison ? 'help' : 'default' }}>
+                                      {pertinent ? 'Oui' : 'Non'}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Bail lié */}
+                                <div>
+                                  {isAvenant ? (
                                     <select
                                       value={avenantLinks[fileIdx] || ''}
                                       onChange={e => setAvenantLinks(prev => ({ ...prev, [fileIdx]: e.target.value || null }))}
-                                      style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid var(--border2)', background: 'var(--surface)', color: avenantLinks[fileIdx] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', maxWidth: '200px', flexShrink: 0 }}
+                                      style={{ fontSize: '11px', padding: '3px 6px', borderRadius: '6px', border: '1px solid var(--border2)', background: 'var(--surface)', color: avenantLinks[fileIdx] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', width: '100%' }}
                                     >
                                       <option value="">— Bail lié —</option>
                                       {allBails.map(b => (
@@ -1226,21 +1273,23 @@ export default function App() {
                                         </option>
                                       ))}
                                     </select>
-                                  )}
+                                  ) : <span/>}
+                                </div>
 
-                                  {/* Supprimer */}
-                                  <button className="queue-remove" onClick={() => {
-                                    setFiles(p => p.filter((_,j) => j !== fileIdx))
-                                    setDocTypes(p => p.filter((_,j) => j !== fileIdx))
-                                    setStatuses(p => p.filter((_,j) => j !== fileIdx))
-                                    setFileOrder(fo => fo.filter(x => x !== fileIdx).map(x => x > fileIdx ? x-1 : x))
-                                    setAvenantLinks(prev => { const n = {...prev}; delete n[fileIdx]; return n })
-                                  }}>✕</button>
-                                </>
-                              )}
-                            </div>
-                          )
-                        })}
+                                {/* Supprimer */}
+                                <button className="queue-remove" onClick={() => {
+                                  setFiles(p => p.filter((_,j) => j !== fileIdx))
+                                  setDocTypes(p => p.filter((_,j) => j !== fileIdx))
+                                  setStatuses(p => p.filter((_,j) => j !== fileIdx))
+                                  setPertinents(p => p.filter((_,j) => j !== fileIdx))
+                                  setRaisons(p => p.filter((_,j) => j !== fileIdx))
+                                  setFileOrder(fo => fo.filter(x => x !== fileIdx).map(x => x > fileIdx ? x-1 : x))
+                                  setAvenantLinks(prev => { const n = {...prev}; delete n[fileIdx]; return n })
+                                }}>✕</button>
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
                     )}
 
