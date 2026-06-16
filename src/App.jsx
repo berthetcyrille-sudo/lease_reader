@@ -40,13 +40,12 @@ const SECTIONS = [
     { key: 'surface_totale_m2', label: 'Surface totale (m²)' },
     { key: 'surfaces_detail', label: 'Tableau surfaces par typologie' },
     { key: 'parking_nb_places', label: 'Parking — nombre de places' },
-    { key: 'parking', label: 'Parking — détail' },
     { key: 'rie', label: 'RIE' },
   ]},
   { id: 'loyer', label: 'Loyer', fields: [
     { key: 'loyer_signature_montant', label: 'Loyer signature (€/an)' },
     { key: 'loyer_signature', label: 'Loyer signature — détail' },
-    { key: 'loyer_cours', label: 'Loyer en cours' },
+    { key: 'loyer_cours', label: 'Loyer de base' },
     { key: 'indexation', label: 'Indexation / indice' },
     { key: 'franchise_periodes', label: 'Franchise — périodes' },
     { key: 'franchise', label: 'Franchise — modalités' },
@@ -63,7 +62,7 @@ const SECTIONS = [
   ]},
   { id: 'indemnites', label: 'Indemnités contractuelles', fields: [
     { key: 'indemnites', label: 'Tableau des indemnités' },
-    { key: 'indemnites_detail', label: 'Détail verbeux' },
+    { key: 'indemnites_detail', label: 'Détail' },
   ]},
   { id: 'jouissance', label: 'Refacturation et jouissance', fields: [
     { key: 'article_606', label: 'Article 606' },
@@ -91,7 +90,7 @@ Formats:
 - surfaces_detail: [{"categorie":"Bureaux","niveau":"5eme etage","surface_m2":"2224.98","prix_unitaire":"290","loyer_annuel":"645244"}] — categorie=Bureaux/Archives/Stationnement/Commerce/RIE/Autres
 - break_options: ["31/08/2027","31/08/2030"]
 - franchise_periodes: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"3 mois","montant":"123405","indexation_incluse":"Oui/Non/Non precise","condition":null}] — montant=chiffres bruts sans symbole
-- indemnites: UNIQUEMENT les indemnites liees a une echeance de bail (break, depart, fin de bail). Ex: restitution de franchise, indemnite liberatoire de remise en etat, indemnite de non-renouvellement. EXCLURE: honoraires de redaction, frais d'acte, cautionnements. Format: [{"motif":"...","due_par":"Preneur ou Bailleur","montant":"chiffres bruts","date_limite":"..."}]
+- indemnites: UNIQUEMENT les indemnites financieres conditionnees a l'exercice ou non d'une option (break option, renouvellement, fin de bail). Exemples valides: restitution de franchise si depart a une break, indemnite liberatoire de remise en etat si depart avant terme, complement de franchise si maintien au-dela d'une echeance. EXCLURE ABSOLUMENT: honoraires, frais d'acte, cautionnements, penalites de retard, indemnites d'occupation, provisions. Si aucune indemnite ne correspond strictement a ce critere, retourne un tableau vide []. Format: [{"motif":"...","due_par":"Preneur ou Bailleur","montant":"chiffres bruts","date_limite":"..."}]
 - parking_nb_places: decompte exact ex: "114 places (98 interieures + 16 exterieures)"`
 
 const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON minifie sur UNE SEULE LIGNE, sans markdown.
@@ -467,7 +466,7 @@ function FranchiseTable({ periodes }) {
             <tr key={i}>
               <td>{row.date_debut || '—'}</td>
               <td>{row.date_fin || '—'}</td>
-              <td style={{ fontWeight: 500 }}>{row.duree || '—'}</td>
+              <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{row.duree || '—'}</td>
               <td style={{ textAlign: 'right', fontWeight: 500 }}>
                 {row.montant ? fmtEur(row.montant) : '—'}
               </td>
@@ -677,11 +676,7 @@ function ResultsView({ item }) {
               <SurfaceTable surfaces={d.surfaces_detail} />
             </div>
           )}
-          {show('parking') && d.parking && (
-            <div style={{ marginTop: '8px' }}>
-              <Field label="Parking — détail complet" value={d.parking} verbose />
-            </div>
-          )}
+
         </div>
       )}
 
@@ -699,7 +694,7 @@ function ResultsView({ item }) {
             </div>
           )}
           <div className="g2" style={{ marginBottom: '8px' }}>
-            {show('loyer_cours') && d.loyer_cours && <Field label="Loyer en cours" value={fmtEur(d.loyer_cours) || d.loyer_cours} />}
+            {show('loyer_cours') && d.loyer_cours && <Field label="Loyer de base" value={fmtEur(d.loyer_cours) || d.loyer_cours} />}
             {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose />}
           </div>
           {show('loyer_signature') && d.loyer_signature && (
@@ -764,7 +759,7 @@ function ResultsView({ item }) {
           {indemnites && <IndemniteTable indemnites={indemnites} />}
           {show('indemnites_detail') && d.indemnites_detail && (
             <div style={{ marginTop: indemnites ? '8px' : 0 }}>
-              <Field label="Détail verbeux" value={d.indemnites_detail} verbose />
+              <Field label="Détail" value={d.indemnites_detail} verbose />
             </div>
           )}
         </div>
