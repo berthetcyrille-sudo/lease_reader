@@ -413,7 +413,7 @@ function SurfaceTable({ surfaces }) {
     return acc + (parseFloat(String(r.surface_m2).replace(/[^0-9.]/g, '')) || 0)
   }, 0)
   return (
-    <div className="field full" style={{ padding: 0, overflow: 'hidden' }}>
+    <div className="table-wrap">
       <table className="indemnites-table">
         <thead>
           <tr>
@@ -452,7 +452,7 @@ function FranchiseTable({ periodes }) {
   const safe = Array.isArray(periodes) ? periodes : []
   if (!safe.length) return null
   return (
-    <div className="field full" style={{ padding: 0, overflow: 'hidden' }}>
+    <div className="table-wrap">
       <table className="indemnites-table">
         <thead>
           <tr>
@@ -490,7 +490,7 @@ function IndemniteTable({ indemnites }) {
   const safe = Array.isArray(indemnites) ? indemnites : []
   if (!safe.length) return null
   return (
-    <div className="field full" style={{ padding: 0, overflow: 'hidden' }}>
+    <div className="table-wrap">
       <table className="indemnites-table">
         <thead>
           <tr>
