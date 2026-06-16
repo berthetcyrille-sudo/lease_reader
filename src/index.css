@@ -118,13 +118,13 @@ button, input { font-family: inherit; cursor: pointer; }
 .av-banner-date { margin-left: auto; font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; }
 
 /* ── Sections ── */
-.sec { margin-bottom: 32px; }
+.sec { margin-bottom: 28px; }
 .sec-hd { margin-bottom: 12px; }
 .sec-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .10em; color: var(--text3); }
 
 /* ── Grids ── */
-.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
 .full { grid-column: 1 / -1; }
 
 /* ── Fields — two clear tiers ── */
@@ -153,7 +153,7 @@ button, input { font-family: inherit; cursor: pointer; }
 .break-tag { font-size: 10px; background: var(--accent); color: #fff; padding: 1px 6px; border-radius: 3px; font-weight: 700; }
 
 /* ── Loyer hero ── */
-.loyer-hero { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 12px; }
+.loyer-hero { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-wrap: wrap; gap: 12px; }
 .loyer-amount { font-size: 26px; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
 .loyer-lbl { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px; }
 .pills { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -169,10 +169,10 @@ button, input { font-family: inherit; cursor: pointer; }
 /* ── Tables ── */
 .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
 .indemnites-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.indemnites-table th { text-align: left; padding: 8px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text3); background: var(--surface2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.indemnites-table th { text-align: left; padding: 8px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text2); background: var(--surface); border-bottom: 2px solid var(--border2); white-space: nowrap; }
 .indemnites-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; line-height: 1.45; }
 .indemnites-table tr:last-child td { border-bottom: none; }
-.indemnites-table tfoot td { background: var(--surface2); font-weight: 600; border-top: 1px solid var(--border); font-size: 13px; }
+.indemnites-table tfoot td { background: var(--surface); font-weight: 600; border-top: 2px solid var(--border2); font-size: 13px; }
 .due-par { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .due-preneur { background: var(--danger-bg); color: var(--danger); }
 .due-bailleur { background: var(--success-bg); color: var(--success); }
