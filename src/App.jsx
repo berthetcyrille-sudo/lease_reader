@@ -1017,7 +1017,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
                 {/* Loyer */}
                 <div className="dash-td dash-td-right">
                   {d.loyer_signature_montant ? (
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#fff', letterSpacing: '-0.01em' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>
                       {fmtEur(d.loyer_signature_montant)}
                     </span>
                   ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—</span>}
