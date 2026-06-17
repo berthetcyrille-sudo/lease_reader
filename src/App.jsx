@@ -999,10 +999,12 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
                 <div className="dash-td">
                   {breaks.length > 0 ? (
                     <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-                      {breaks.slice(0, 2).map((b, i) => (
-                        <span key={i} style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '3px', background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid rgba(26,95,168,0.2)' }}>{b}</span>
-                      ))}
-                      {breaks.length > 2 && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>+{breaks.length-2}</span>}
+                      {breaks
+                        .filter(b => typeof b === 'string' && b.length < 30) // exclure texte verbeux
+                        .slice(0, 2).map((b, i) => (
+                          <span key={i} style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '3px', background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid rgba(26,95,168,0.2)', whiteSpace: 'nowrap' }}>{normalizeDate(b) || b}</span>
+                        ))}
+                      {breaks.filter(b => typeof b === 'string' && b.length < 30).length > 2 && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>+{breaks.length-2}</span>}
                     </div>
                   ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—</span>}
                 </div>
@@ -1180,8 +1182,10 @@ export default function App() {
     setLastError('')
     setStatuses(files.map(() => ({})))
     const order = fileOrder.length ? fileOrder : files.map((_, i) => i)
-    const bailIndices    = order.filter(i => (docTypes[i] || 'bail') === 'bail')
-    const avenantIndices = order.filter(i => docTypes[i] === 'avenant')
+    // Exclure les fichiers non pertinents
+    const pertinent = (i) => pertinents[i] !== false
+    const bailIndices    = order.filter(i => (docTypes[i] || 'bail') === 'bail' && pertinent(i))
+    const avenantIndices = order.filter(i => docTypes[i] === 'avenant' && pertinent(i))
     const availableBails = [...history.filter(h => h.document_type === 'bail')]
 
     // 1. Extraire les baux d'abord
