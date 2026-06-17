@@ -198,6 +198,8 @@ button, input { font-family: inherit; cursor: pointer; }
 
 .dash-row { display: grid; grid-template-columns: 2fr 80px 160px 100px 100px 120px 120px 64px; gap: 0; padding: 0; border-bottom: 1px solid var(--border); cursor: pointer; transition: all .18s; position: relative; background: var(--surface); }
 .dash-row:hover { background: var(--accent-bg); transform: translateX(2px); box-shadow: -2px 0 0 var(--accent); }
+.dash-row-av { background: var(--surface2); border-left: 3px solid var(--border2); }
+.dash-row-av:hover { background: var(--accent-bg); }
 .dash-row:hover .dash-action-btn { opacity: 1; }
 .dash-row-new { animation: rowFlash 2.5s ease-out forwards; }
 @keyframes rowFlash { 0%,40% { background: var(--accent-bg); box-shadow: -2px 0 0 var(--accent); } 100% { background: var(--surface); box-shadow: none; } }
