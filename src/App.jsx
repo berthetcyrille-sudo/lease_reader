@@ -275,19 +275,29 @@ function buildExcelHeaders() {
   ]
 }
 
-function buildExcelRow(item, bailParentName) {
+function buildExcelRow(item, bailParentName, bailParentData) {
   const isAv   = item.document_type === 'avenant'
   const raw    = item.data || {}
-  const d      = isAv ? (raw.champs_modifies || {}) : raw
+  const mods   = isAv ? (raw.champs_modifies || {}) : {}
   const meta   = isAv ? raw : {}
+  // For avenants: merge bail parent data with champs_modifies (non-null overrides base)
+  const base   = isAv ? (bailParentData || {}) : raw
+  const d      = isAv
+    ? Object.fromEntries(
+        [...new Set([...Object.keys(base), ...Object.keys(mods)])].map(k => [
+          k, (mods[k] !== null && mods[k] !== undefined && !(Array.isArray(mods[k]) && mods[k].length === 0))
+             ? mods[k] : base[k]
+        ])
+      )
+    : raw
 
   const v    = (val) => { const s = safeStr(val); return s || '' }
   const amt  = (val) => { const n = parseAmount(val); return n !== null ? n : '' }
 
-  const breaks    = Array.isArray(d.break_options)       ? d.break_options       : []
-  const franchise = Array.isArray(d.franchise_periodes)  ? d.franchise_periodes  : []
-  const indem     = Array.isArray(d.indemnites)          ? d.indemnites          : []
-  const surfaces  = Array.isArray(d.surfaces_detail)     ? d.surfaces_detail     : []
+  const breaks    = Array.isArray(d.break_options)          ? d.break_options          : []
+  const franchise = Array.isArray(d.franchise_periodes)     ? d.franchise_periodes     : []
+  const indem     = Array.isArray(d.indemnites)             ? d.indemnites             : []
+  const surfaces  = Array.isArray(d.surfaces_detail)        ? d.surfaces_detail        : []
   const trav      = Array.isArray(d.participations_travaux) ? d.participations_travaux : []
 
   const breakVals = Array.from({ length: MAX_BREAKS },    (_, i) => v(breaks[i]) )
@@ -333,12 +343,11 @@ function buildExcelRow(item, bailParentName) {
     bailParentName || '', v(meta.surface_change_type),
   ]
 }
-
 function exportToExcel(items, fileName) {
   // items: array of {item, parentName} OR single item (legacy)
   let rows
   if (Array.isArray(items)) {
-    rows = items.map(({ item, parentName }) => buildExcelRow(item, parentName))
+    rows = items.map(({ item, parentName, parentData }) => buildExcelRow(item, parentName, parentData))
   } else {
     // legacy single call: items is actually a data object
     const fakeItem = { document_type: 'bail', data: items, file_name: fileName }
@@ -378,13 +387,14 @@ function exportAllToExcel(tree) {
   const rows = []
   tree.forEach(bail => {
     const parentName = bail.data?.immeuble || bail.data?.adresse || bail.file_name
-    rows.push({ item: bail, parentName: '' })
+    const parentData = bail.data || {}
+    rows.push({ item: bail, parentName: '', parentData: null })
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
       const toS = d => { const m = String(d||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d||'') }
       return toS(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
             .localeCompare(toS(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at))
     })
-    sortedAv.forEach(av => rows.push({ item: av, parentName }))
+    sortedAv.forEach(av => rows.push({ item: av, parentName, parentData }))
   })
   exportToExcel(rows, 'lease_abstract_complet')
 }
@@ -1655,10 +1665,13 @@ export default function App() {
               {resultSub && <div className="result-sub">{resultSub}</div>}
               <div className="result-actions">
                 <button className="btn back" onClick={() => setActiveItem(null)}>← Retour au dashboard</button>
-                <button className="btn primary" onClick={() => exportToExcel(
-                  [{ item: activeItem, parentName: history.find(b => b.avenants?.some(a => a.id === activeItem.id))?.data?.immeuble || '' }],
-                  activeItem.data?.immeuble || activeItem.file_name
-                )}>
+                <button className="btn primary" onClick={() => {
+                  const bailParent = history.find(b => b.avenants?.some(a => a.id === activeItem.id))
+                  exportToExcel(
+                    [{ item: activeItem, parentName: bailParent?.data?.immeuble || '', parentData: bailParent?.data || null }],
+                    activeItem.data?.immeuble || activeItem.file_name
+                  )
+                }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
