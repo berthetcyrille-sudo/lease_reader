@@ -125,6 +125,21 @@ function getMediaType(file) {
     : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 }
 
+function normalizeDate(val) {
+  if (!val) return null
+  // Already dd/mm/yyyy
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(val)) return val
+  // yyyy-mm-dd
+  const iso = val.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`
+  // French long form: "31 décembre 2024"
+  const months = { janvier:1,février:2,mars:3,avril:4,mai:5,juin:6,juillet:7,août:8,septembre:9,octobre:10,novembre:11,décembre:12 }
+  const fr = val.toLowerCase().match(/(\d{1,2})\s+([a-zé]+)\s+(\d{4})/)
+  if (fr && months[fr[2]]) return `${String(fr[1]).padStart(2,'0')}/${String(months[fr[2]]).padStart(2,'0')}/${fr[3]}`
+  // Return as-is if can't parse
+  return val
+}
+
 function formatDate(iso) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -890,12 +905,12 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
 
                 {/* Date effet */}
                 <div className="dash-td">
-                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{d.date_effet || '—'}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{normalizeDate(d.date_effet) || '—'}</span>
                 </div>
 
                 {/* Date fin */}
                 <div className="dash-td">
-                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{d.date_fin || '—'}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{normalizeDate(d.date_fin) || '—'}</span>
                 </div>
 
                 {/* Break */}
@@ -1120,14 +1135,14 @@ export default function App() {
     }
 
     setLoading(false)
-    // Recharger l'historique complet depuis Supabase et aller sur le dashboard
-    const { data: rows } = await supabase.from('extractions')
+    // Recharger l'historique complet depuis Supabase
+    setHistLoaded(false)
+    const { data: freshRows } = await supabase.from('extractions')
       .select('id, file_name, created_at, data, document_type, parent_id')
       .order('created_at', { ascending: false }).limit(100)
-    if (rows) setHistory(buildTree(rows))
+    if (freshRows) setHistory(buildTree(freshRows))
     setHistLoaded(true)
     setTab('history')
-    if (lastSaved) setActiveItem(lastSaved)
   }
 
 
@@ -1179,7 +1194,7 @@ export default function App() {
                 <polyline points="12 8 12 12 14 14"/>
                 <path d="M3.05 11a9 9 0 1 0 .5-4"/><polyline points="3 3 3 7 7 7"/>
               </svg>
-              Historique
+              Dashboard
               {history.length > 0 && <span className="badge">{history.reduce((a,b) => a + 1 + (b.avenants?.length||0), 0)}</span>}
             </button>
           </nav>
