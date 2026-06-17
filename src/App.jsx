@@ -84,16 +84,17 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 
 REGLES: Guillemets droits ASCII uniquement. Pas de retour a la ligne dans les valeurs. Echappe les guillemets internes avec backslash. Champs _montant=chiffres bruts sans symbole ni espace (ex: 123405.50). null si absent. DISTINCTION IMPORTANTE: duree_totale=duree totale du bail (date_effet -> date_fin). duree_ferme=calcule comme suit: si break_options existe, duree_ferme = intervalle entre date_effet et la PREMIERE break option (ex: effet 01/09/2025, premiere break 31/08/2028 -> duree_ferme="3 ans"). Si pas de break_options, duree_ferme = duree_totale. Si le bail mentionne explicitement une duree ferme, utilise cette valeur.
 
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}
 
 Formats:
 - surfaces_detail: [{"categorie":"Bureaux","niveau":"5eme etage","surface_m2":"2224.98","prix_unitaire":"290","loyer_annuel":"645244"}] — categorie=Bureaux/Archives/Stationnement/Commerce/RIE/Autres
 - break_options: ["31/08/2027","31/08/2030"]
-- franchise_periodes: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"3 mois","montant":"123405","indexation_incluse":"Oui/Non/Non precise","condition":null}] — montant=chiffres bruts sans symbole. Pour indexation_incluse: "Non" si la franchise est calculee sur le "loyer de base" (meme indexe dans le temps, le terme "loyer de base" signifie hors indexation supplementaire); "Oui" uniquement si le texte dit explicitement "loyer indexe" ou "loyer en cours"; "Non precise" si aucune reference au calcul n'est donnee
+- franchise_periodes: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"3 mois","montant":"123405","surface_assiette":"ex: Locaux Complementaires n°1 (701,26 m²) ou Surface totale (4347,54 m²)","indexation_incluse":"Oui/Non/Non precise","condition":null}] — montant=chiffres bruts sans symbole. surface_assiette=denomination des locaux sur lesquels porte la franchise (ex: "Locaux Initiaux", "LC n°1", "LC n°2", "Surface totale") avec le m² entre parentheses si connu. Pour indexation_incluse: "Non" si franchise calculee sur le "loyer de base"; "Oui" uniquement si le texte dit explicitement "loyer indexe" ou "loyer en cours"; "Non precise" sinon
 - indemnites: UNIQUEMENT les indemnites financieres conditionnees a l'exercice ou non d'une option (break option, renouvellement, fin de bail). Exemples valides: restitution de franchise si depart a une break, indemnite liberatoire de remise en etat si depart avant terme, complement de franchise si maintien au-dela d'une echeance. EXCLURE ABSOLUMENT: honoraires, frais d'acte, cautionnements, penalites de retard, indemnites d'occupation, provisions. Si aucune indemnite ne correspond strictement a ce critere, retourne un tableau vide []. Format: [{"motif":"...","due_par":"Preneur ou Bailleur","montant":"chiffres bruts","date_limite":"..."}]
-- parking_nb_places: decompte exact ex: "114 places (98 interieures + 16 exterieures)"`
+- parking_nb_places: decompte exact ex: "114 places (98 interieures + 16 exterieures)"
+- participations_travaux: tableau UNIQUEMENT si plusieurs enveloppes travaux distinctes (ex: locaux initiaux + locaux complementaires). Format: [{"libelle":"Locaux Initiaux","montant":"822701","date_limite":"31/12/2024","remarque":null}]. Si une seule enveloppe, utiliser travaux_montant/travaux_date_factures comme d'habitude et laisser participations_travaux=[].`
 
-const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON minifie sur UNE SEULE LIGNE, sans markdown.\n\nREGLES: Ne renseigne dans champs_modifies QUE les champs modifies. null pour les autres. Champs _montant=chiffres bruts sans symbole.\n\nCHAMP surface_change_type: qualifie la nature de la modification de surface. Valeurs: "inchangee" (aucune surface modifiee, seules les conditions changent), "ajout" (surfaces ajoutees en plus des existantes), "retrait" (surfaces retirees), "substitution" (remplacement de lots, surface totale stable), "mixte" (ajouts et retraits).\n\nCHAMP surfaces_delta: UNIQUEMENT si surface_change_type != "inchangee". Tableau des surfaces concernees par la modification. Meme format que surfaces_detail du bail. Ajouter champ "sens":"ajout" ou "sens":"retrait" sur chaque ligne.\n\n{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}`
+const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON minifie sur UNE SEULE LIGNE, sans markdown.\n\nREGLES: Ne renseigne dans champs_modifies QUE les champs modifies. null pour les autres. Champs _montant=chiffres bruts sans symbole.\n\nCHAMP surface_change_type: qualifie la nature de la modification de surface. Valeurs: "inchangee" (aucune surface modifiee, seules les conditions changent), "ajout" (surfaces ajoutees en plus des existantes), "retrait" (surfaces retirees), "substitution" (remplacement de lots, surface totale stable), "mixte" (ajouts et retraits).\n\nCHAMP surfaces_delta: UNIQUEMENT si surface_change_type != "inchangee". Surfaces UNIQUEMENT concernees par la modification (nouvelles prises, lots restitues ou echanges). Meme format que surfaces_detail. Ajouter champ "sens":"ajout" ou "sens":"retrait" sur chaque ligne.\n\nCHAMP surfaces_avant: UNIQUEMENT si surface_change_type != "inchangee". Tableau complet des surfaces telles qu'elles existaient AVANT cet avenant (tel que decrit dans le bail d'origine ou les avenants precedents mentionnes dans ce document). Meme format que surfaces_detail, sans champ "sens".\n\nCHAMP surfaces_apres: UNIQUEMENT si surface_change_type != "inchangee". Tableau complet des surfaces telles qu'elles existent APRES cet avenant (assiette locative consolidee). Meme format que surfaces_detail, sans champ "sens".\n\n{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}`
 
 
 const DETECT_PROMPT = `Analyse ce document. Le nom du fichier est un indice important. Reponds UNIQUEMENT avec ce JSON sur une ligne:
@@ -296,7 +297,11 @@ function sanitizeExtracted(data) {
   d.surfaces_detail    = ensureArray(d.surfaces_detail)
   d.franchise_periodes = ensureArray(d.franchise_periodes)
   d.indemnites         = ensureArray(d.indemnites)
-  d.surfaces_delta = ensureArray(d.surfaces_delta)
+  d.surfaces_delta          = ensureArray(d.surfaces_delta)
+  d.participations_travaux  = ensureArray(d.participations_travaux)
+  if (d.champs_modifies) d.champs_modifies.participations_travaux = ensureArray(d.champs_modifies?.participations_travaux)
+  d.surfaces_avant  = ensureArray(d.surfaces_avant)
+  d.surfaces_apres  = ensureArray(d.surfaces_apres)
   if (d.champs_modifies) {
     d.champs_modifies = { ...d.champs_modifies }
     d.champs_modifies.break_options      = ensureArray(d.champs_modifies.break_options)
@@ -467,7 +472,7 @@ function SurfaceTable({ surfaces }) {
             <tr key={i}>
               <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
               <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
-              <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 || '—'}</td>
+              <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 ? `${row.surface_m2} m²` : '—'}</td>
               <td style={{ textAlign: 'right' }}>{row.prix_unitaire ? fmtEur(row.prix_unitaire) : '—'}</td>
               <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
             </tr>
@@ -496,6 +501,7 @@ function FranchiseTable({ periodes }) {
         <thead>
           <tr>
             <th>Date début</th><th>Date fin</th><th>Durée</th>
+            <th>Surface assiette</th>
             <th style={{ textAlign: 'right' }}>Montant exonéré</th>
             <th>Indexation incluse</th><th>Condition</th>
           </tr>
@@ -506,6 +512,7 @@ function FranchiseTable({ periodes }) {
               <td>{row.date_debut || '—'}</td>
               <td>{row.date_fin || '—'}</td>
               <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{row.duree || '—'}</td>
+              <td style={{ color: 'var(--text2)' }}>{row.surface_assiette || '—'}</td>
               <td style={{ textAlign: 'right', fontWeight: 500 }}>
                 {row.montant ? fmtEur(row.montant) : '—'}
               </td>
@@ -608,7 +615,7 @@ function ResultsView({ item }) {
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
           <div><strong>Avenant</strong>{meta.objet_avenant && <span style={{ fontWeight: 400 }}> — {meta.objet_avenant}</span>}</div>
-          {meta.date_effet_avenant && <span className="av-banner-date">Effet : {meta.date_effet_avenant}</span>}
+          {meta.date_effet_avenant && <span className="av-banner-date">Effet : {normalizeDate(meta.date_effet_avenant)}</span>}
         </div>
       )}
 
@@ -672,13 +679,13 @@ function ResultsView({ item }) {
             {show('surface_totale_m2') && (
               <div className="field">
                 <div className="field-lbl">Surface totale</div>
-                <div className="field-val mono">{d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}</div>
+                <div className="field-val" style={{ fontWeight: 700 }}>{d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}</div>
               </div>
             )}
             {show('parking_nb_places') && (
               <div className="field">
                 <div className="field-lbl">Parking — nombre de places</div>
-                <div className={`field-val${!d.parking_nb_places ? ' empty' : ' mono'}`}>
+                <div className={`field-val${!d.parking_nb_places ? ' empty' : ''}`} style={d.parking_nb_places ? { fontWeight: 600 } : {}}>
                   {parseParkingShort(d.parking_nb_places) || 'Non renseigné'}
                 </div>
               </div>
@@ -688,59 +695,98 @@ function ResultsView({ item }) {
           {/* Bloc modification surfaces (avenants uniquement) */}
           {isAv && (() => {
             const sct = item.data?.surface_change_type
+            const avant = item.data?.surfaces_avant
             const delta = item.data?.surfaces_delta
+            const apres = item.data?.surfaces_apres
             if (!sct || sct === 'inchangee') return null
             const labelMap = {
-              ajout:        { txt: 'Ajout de surfaces',      cls: 'pill-green'  },
-              retrait:      { txt: 'Retrait de surfaces',    cls: 'pill-danger' },
-              substitution: { txt: 'Substitution de surfaces', cls: 'pill-blue' },
-              mixte:        { txt: 'Modification mixte',     cls: 'pill-blue'   },
+              ajout:        { txt: 'Ajout de surfaces',         cls: 'pill-green'  },
+              retrait:      { txt: 'Retrait de surfaces',       cls: 'pill-danger' },
+              substitution: { txt: 'Substitution de surfaces',  cls: 'pill-blue'   },
+              mixte:        { txt: 'Modification mixte',        cls: 'pill-blue'   },
             }
             const lbl = labelMap[sct] || { txt: sct, cls: 'pill-blue' }
+
+            // Helper : mini-table surfaces
+            function SurfMiniTable({ rows, accentSens }) {
+              if (!Array.isArray(rows) || !rows.length) return <span style={{ fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>—</span>
+              const totalM2 = rows.reduce((acc, r) => {
+                const cat = (r.categorie || r.typologie || '').toLowerCase()
+                if (cat.includes('station') || cat.includes('parking') || cat.includes('place')) return acc
+                return acc + (parseFloat(String(r.surface_m2).replace(/[^0-9.]/g, '')) || 0)
+              }, 0)
+              return (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border2)' }}>
+                      {accentSens && <th style={{ padding: '4px 6px', textAlign: 'left', fontWeight: 600, color: 'var(--text3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Sens</th>}
+                      <th style={{ padding: '4px 6px', textAlign: 'left', fontWeight: 600, color: 'var(--text3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Catégorie</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'left', fontWeight: 600, color: 'var(--text3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Niveau</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: 'var(--text3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.05em' }}>m²</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600, color: 'var(--text3)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Loyer/an</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                        {accentSens && (
+                          <td style={{ padding: '5px 6px' }}>
+                            <span style={{ fontSize: '10px', fontWeight: 700, padding: '1px 5px', borderRadius: '3px',
+                              background: row.sens === 'retrait' ? 'var(--danger-bg)' : 'var(--success-bg)',
+                              color: row.sens === 'retrait' ? 'var(--danger)' : 'var(--success)' }}>
+                              {row.sens === 'retrait' ? '−' : '+'}
+                            </span>
+                          </td>
+                        )}
+                        <td style={{ padding: '5px 6px', fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
+                        <td style={{ padding: '5px 6px', color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 600 }}>{row.surface_m2 || '—'}</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right' }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {totalM2 > 0 && (
+                    <tfoot>
+                      <tr>
+                        <td colSpan={accentSens ? 3 : 2} style={{ padding: '5px 6px', fontWeight: 600, fontSize: '11px', color: 'var(--text2)' }}>Total (hors parkings)</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700 }}>{totalM2.toLocaleString('fr-FR')} m²</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              )
+            }
+
             return (
-              <div style={{ marginTop: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <div className="field-lbl">Modification des surfaces</div>
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <div className="field-lbl" style={{ margin: 0 }}>Modification des surfaces</div>
                   <span className={`pill ${lbl.cls}`} style={{ fontSize: '11px' }}>{lbl.txt}</span>
                 </div>
-                {Array.isArray(delta) && delta.length > 0 && (
-                  <div className="table-wrap">
-                    <table className="indemnites-table">
-                      <thead>
-                        <tr>
-                          <th>Sens</th><th>Catégorie</th><th>Niveau / Localisation</th>
-                          <th style={{ textAlign: 'right' }}>Surface (m²)</th>
-                          <th style={{ textAlign: 'right' }}>Prix (€/m²)</th>
-                          <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {delta.map((row, i) => (
-                          <tr key={i}>
-                            <td>
-                              <span style={{ fontSize: '11px', fontWeight: 700, padding: '1px 7px', borderRadius: '4px',
-                                background: row.sens === 'retrait' ? 'var(--danger-bg)' : 'var(--success-bg)',
-                                color: row.sens === 'retrait' ? 'var(--danger)' : 'var(--success)' }}>
-                                {row.sens === 'retrait' ? '− Retrait' : '+ Ajout'}
-                              </span>
-                            </td>
-                            <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
-                            <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 || '—'}</td>
-                            <td style={{ textAlign: 'right' }}>{row.prix_unitaire ? fmtEur(row.prix_unitaire) : '—'}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', alignItems: 'start' }}>
+                  {/* Colonne 1 : Avant */}
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Assiette initiale</div>
+                    <SurfMiniTable rows={avant} accentSens={false} />
                   </div>
-                )}
+                  {/* Colonne 2 : Delta */}
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Locaux complémentaires</div>
+                    <SurfMiniTable rows={delta} accentSens={true} />
+                  </div>
+                  {/* Colonne 3 : Après */}
+                  <div style={{ background: 'var(--accent-bg)', border: '1px solid rgba(26,95,168,.15)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Assiette post-avenant</div>
+                    <SurfMiniTable rows={apres} accentSens={false} />
+                  </div>
+                </div>
               </div>
             )
           })()}
-          {d.surfaces_detail?.length > 0 && (
+          {!isAv && d.surfaces_detail?.length > 0 && (
             <div style={{ marginTop: '8px' }}>
-              <div className="field-lbl" style={{ marginBottom: '6px' }}>{isAv ? 'Surfaces totales post-avenant' : 'Surfaces louées par typologie'}</div>
+              <div className="field-lbl" style={{ marginBottom: '6px' }}>Surfaces louées par typologie</div>
               <SurfaceTable surfaces={d.surfaces_detail} />
             </div>
           )}
@@ -801,18 +847,52 @@ function ResultsView({ item }) {
       )}
 
       {/* Participation travaux */}
-      {show('travaux_montant') && (d.travaux_montant || d.travaux_modalites) && (
+      {(show('travaux_montant') || (d.participations_travaux?.length > 0)) && (d.travaux_montant || d.travaux_modalites || d.participations_travaux?.length > 0) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Participation travaux bailleur</div></div>
-          <div className="g3" style={{ marginBottom: '8px' }}>
-            <div className="field">
-              <div className="field-lbl">Montant</div>
-              <div className={`field-val${!d.travaux_montant ? ' empty' : ' mono'}`}>
-                {d.travaux_montant ? (fmtEur(d.travaux_montant) || d.travaux_montant) : 'Non renseigné'}
-              </div>
+          {d.participations_travaux?.length > 0 ? (
+            <div className="table-wrap" style={{ marginBottom: '8px' }}>
+              <table className="indemnites-table">
+                <thead>
+                  <tr>
+                    <th>Locaux / Lot</th>
+                    <th style={{ textAlign: 'right' }}>Montant max. HT</th>
+                    <th>Date limite factures</th>
+                    <th>Remarque</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.participations_travaux.map((row, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 500 }}>{row.libelle || '—'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
+                      <td style={{ color: 'var(--text2)' }}>{row.date_limite || '—'}</td>
+                      <td style={{ color: 'var(--text2)', fontStyle: row.remarque ? 'normal' : 'italic' }}>{row.remarque || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: '1px solid var(--border2)' }}>
+                    <td style={{ fontWeight: 700, padding: '6px 10px' }}>Total</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, padding: '6px 10px' }}>
+                      {fmtEur(d.participations_travaux.reduce((acc, r) => acc + (parseAmount(r.montant) || 0), 0))}
+                    </td>
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
+              </table>
             </div>
-            {show('travaux_date_factures') && <Field label="Date limite réception factures" value={d.travaux_date_factures} />}
-          </div>
+          ) : (
+            <div className="g3" style={{ marginBottom: '8px' }}>
+              <div className="field">
+                <div className="field-lbl">Montant</div>
+                <div className={`field-val${!d.travaux_montant ? ' empty' : ''}`} style={d.travaux_montant ? { fontWeight: 600 } : {}}>
+                  {d.travaux_montant ? (fmtEur(d.travaux_montant) || d.travaux_montant) : 'Non renseigné'}
+                </div>
+              </div>
+              {show('travaux_date_factures') && <Field label="Date limite réception factures" value={d.travaux_date_factures} />}
+            </div>
+          )}
           {show('travaux_modalites') && d.travaux_modalites && (
             <Field label="Modalités complètes" value={d.travaux_modalites} verbose />
           )}
@@ -899,8 +979,8 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
     const bailRow = { ...bail, _level: 0, _parentName: null, _bailData: bail.data }
     // Trier avenants par date de signature puis numéroter
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
-      const da = a.data?.date_signature_avenant || a.data?.date_effet_avenant || a.created_at || ''
-      const db = b.data?.date_signature_avenant || b.data?.date_effet_avenant || b.created_at || ''
+      const da = a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at || ''
+      const db = b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at || ''
       return da.localeCompare(db)
     })
     const avRows = sortedAv.map((av, idx) => ({
