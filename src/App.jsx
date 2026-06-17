@@ -141,6 +141,22 @@ function formatDate(iso) {
 }
 
 // Parse a raw montant string to a float number (strips currency symbols, spaces)
+// Convert any value to a renderable string — prevents React error #31 when Claude returns objects
+function safeStr(val) {
+  if (val === null || val === undefined) return null
+  if (typeof val === 'string') return val || null
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val)
+  if (Array.isArray(val)) return val.map(safeStr).filter(Boolean).join(', ') || null
+  if (typeof val === 'object') {
+    // Try common text keys first
+    const txt = val.commentaire || val.texte || val.valeur || val.value || val.text || val.description
+    if (txt) return safeStr(txt)
+    // Fallback: join all string values
+    return Object.entries(val).map(([k, v]) => `${k}: ${safeStr(v)}`).join(' · ') || null
+  }
+  return String(val)
+}
+
 function parseAmount(val) {
   if (!val) return null
   const n = parseFloat(String(val).replace(/[^0-9.,]/g, '').replace(',', '.'))
@@ -425,24 +441,27 @@ function PageLimitWarning() {
 }
 
 function Field({ label, value, mono, verbose }) {
+  const safe = safeStr(value)
   return (
     <div className="field">
       <div className="field-lbl">{label}</div>
-      <div className={`field-val${!value ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`}>{value || 'Non renseigné'}</div>
+      <div className={`field-val${!safe ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`}>{safe || 'Non renseigné'}</div>
     </div>
   )
 }
 
 function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue }) {
+  const safeKey = safeStr(keyValue)
+  const safeVerbose = safeStr(verboseValue)
   return (
     <div className="pair-block full">
       <div className="pair-key">
         <div className="field-lbl">{keyLabel}</div>
-        <div className={`field-val${!keyValue ? ' empty' : keyMono ? ' mono' : ''}`}>{keyValue || 'Non renseigné'}</div>
+        <div className={`field-val${!safeKey ? ' empty' : keyMono ? ' mono' : ''}`}>{safeKey || 'Non renseigné'}</div>
       </div>
       <div className="pair-verbose">
         <div className="field-lbl">{verboseLabel}</div>
-        <div className={`field-val${!verboseValue ? ' empty' : ' verbose'}`}>{verboseValue || 'Non renseigné'}</div>
+        <div className={`field-val${!safeVerbose ? ' empty' : ' verbose'}`}>{safeVerbose || 'Non renseigné'}</div>
       </div>
     </div>
   )
@@ -523,7 +542,7 @@ function FranchiseTable({ periodes }) {
                   </span>
                 )}
               </td>
-              <td style={{ color: 'var(--text2)', fontStyle: row.condition ? 'normal' : 'italic' }}>{row.condition || '—'}</td>
+              <td style={{ color: 'var(--text2)', fontStyle: row.condition ? 'normal' : 'italic' }}>{safeStr(row.condition) || '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -548,7 +567,7 @@ function IndemniteTable({ indemnites }) {
         <tbody>
           {safe.map((row, i) => (
             <tr key={i}>
-              <td>{row.motif || '—'}</td>
+              <td>{safeStr(row.motif) || '—'}</td>
               <td>
                 {row.due_par && (
                   <span className={`due-par ${row.due_par.toLowerCase().includes('preneur') ? 'due-preneur' : 'due-bailleur'}`}>
@@ -559,7 +578,7 @@ function IndemniteTable({ indemnites }) {
               <td style={{ textAlign: 'right', fontWeight: 500 }}>
                 {row.montant ? fmtEur(row.montant) : '—'}
               </td>
-              <td style={{ color: 'var(--text2)' }}>{row.date_limite || '—'}</td>
+              <td style={{ color: 'var(--text2)' }}>{safeStr(row.date_limite) || '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -583,7 +602,7 @@ function ResultsView({ item }) {
 
   const pills = []
   if (d.indexation) {
-    const idx = d.indexation.toLowerCase()
+    const idx = safeStr(d.indexation)?.toLowerCase() || ''
     if (idx.includes('ilat')) pills.push({ label: 'ILAT', cls: 'pill-blue' })
     else if (idx.includes('ilc')) pills.push({ label: 'ILC', cls: 'pill-blue' })
     else if (idx.includes('icc')) pills.push({ label: 'ICC', cls: 'pill-blue' })
@@ -866,8 +885,8 @@ function ResultsView({ item }) {
                     <tr key={i}>
                       <td style={{ fontWeight: 500 }}>{row.libelle || '—'}</td>
                       <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
-                      <td style={{ color: 'var(--text2)' }}>{row.date_limite || '—'}</td>
-                      <td style={{ color: 'var(--text2)', fontStyle: row.remarque ? 'normal' : 'italic' }}>{row.remarque || '—'}</td>
+                      <td style={{ color: 'var(--text2)' }}>{safeStr(row.date_limite) || '—'}</td>
+                      <td style={{ color: 'var(--text2)', fontStyle: row.remarque ? 'normal' : 'italic' }}>{safeStr(row.remarque) || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
