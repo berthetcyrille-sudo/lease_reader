@@ -325,7 +325,10 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     v(d.bailleur || raw.bail_reference?.bailleur),
     v(d.garant),
     v(d.type_bail), v(d.duree_totale), v(d.duree_ferme),
-    v(d.date_effet), v(d.date_signature), v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
+    // Date effet / signature : pour avenant, utiliser les dates propres à l'avenant
+    isAv ? v(meta.date_effet_avenant) : v(d.date_effet),
+    isAv ? v(meta.date_signature_avenant) : v(d.date_signature),
+    v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
     ...breakVals,
     v(d.conditions_break),
     v(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', v(d.rie),
