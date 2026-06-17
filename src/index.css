@@ -160,6 +160,7 @@ button, input { font-family: inherit; cursor: pointer; }
 .pill { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .pill-blue { background: var(--accent-bg); color: var(--accent); }
 .pill-green { background: var(--success-bg); color: var(--success); }
+.pill-danger { background: var(--danger-bg); color: var(--danger); }
 
 /* ── Pair block ── */
 .pair-block { display: grid; grid-template-columns: 180px 1fr; gap: 8px; }
