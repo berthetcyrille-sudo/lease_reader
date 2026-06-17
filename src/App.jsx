@@ -93,11 +93,7 @@ Formats:
 - indemnites: UNIQUEMENT les indemnites financieres conditionnees a l'exercice ou non d'une option (break option, renouvellement, fin de bail). Exemples valides: restitution de franchise si depart a une break, indemnite liberatoire de remise en etat si depart avant terme, complement de franchise si maintien au-dela d'une echeance. EXCLURE ABSOLUMENT: honoraires, frais d'acte, cautionnements, penalites de retard, indemnites d'occupation, provisions. Si aucune indemnite ne correspond strictement a ce critere, retourne un tableau vide []. Format: [{"motif":"...","due_par":"Preneur ou Bailleur","montant":"chiffres bruts","date_limite":"..."}]
 - parking_nb_places: decompte exact ex: "114 places (98 interieures + 16 exterieures)"`
 
-const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON minifie sur UNE SEULE LIGNE, sans markdown.
-
-REGLES: Ne renseigne dans champs_modifies QUE les champs modifies. null pour les autres. Champs _montant=chiffres bruts sans symbole.
-
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}`
+const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON minifie sur UNE SEULE LIGNE, sans markdown.\n\nREGLES: Ne renseigne dans champs_modifies QUE les champs modifies. null pour les autres. Champs _montant=chiffres bruts sans symbole.\n\nCHAMP surface_change_type: qualifie la nature de la modification de surface. Valeurs: "inchangee" (aucune surface modifiee, seules les conditions changent), "ajout" (surfaces ajoutees en plus des existantes), "retrait" (surfaces retirees), "substitution" (remplacement de lots, surface totale stable), "mixte" (ajouts et retraits).\n\nCHAMP surfaces_delta: UNIQUEMENT si surface_change_type != "inchangee". Tableau des surfaces concernees par la modification. Meme format que surfaces_detail du bail. Ajouter champ "sens":"ajout" ou "sens":"retrait" sur chaque ligne.\n\n{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}`
 
 
 const DETECT_PROMPT = `Analyse ce document. Le nom du fichier est un indice important. Reponds UNIQUEMENT avec ce JSON sur une ligne:
@@ -151,6 +147,26 @@ function parseAmount(val) {
   if (!val) return null
   const n = parseFloat(String(val).replace(/[^0-9.,]/g, '').replace(',', '.'))
   return isNaN(n) ? null : n
+}
+
+// Condense verbose parking text to short summary e.g. "99 int. + 30 ext. = 129 places"
+function parseParkingShort(val) {
+  if (!val) return null
+  // Try to extract int/ext counts from patterns like "99 intérieures ... + 30 extérieures ..."
+  const intMatch = val.match(/(\d+)\s+int[eé]r/i)
+  const extMatch = val.match(/(\d+)\s+ext[eé]r/i)
+  const totalMatch = val.match(/^(\d+)\s+place/i)
+  if (intMatch || extMatch) {
+    const nb_int = intMatch ? parseInt(intMatch[1]) : 0
+    const nb_ext = extMatch ? parseInt(extMatch[1]) : 0
+    const total = nb_int + nb_ext
+    const parts = []
+    if (nb_int) parts.push(`${nb_int} int.`)
+    if (nb_ext) parts.push(`${nb_ext} ext.`)
+    return parts.join(' + ') + (total ? ` = ${total} places` : '')
+  }
+  if (totalMatch) return val.match(/^\d+\s+places?[^(]*/i)?.[0]?.trim() || val
+  return val
 }
 
 // Format for display
@@ -283,6 +299,7 @@ function sanitizeExtracted(data) {
   d.surfaces_detail    = ensureArray(d.surfaces_detail)
   d.franchise_periodes = ensureArray(d.franchise_periodes)
   d.indemnites         = ensureArray(d.indemnites)
+  d.surfaces_delta = ensureArray(d.surfaces_delta)
   if (d.champs_modifies) {
     d.champs_modifies = { ...d.champs_modifies }
     d.champs_modifies.break_options      = ensureArray(d.champs_modifies.break_options)
@@ -663,19 +680,73 @@ function ResultsView({ item }) {
             )}
             {show('parking_nb_places') && (
               <div className="field">
-                <div className="field-lbl">Nombre de places de parking</div>
-                <div className={`field-val${!d.parking_nb_places ? ' empty' : ' mono'}`}>{d.parking_nb_places || 'Non renseigné'}</div>
+                <div className="field-lbl">Parking — nombre de places</div>
+                <div className={`field-val${!d.parking_nb_places ? ' empty' : ' mono'}`}>
+                  {parseParkingShort(d.parking_nb_places) || 'Non renseigné'}
+                </div>
               </div>
             )}
             {show('rie') && d.rie && <Field label="RIE" value={d.rie} />}
           </div>
+          {/* Bloc modification surfaces (avenants uniquement) */}
+          {isAv && (() => {
+            const sct = item.data?.surface_change_type
+            const delta = item.data?.surfaces_delta
+            if (!sct || sct === 'inchangee') return null
+            const labelMap = {
+              ajout:        { txt: 'Ajout de surfaces',      cls: 'pill-green'  },
+              retrait:      { txt: 'Retrait de surfaces',    cls: 'pill-danger' },
+              substitution: { txt: 'Substitution de surfaces', cls: 'pill-blue' },
+              mixte:        { txt: 'Modification mixte',     cls: 'pill-blue'   },
+            }
+            const lbl = labelMap[sct] || { txt: sct, cls: 'pill-blue' }
+            return (
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <div className="field-lbl">Modification des surfaces</div>
+                  <span className={`pill ${lbl.cls}`} style={{ fontSize: '11px' }}>{lbl.txt}</span>
+                </div>
+                {Array.isArray(delta) && delta.length > 0 && (
+                  <div className="table-wrap">
+                    <table className="indemnites-table">
+                      <thead>
+                        <tr>
+                          <th>Sens</th><th>Catégorie</th><th>Niveau / Localisation</th>
+                          <th style={{ textAlign: 'right' }}>Surface (m²)</th>
+                          <th style={{ textAlign: 'right' }}>Prix (€/m²)</th>
+                          <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {delta.map((row, i) => (
+                          <tr key={i}>
+                            <td>
+                              <span style={{ fontSize: '11px', fontWeight: 700, padding: '1px 7px', borderRadius: '4px',
+                                background: row.sens === 'retrait' ? 'var(--danger-bg)' : 'var(--success-bg)',
+                                color: row.sens === 'retrait' ? 'var(--danger)' : 'var(--success)' }}>
+                                {row.sens === 'retrait' ? '− Retrait' : '+ Ajout'}
+                              </span>
+                            </td>
+                            <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
+                            <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 || '—'}</td>
+                            <td style={{ textAlign: 'right' }}>{row.prix_unitaire ? fmtEur(row.prix_unitaire) : '—'}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
           {d.surfaces_detail?.length > 0 && (
             <div style={{ marginTop: '8px' }}>
-              <div className="field-lbl" style={{ marginBottom: '6px' }}>Surfaces louées par typologie</div>
+              <div className="field-lbl" style={{ marginBottom: '6px' }}>{isAv ? 'Surfaces totales post-avenant' : 'Surfaces louées par typologie'}</div>
               <SurfaceTable surfaces={d.surfaces_detail} />
             </div>
           )}
-
         </div>
       )}
 
