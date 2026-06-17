@@ -391,12 +391,24 @@ async function callClaude(base64, mediaType, prompt) {
 }
 
 // Dual-pass extraction for bail: structural + financial in parallel, then merge
+// Smart merge: for each key, keep the non-null/non-empty value
+// structural wins for its fields, financial wins for its fields, but neither can clobber the other's data with null/[]
+function smartMerge(structural, financial) {
+  const result = { ...structural }
+  for (const [key, val] of Object.entries(financial)) {
+    if (val === null || val === undefined) continue              // financial has null → keep structural
+    if (Array.isArray(val) && val.length === 0) continue        // financial has [] → keep structural array if any
+    result[key] = val                                           // financial has real data → use it
+  }
+  return result
+}
+
 async function callClaudeDual(base64, mediaType) {
   const [structural, financial] = await Promise.all([
     callClaude(base64, mediaType, PROMPT_STRUCTUREL),
     callClaude(base64, mediaType, PROMPT_FINANCIER),
   ])
-  return sanitizeExtracted({ ...structural, ...financial })
+  return sanitizeExtracted(smartMerge(structural, financial))
 }
 
 // Dual-pass extraction for avenant
@@ -405,15 +417,11 @@ async function callClaudeDualAv(base64, mediaType) {
     callClaude(base64, mediaType, PROMPT_STRUCTUREL_AV),
     callClaude(base64, mediaType, PROMPT_FINANCIER_AV),
   ])
-  // Merge champs_modifies from both passes
-  const merged = {
-    ...structural,
-    ...financial,
-    champs_modifies: {
-      ...(structural.champs_modifies || {}),
-      ...(financial.champs_modifies || {}),
-    }
-  }
+  const merged = smartMerge(structural, financial)
+  merged.champs_modifies = smartMerge(
+    structural.champs_modifies || {},
+    financial.champs_modifies || {}
+  )
   return sanitizeExtracted(merged)
 }
 
