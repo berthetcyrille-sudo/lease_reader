@@ -876,7 +876,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
       <div className="dash-toolbar">
         <div className="dash-stats">
           <span className="dash-stat">{tree.length} {tree.length !== 1 ? 'baux' : 'bail'}</span>
-          <span className="dash-stat">{rows.filter(r => r.document_type === 'avenant').length} avenant{rows.filter(r => r.document_type === 'avenant').length !== 1 ? 's' : ''}</span>
+          <span className="dash-stat">{tree.reduce((a,b) => a + (b.avenants?.length||0), 0)} avenant{tree.reduce((a,b) => a + (b.avenants?.length||0), 0) !== 1 ? 's' : ''}</span>
         </div>
         <div className="dash-filters">
           {['all','bail','avenant'].map(f => (
