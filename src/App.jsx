@@ -1068,7 +1068,17 @@ export default function App() {
     setHistLoaded(true)
   }
 
-  function switchTab(t) { setTab(t); if (t === 'history') { setHistLoaded(false); loadHistory() } }
+  async function switchTab(t) {
+    setTab(t)
+    if (t === 'history') {
+      // Forcer rechargement depuis Supabase directement
+      const { data: rows } = await supabase.from('extractions')
+        .select('id, file_name, created_at, data, document_type, parent_id')
+        .order('created_at', { ascending: false }).limit(100)
+      setHistory(rows ? buildTree(rows) : [])
+      setHistLoaded(true)
+    }
+  }
   function setStatus(i, state, error) { setStatuses(prev => { const n = [...prev]; n[i] = { state, error }; return n }) }
 
   async function saveExtraction(file, extracted, docType, parentId) {
