@@ -132,10 +132,11 @@ function normalizeDate(val) {
   // yyyy-mm-dd
   const iso = val.match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`
-  // French long form: "31 décembre 2024"
+  // French long form: "31 décembre 2024" or "1er juin 2024"
   const months = { janvier:1,février:2,mars:3,avril:4,mai:5,juin:6,juillet:7,août:8,septembre:9,octobre:10,novembre:11,décembre:12 }
-  const fr = val.toLowerCase().match(/(\d{1,2})\s+([a-zé]+)\s+(\d{4})/)
-  if (fr && months[fr[2]]) return `${String(fr[1]).padStart(2,'0')}/${String(months[fr[2]]).padStart(2,'0')}/${fr[3]}`
+  const cleaned = val.toLowerCase().replace(/1er/, '1').replace(/[èe]me/, '')
+  const fr = cleaned.match(/(\d{1,2})\s+([a-zéû]+)\s+(\d{4})/)
+  if (fr && months[fr[2]]) return `${String(parseInt(fr[1])).padStart(2,'0')}/${String(months[fr[2]]).padStart(2,'0')}/${fr[3]}`
   // Return as-is if can't parse
   return val
 }
