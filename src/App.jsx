@@ -829,10 +829,17 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
   const displayRows = []
   tree.forEach(bail => {
     const bailRow = { ...bail, _level: 0, _parentName: null, _bailData: bail.data }
-    const avRows = (bail.avenants || []).map(av => ({
+    // Trier avenants par date de signature puis numéroter
+    const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
+      const da = a.data?.date_signature_avenant || a.data?.date_effet_avenant || a.created_at || ''
+      const db = b.data?.date_signature_avenant || b.data?.date_effet_avenant || b.created_at || ''
+      return da.localeCompare(db)
+    })
+    const avRows = sortedAv.map((av, idx) => ({
       ...av, _level: 1,
       _parentName: bail.data?.immeuble || bail.data?.adresse || bail.file_name,
-      _bailData: bail.data
+      _bailData: bail.data,
+      _avNum: idx + 1
     }))
     if (filter === 'avenant') {
       avRows.forEach(r => displayRows.push(r))
@@ -939,9 +946,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
               >
                 {/* Actif / Document */}
                 <div className="dash-td" style={{ paddingLeft: row._level ? '32px' : '16px', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
-                  {row._level > 0 && (
-                    <span style={{ position: 'absolute', left: '16px', top: 0, bottom: 0, width: '2px', background: 'var(--border)', borderRadius: '1px' }}/>
-                  )}
+
                   <div style={{ fontWeight: 700, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     {!isAv && row._avCount > 0 && (
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
@@ -951,7 +956,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
                     )}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {isAv
-                        ? (d.objet_avenant || row.file_name.replace(/\.[^.]+$/, ''))
+                        ? `Avenant ${row._avNum || ''}`
                         : (d.immeuble || d.adresse || row.file_name.replace(/\.[^.]+$/, ''))
                       }
                     </span>
