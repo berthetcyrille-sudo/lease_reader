@@ -1615,7 +1615,7 @@ export default function App() {
     <>
       <div className="app">
         <aside className="sidebar">
-          <div className="sidebar-logo">
+          <div className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => { handleClear(); setTab('extract') }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
@@ -1624,13 +1624,13 @@ export default function App() {
             Lease Reader
           </div>
           <nav className="sidebar-nav">
-            <button className={`nav-item${tab === 'extract' ? ' active' : ''}`} onClick={() => switchTab('extract')}>
+            <button className={`nav-item${tab === 'extract' ? ' active' : ''}`} onClick={() => { handleClear(); setTab('extract') }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
               Extraire
             </button>
-            <button className={`nav-item${tab === 'history' ? ' active' : ''}`} onClick={() => switchTab('history')}>
+            <button className={`nav-item${tab === 'history' || activeItem ? ' active' : ''}`} onClick={() => { setActiveItem(null); switchTab('history') }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="12 8 12 12 14 14"/>
                 <path d="M3.05 11a9 9 0 1 0 .5-4"/><polyline points="3 3 3 7 7 7"/>
@@ -1643,7 +1643,7 @@ export default function App() {
         </aside>
 
         <main className="main">
-          {activeItem && tab === 'extract' && (
+          {activeItem && (
             <div className="result-topbar">
               <div className="result-tag">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1654,7 +1654,7 @@ export default function App() {
               <div className="result-title">{resultTitle}</div>
               {resultSub && <div className="result-sub">{resultSub}</div>}
               <div className="result-actions">
-                <button className="btn back" onClick={handleClear}>← Nouvelle extraction</button>
+                <button className="btn back" onClick={() => setActiveItem(null)}>← Retour au dashboard</button>
                 <button className="btn primary" onClick={() => exportToExcel(
                   [{ item: activeItem, parentName: history.find(b => b.avenants?.some(a => a.id === activeItem.id))?.data?.immeuble || '' }],
                   activeItem.data?.immeuble || activeItem.file_name
@@ -1670,17 +1670,18 @@ export default function App() {
           )}
 
           <div className="content">
-            {tab === 'history' && (
+            {activeItem ? (
+              <ResultsView item={activeItem} />
+            ) : tab === 'history' ? (
               <Dashboard
                 tree={history}
-                onSelect={item => { setActiveItem(item); setTab('extract') }}
+                onSelect={item => setActiveItem(item)}
                 onDelete={handleDeleteItem}
                 onClear={handleClearHistory}
                 onExportAll={() => exportAllToExcel(history)}
                 newIds={newIds}
               />
-            )}
-            {tab === 'extract' && !activeItem && (
+            ) : (
               <div className="extract-wrap">
 
                 {/* ── Queue principale ── */}
@@ -1856,7 +1857,6 @@ export default function App() {
                 </>
               </div>
             )}
-            {tab === 'extract' && activeItem && <ResultsView item={activeItem} />}
           </div>
         </main>
       </div>
