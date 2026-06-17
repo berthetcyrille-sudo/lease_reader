@@ -1036,7 +1036,7 @@ export default function App() {
     if (rows) { setHistory(buildTree(rows)); setHistLoaded(true) }
   }
 
-  function switchTab(t) { setTab(t); if (t === 'history') loadHistory() }
+  function switchTab(t) { setTab(t); if (t === 'history') { setHistLoaded(false); loadHistory() } }
   function setStatus(i, state, error) { setStatuses(prev => { const n = [...prev]; n[i] = { state, error }; return n }) }
 
   async function saveExtraction(file, extracted, docType, parentId) {
@@ -1249,7 +1249,7 @@ export default function App() {
         </aside>
 
         <main className="main">
-          {activeItem && (
+          {activeItem && tab === 'extract' && (
             <div className="result-topbar">
               <div className="result-tag">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
