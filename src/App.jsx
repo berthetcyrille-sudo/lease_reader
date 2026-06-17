@@ -792,7 +792,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
       {/* Toolbar */}
       <div className="dash-toolbar">
         <div className="dash-stats">
-          <span className="dash-stat">{tree.length} bail{tree.length !== 1 ? 'x' : ''}</span>
+          <span className="dash-stat">{tree.length} {tree.length !== 1 ? 'baux' : 'bail'}</span>
           <span className="dash-stat">{rows.filter(r => r.document_type === 'avenant').length} avenant{rows.filter(r => r.document_type === 'avenant').length !== 1 ? 's' : ''}</span>
         </div>
         <div className="dash-filters">
@@ -827,9 +827,22 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
             <div style={{ gridColumn: '8' }}/>
           </div>
           {filtered.map(row => {
-            // Pour l'affichage: immeuble/adresse/loyer depuis le bail parent si avenant
+            // Données fusionnées : bail de base + modifications de l'avenant
+            const bailBase = row._bailData || {}
+            const mods = row.data?.champs_modifies || {}
             const d = row.document_type === 'avenant'
-              ? { ...(row._bailData || {}), ...(row.data?.champs_modifies || {}), objet_avenant: row.data?.objet_avenant, date_effet_avenant: row.data?.date_effet_avenant }
+              ? {
+                  // Hériter les valeurs du bail parent
+                  immeuble: bailBase.immeuble,
+                  adresse: bailBase.adresse,
+                  ville: bailBase.ville,
+                  preneur: bailBase.preneur,
+                  loyer_signature_montant: mods.loyer_signature_montant || bailBase.loyer_signature_montant,
+                  date_effet: row.data?.date_effet_avenant || mods.date_effet || null,
+                  date_fin: mods.date_fin || bailBase.date_fin,
+                  break_options: mods.break_options || bailBase.break_options,
+                  objet_avenant: row.data?.objet_avenant,
+                }
               : (row.data || {})
             const isNew = newIds?.includes(row.id)
             const isAv = row.document_type === 'avenant'
@@ -843,7 +856,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
                 {/* Actif / Document */}
                 <div className="dash-td" style={{ paddingLeft: row._level ? '32px' : '16px', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
                   {row._level > 0 && (
-                    <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', width: '10px', height: '1px', background: 'var(--border2)' }}/>
+                    <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', width: '8px', height: '1px', background: 'var(--border2)' }}/>
                   )}
                   <div style={{ fontWeight: 700, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', color: 'var(--text)' }}>
                     {isAv
@@ -1075,7 +1088,7 @@ export default function App() {
           const bwa = { ...saved, avenants: [] }
           availableBails.push(bwa)
           setNewIds(prev => [...prev, saved.id])
-          setHistory(prev => [bwa, ...prev])
+          // Ne pas setHistory ici — on recharge tout à la fin
         }
         setStatus(i, 'done')
       } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
@@ -1100,9 +1113,7 @@ export default function App() {
         if (saved) {
           lastSaved = saved
           setNewIds(prev => [...prev, saved.id])
-          setHistory(prev => parentId
-            ? prev.map(b => b.id === parentId ? { ...b, avenants: [...(b.avenants || []), saved] } : b)
-            : [saved, ...prev])
+          // Ne pas setHistory ici — on recharge tout à la fin
         }
         setStatus(i, 'done')
       } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
