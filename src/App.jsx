@@ -783,9 +783,39 @@ function ResultsView({ item }) {
   )
 }
 
+function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, danger }) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" style={{ maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: danger ? 'var(--danger-bg)' : 'var(--accent-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={danger ? 'var(--danger)' : 'var(--accent)'} strokeWidth="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '6px' }}>{title}</div>
+            <div style={{ fontSize: '13px', color: 'var(--text2)', lineHeight: '1.5' }}>{message}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+          <button className="btn" onClick={onCancel}>Annuler</button>
+          <button
+            className="btn"
+            style={{ background: danger ? 'var(--danger)' : 'var(--accent)', color: '#fff', border: 'none' }}
+            onClick={onConfirm}
+          >{confirmLabel || 'Confirmer'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
-  const [sort, setSort] = useState('date')
-  const [filter, setFilter] = useState('all') // all | bail | avenant
+  const [filter, setFilter] = useState('all')
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
 
   // Flatten all items for table
   const rows = []
@@ -804,6 +834,26 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
 
   return (
     <div className="dashboard">
+      {confirmClear && (
+        <ConfirmModal
+          title="Vider le dashboard ?"
+          message="Toutes les extractions seront supprimées définitivement. Cette action est irréversible."
+          confirmLabel="Vider"
+          danger
+          onConfirm={() => { setConfirmClear(false); onClear() }}
+          onCancel={() => setConfirmClear(false)}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmModal
+          title="Supprimer cette extraction ?"
+          message={`"${confirmDelete.data?.immeuble || confirmDelete.data?.adresse || confirmDelete.file_name}" sera supprimé définitivement.`}
+          confirmLabel="Supprimer"
+          danger
+          onConfirm={e => { onDelete(confirmDelete, { stopPropagation: () => {} }); setConfirmDelete(null) }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
       {/* Toolbar */}
       <div className="dash-toolbar">
         <div className="dash-stats">
@@ -817,7 +867,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
             </button>
           ))}
         </div>
-        {tree.length > 0 && <button className="btn-clear" style={{ width: 'auto', padding: '5px 12px' }} onClick={onClear}>Vider</button>}
+        {tree.length > 0 && <button className="btn-clear" style={{ width: 'auto', padding: '5px 12px' }} onClick={() => setConfirmClear(true)}>Vider</button>}
       </div>
 
       {/* Table */}
@@ -871,7 +921,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
                 {/* Actif / Document */}
                 <div className="dash-td" style={{ paddingLeft: row._level ? '32px' : '16px', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
                   {row._level > 0 && (
-                    <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', width: '8px', height: '1px', background: 'var(--border2)' }}/>
+                    <span style={{ position: 'absolute', left: '16px', top: 0, bottom: 0, width: '2px', background: 'var(--border)', borderRadius: '1px' }}/>
                   )}
                   <div style={{ fontWeight: 700, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', color: 'var(--text)' }}>
                     {isAv
@@ -881,8 +931,8 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
                     {isAv
-                      ? (row._parentName || '—')
-                      : (d.preneur?.split(',')[0]?.split(' SAS')[0]?.split(' SA')[0] || d.ville || '—')
+                      ? (row._parentName || '')
+                      : (d.preneur?.split(',')[0]?.split(' SAS')[0]?.split(' SA')[0] || d.ville || '')
                     }
                   </div>
                 </div>
@@ -939,7 +989,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
                   <button className="dash-action-btn" onClick={() => onSelect(row)} title="Voir le détail">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   </button>
-                  <button className="dash-action-btn dash-action-del" onClick={e => onDelete(row, e)} title="Supprimer">
+                  <button className="dash-action-btn dash-action-del" onClick={e => { e.stopPropagation(); setConfirmDelete(row) }} title="Supprimer">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
                   </button>
                 </div>
@@ -1148,15 +1198,12 @@ export default function App() {
 
   async function handleDeleteItem(item, e) {
     e.stopPropagation()
-    const label = item.data?.immeuble || item.data?.adresse || item.file_name
-    if (!window.confirm(`Supprimer "${label}" ? Cette action est irréversible.`)) return
     await supabase.from('extractions').delete().eq('id', item.id)
     if (activeItem?.id === item.id) setActiveItem(null)
     setHistory(prev => prev.filter(b => b.id !== item.id).map(b => ({ ...b, avenants: (b.avenants || []).filter(a => a.id !== item.id) })))
   }
 
   async function handleClearHistory() {
-    if (!window.confirm("Vider tout l'historique ? Cette action est irréversible.")) return
     await supabase.from('extractions').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     setHistory([]); setHistLoaded(false); setActiveItem(null)
   }
