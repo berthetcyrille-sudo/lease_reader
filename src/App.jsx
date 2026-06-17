@@ -123,18 +123,15 @@ function getMediaType(file) {
 
 function normalizeDate(val) {
   if (!val) return null
-  // Already dd/mm/yyyy
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(val)) return val
-  // yyyy-mm-dd
-  const iso = val.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  const v = String(val)
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) return v
+  const iso = v.match(/^(\d{4})-(\d{2})-(\d{2})/)
   if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`
-  // French long form: "31 décembre 2024" or "1er juin 2024"
   const months = { janvier:1,février:2,mars:3,avril:4,mai:5,juin:6,juillet:7,août:8,septembre:9,octobre:10,novembre:11,décembre:12 }
-  const cleaned = val.toLowerCase().replace(/1er/, '1').replace(/[èe]me/, '')
+  const cleaned = v.toLowerCase().replace(/1er/, '1').replace(/[èe]me/, '')
   const fr = cleaned.match(/(\d{1,2})\s+([a-zéû]+)\s+(\d{4})/)
   if (fr && months[fr[2]]) return `${String(parseInt(fr[1])).padStart(2,'0')}/${String(months[fr[2]]).padStart(2,'0')}/${fr[3]}`
-  // Return as-is if can't parse
-  return val
+  return v
 }
 
 function formatDate(iso) {
@@ -152,10 +149,10 @@ function parseAmount(val) {
 // Condense verbose parking text to short summary e.g. "99 int. + 30 ext. = 129 places"
 function parseParkingShort(val) {
   if (!val) return null
-  // Try to extract int/ext counts from patterns like "99 intérieures ... + 30 extérieures ..."
-  const intMatch = val.match(/(\d+)\s+int[eé]r/i)
-  const extMatch = val.match(/(\d+)\s+ext[eé]r/i)
-  const totalMatch = val.match(/^(\d+)\s+place/i)
+  const s = String(val)
+  const intMatch = s.match(/(\d+)\s+int[eé]r/i)
+  const extMatch = s.match(/(\d+)\s+ext[eé]r/i)
+  const totalMatch = s.match(/^(\d+)\s+place/i)
   if (intMatch || extMatch) {
     const nb_int = intMatch ? parseInt(intMatch[1]) : 0
     const nb_ext = extMatch ? parseInt(extMatch[1]) : 0
@@ -165,8 +162,8 @@ function parseParkingShort(val) {
     if (nb_ext) parts.push(`${nb_ext} ext.`)
     return parts.join(' + ') + (total ? ` = ${total} places` : '')
   }
-  if (totalMatch) return val.match(/^\d+\s+places?[^(]*/i)?.[0]?.trim() || val
-  return val
+  if (totalMatch) return s.match(/^\d+\s+places?[^(]*/i)?.[0]?.trim() || s
+  return s
 }
 
 // Format for display
