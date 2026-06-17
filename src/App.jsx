@@ -978,9 +978,17 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
   tree.forEach(bail => {
     const bailRow = { ...bail, _level: 0, _parentName: null, _bailData: bail.data }
     // Trier avenants par date de signature puis numéroter
+    function toSortable(dateStr) {
+      if (!dateStr) return ''
+      const s = String(dateStr)
+      // dd/mm/yyyy → yyyy-mm-dd
+      const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+      if (m) return `${m[3]}-${m[2]}-${m[1]}`
+      return s
+    }
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
-      const da = a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at || ''
-      const db = b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at || ''
+      const da = toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at || '')
+      const db = toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at || '')
       return da.localeCompare(db)
     })
     const avRows = sortedAv.map((av, idx) => ({
