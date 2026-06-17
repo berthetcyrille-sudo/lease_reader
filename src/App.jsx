@@ -231,86 +231,162 @@ function findBestMatch(ref, bails) {
 
 // ─── Excel export ─────────────────────────────────────────────────────────────
 
-function exportToExcel(data, fileName) {
-  const wb = XLSX.utils.book_new()
+const MAX_BREAKS    = 4
+const MAX_FRANCHISE = 6
+const MAX_INDEM     = 5
+const MAX_SURF      = 8
+const MAX_TRAV      = 4
 
-  const simpleFields = ALL_FIELDS.filter(f => !['break_options','franchise_periodes','indemnites','surfaces_detail'].includes(f.key))
-
-  const MAX_BREAKS = 4
-  const MAX_FRANCHISE = 5
-  const MAX_INDEM = 5
-
-  const breakCols = Array.from({ length: MAX_BREAKS }, (_, i) => `Break option ${i+1}`)
-
+function buildExcelHeaders() {
+  const breakCols     = Array.from({ length: MAX_BREAKS },    (_, i) => `Break option ${i+1}`)
   const franchiseCols = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
-    `Franchise P${i+1} - Date debut`,
-    `Franchise P${i+1} - Date fin`,
-    `Franchise P${i+1} - Duree`,
-    `Franchise P${i+1} - Montant (EUR)`,
-    `Franchise P${i+1} - Indexation incluse`,
-    `Franchise P${i+1} - Condition`,
+    `Franchise P${i+1} - Debut`, `Franchise P${i+1} - Fin`, `Franchise P${i+1} - Duree`,
+    `Franchise P${i+1} - Assiette`, `Franchise P${i+1} - Montant`, `Franchise P${i+1} - Indexation`, `Franchise P${i+1} - Condition`,
   ]).flat()
-
-  const indemnCols = Array.from({ length: MAX_INDEM }, (_, i) => [
-    `Indemnite ${i+1} - Motif`,
-    `Indemnite ${i+1} - Due par`,
-    `Indemnite ${i+1} - Montant (EUR)`,
-    `Indemnite ${i+1} - Date/Condition`,
+  const indemnCols    = Array.from({ length: MAX_INDEM },     (_, i) => [
+    `Indemnite ${i+1} - Motif`, `Indemnite ${i+1} - Due par`, `Indemnite ${i+1} - Montant`, `Indemnite ${i+1} - Echeance`,
   ]).flat()
-
-  const headers = [...simpleFields.map(f => f.label), ...breakCols, ...franchiseCols, ...indemnCols]
-
-  const breaks   = Array.isArray(data.break_options)    ? data.break_options    : []
-  const franchise = Array.isArray(data.franchise_periodes) ? data.franchise_periodes : []
-  const indem    = Array.isArray(data.indemnites)        ? data.indemnites       : []
-
-  const values = [
-    ...simpleFields.map(f => {
-      const v = data[f.key]
-      // Champs montants : exporter en nombre
-      if (f.key.includes('_montant') || f.key === 'travaux_montant') {
-        const n = parseAmount(v)
-        return n !== null ? n : (v ?? '')
-      }
-      return v ?? ''
-    }),
-    ...Array.from({ length: MAX_BREAKS }, (_, i) => breaks[i] ?? ''),
-    ...Array.from({ length: MAX_FRANCHISE }, (_, i) => [
-      franchise[i]?.date_debut ?? '',
-      franchise[i]?.date_fin ?? '',
-      franchise[i]?.duree ?? '',
-      parseAmount(franchise[i]?.montant) ?? franchise[i]?.montant ?? '', // nombre
-      franchise[i]?.indexation_incluse ?? '',
-      franchise[i]?.condition ?? '',
-    ]).flat(),
-    ...Array.from({ length: MAX_INDEM }, (_, i) => [
-      indem[i]?.motif ?? '',
-      indem[i]?.due_par ?? '',
-      parseAmount(indem[i]?.montant) ?? indem[i]?.montant ?? '', // nombre
-      indem[i]?.date_limite ?? '',
-    ]).flat(),
+  const surfCols      = Array.from({ length: MAX_SURF },      (_, i) => [
+    `Surface ${i+1} - Categorie`, `Surface ${i+1} - Niveau`, `Surface ${i+1} - m2`, `Surface ${i+1} - Prix m2`, `Surface ${i+1} - Loyer/an`,
+  ]).flat()
+  const travCols      = Array.from({ length: MAX_TRAV },      (_, i) => [
+    `Travaux ${i+1} - Libelle`, `Travaux ${i+1} - Montant`, `Travaux ${i+1} - Date limite`,
+  ]).flat()
+  return [
+    'Type', 'Actif / Immeuble', 'Adresse', 'Ville',
+    'Preneur', 'Bailleur', 'Garant',
+    'Type de bail', 'Duree totale', 'Duree ferme',
+    'Date effet', 'Date signature', 'Date fin', 'Date conge limite', 'Preavis', 'Date limite travaux preneur',
+    ...breakCols,
+    'Conditions break',
+    'Surface totale m2', 'Parking nb places', 'RIE',
+    ...surfCols,
+    'Loyer HT/HC annuel signature', 'Loyer de base annuel', 'Indexation', 'Loyer signature detail',
+    ...franchiseCols,
+    'Franchise modalites',
+    'Charges TEOM',
+    'Depot garantie montant', 'Depot garantie modalites',
+    'Travaux montant unique', 'Travaux date limite', 'Travaux modalites',
+    ...travCols,
+    ...indemnCols,
+    'Article 606', 'Conformite', 'Remise en etat', 'Sous-location', 'Cession', 'Destination', 'Maintenance', 'Accession',
+    // Avenant-specific
+    'Objet avenant', 'Date effet avenant', 'Date signature avenant', 'Bail lie', 'Modif surfaces type',
   ]
+}
 
-  const ws = XLSX.utils.aoa_to_sheet([headers, values])
+function buildExcelRow(item, bailParentName) {
+  const isAv   = item.document_type === 'avenant'
+  const raw    = item.data || {}
+  const d      = isAv ? (raw.champs_modifies || {}) : raw
+  const meta   = isAv ? raw : {}
 
-  // Formatter les colonnes montant en format nombre Excel
-  const montantColIndices = []
-  headers.forEach((h, idx) => {
-    if (h.includes('(EUR)') || h.includes('montant') || h.includes('Montant')) {
-      montantColIndices.push(idx)
-    }
+  const v    = (val) => { const s = safeStr(val); return s || '' }
+  const amt  = (val) => { const n = parseAmount(val); return n !== null ? n : '' }
+
+  const breaks    = Array.isArray(d.break_options)       ? d.break_options       : []
+  const franchise = Array.isArray(d.franchise_periodes)  ? d.franchise_periodes  : []
+  const indem     = Array.isArray(d.indemnites)          ? d.indemnites          : []
+  const surfaces  = Array.isArray(d.surfaces_detail)     ? d.surfaces_detail     : []
+  const trav      = Array.isArray(d.participations_travaux) ? d.participations_travaux : []
+
+  const breakVals = Array.from({ length: MAX_BREAKS },    (_, i) => v(breaks[i]) )
+  const fracVals  = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
+    v(franchise[i]?.date_debut), v(franchise[i]?.date_fin), v(franchise[i]?.duree),
+    v(franchise[i]?.surface_assiette), amt(franchise[i]?.montant), v(franchise[i]?.indexation_incluse), v(franchise[i]?.condition),
+  ]).flat()
+  const indemVals = Array.from({ length: MAX_INDEM },     (_, i) => [
+    v(indem[i]?.motif), v(indem[i]?.due_par), amt(indem[i]?.montant), v(indem[i]?.date_limite),
+  ]).flat()
+  const surfVals  = Array.from({ length: MAX_SURF },      (_, i) => [
+    v(surfaces[i]?.categorie), v(surfaces[i]?.niveau), v(surfaces[i]?.surface_m2),
+    amt(surfaces[i]?.prix_unitaire), amt(surfaces[i]?.loyer_annuel),
+  ]).flat()
+  const travVals  = Array.from({ length: MAX_TRAV },      (_, i) => [
+    v(trav[i]?.libelle), amt(trav[i]?.montant), v(trav[i]?.date_limite),
+  ]).flat()
+
+  return [
+    isAv ? 'Avenant' : 'Bail',
+    v(d.immeuble || raw.bail_reference?.immeuble),
+    v(d.adresse  || raw.bail_reference?.adresse),
+    v(d.ville),
+    v(d.preneur  || raw.bail_reference?.preneur),
+    v(d.bailleur || raw.bail_reference?.bailleur),
+    v(d.garant),
+    v(d.type_bail), v(d.duree_totale), v(d.duree_ferme),
+    v(d.date_effet), v(d.date_signature), v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
+    ...breakVals,
+    v(d.conditions_break),
+    v(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', v(d.rie),
+    ...surfVals,
+    amt(d.loyer_signature_montant), amt(d.loyer_cours), v(d.indexation), v(d.loyer_signature),
+    ...fracVals,
+    v(d.franchise), v(d.charges),
+    amt(d.depot_garantie_montant), v(d.depot_garantie),
+    amt(d.travaux_montant), v(d.travaux_date_factures), v(d.travaux_modalites),
+    ...travVals,
+    ...indemVals,
+    v(d.article_606), v(d.conformite), v(d.remise_en_etat), v(d.sous_location), v(d.cession), v(d.destination), v(d.maintenance), v(d.accession),
+    // Avenant-specific
+    v(meta.objet_avenant), v(meta.date_effet_avenant), v(meta.date_signature_avenant),
+    bailParentName || '', v(meta.surface_change_type),
+  ]
+}
+
+function exportToExcel(items, fileName) {
+  // items: array of {item, parentName} OR single item (legacy)
+  let rows
+  if (Array.isArray(items)) {
+    rows = items.map(({ item, parentName }) => buildExcelRow(item, parentName))
+  } else {
+    // legacy single call: items is actually a data object
+    const fakeItem = { document_type: 'bail', data: items, file_name: fileName }
+    rows = [buildExcelRow(fakeItem, '')]
+  }
+
+  const headers = buildExcelHeaders()
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+
+  // Column widths
+  ws['!cols'] = headers.map(h => ({
+    wch: h.includes('detail') || h.includes('modalites') || h.includes('Condition') || h.includes('Motif') ? 40
+       : h.includes('Libelle') || h.includes('Assiette') ? 35
+       : h.includes('Preneur') || h.includes('Bailleur') || h.includes('Objet') ? 30
+       : 18
+  }))
+
+  // Number format on amount columns
+  headers.forEach((h, colIdx) => {
+    if (!h.includes('Montant') && !h.includes('montant') && !h.includes('Loyer') && !h.includes('loyer') && !h.includes('m2') && !h.includes('Prix')) return
+    rows.forEach((_, rowIdx) => {
+      const cell = ws[XLSX.utils.encode_cell({ r: rowIdx + 1, c: colIdx })]
+      if (cell && typeof cell.v === 'number') { cell.t = 'n'; cell.z = '#,##0' }
+    })
   })
-  montantColIndices.forEach(colIdx => {
-    const cellAddr = XLSX.utils.encode_cell({ r: 1, c: colIdx })
-    if (ws[cellAddr] && typeof ws[cellAddr].v === 'number') {
-      ws[cellAddr].t = 'n'
-      ws[cellAddr].z = '#,##0'
-    }
-  })
 
-  ws['!cols'] = headers.map(() => ({ wch: 22 }))
+  // Header row style (bold via sheetjs-style not available, use freeze pane instead)
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 }
+
   XLSX.utils.book_append_sheet(wb, ws, 'Base de données')
-  XLSX.writeFile(wb, `lease_abstract_${(fileName || 'bail').replace(/\.[^.]+$/, '')}.xlsx`)
+  const safeName = (fileName || 'lease_abstract').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_')
+  XLSX.writeFile(wb, `${safeName}.xlsx`)
+}
+
+function exportAllToExcel(tree) {
+  const rows = []
+  tree.forEach(bail => {
+    const parentName = bail.data?.immeuble || bail.data?.adresse || bail.file_name
+    rows.push({ item: bail, parentName: '' })
+    const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
+      const toS = d => { const m = String(d||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d||'') }
+      return toS(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
+            .localeCompare(toS(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at))
+    })
+    sortedAv.forEach(av => rows.push({ item: av, parentName }))
+  })
+  exportToExcel(rows, 'lease_abstract_complet')
 }
 
 // ─── JSON cleaning & parsing ──────────────────────────────────────────────────
@@ -324,22 +400,67 @@ function ensureArray(val) {
   return null
 }
 
+// Normalize categorie values to canonical set
+const CAT_MAP = {
+  'bureaux': 'Bureaux', 'bureau': 'Bureaux', 'office': 'Bureaux', 'open space': 'Bureaux', 'plateau': 'Bureaux',
+  'stationnement': 'Stationnement', 'parking': 'Stationnement', 'parking_interieur': 'Stationnement',
+  'parking_exterieur': 'Stationnement', 'parking interieur': 'Stationnement', 'parking exterieur': 'Stationnement',
+  'place de parking': 'Stationnement', 'emplacement': 'Stationnement',
+  'archives': 'Archives', 'cave': 'Archives', 'local technique': 'Archives', 'reserve': 'Archives',
+  'commerce': 'Commerce', 'boutique': 'Commerce', 'retail': 'Commerce',
+  'rie': 'RIE', 'restaurant': 'RIE', 'cafeteria': 'RIE',
+}
+function normCat(cat) {
+  if (!cat) return 'Bureaux'
+  const key = String(cat).toLowerCase().trim()
+  return CAT_MAP[key] || (Object.keys(CAT_MAP).find(k => key.includes(k)) ? CAT_MAP[Object.keys(CAT_MAP).find(k => key.includes(k))] : cat)
+}
+function normalizeSurfaces(rows) {
+  if (!Array.isArray(rows)) return rows
+  return rows.map(r => ({ ...r, categorie: normCat(r.categorie || r.typologie) }))
+}
+
+// Deduplicate surfaces_apres : remove rows whose surface_m2 matches sum of avant+delta
+function deduplicateSurfacesApres(avant, delta, apres) {
+  if (!Array.isArray(apres) || !apres.length) return apres
+  if (!Array.isArray(avant) && !Array.isArray(delta)) return apres
+  // Build set of m2 values present in avant and delta
+  const knownM2 = new Set()
+  ;(avant || []).forEach(r => r.surface_m2 && knownM2.add(String(r.surface_m2).trim()))
+  ;(delta || []).forEach(r => r.surface_m2 && knownM2.add(String(r.surface_m2).trim()))
+  // Remove rows from apres whose m2 is NOT in knownM2 AND matches a computed sum
+  // Strategy: if apres has more rows than avant+delta combined, remove rows with m2 that looks like a subtotal
+  const avantM2Set = new Set((avant || []).map(r => String(r.surface_m2 || '').trim()))
+  const deltaM2Set = new Set((delta || []).map(r => String(r.surface_m2 || '').trim()))
+  return apres.filter(r => {
+    const m2 = String(r.surface_m2 || '').trim()
+    // Keep if m2 exists in avant or delta
+    if (avantM2Set.has(m2) || deltaM2Set.has(m2)) return true
+    // Remove if m2 is a computed sum of other values (appears nowhere else and is larger than any single entry)
+    const num = parseFloat(m2.replace(',', '.'))
+    const allNums = [...avantM2Set, ...deltaM2Set].map(v => parseFloat(v.replace(',', '.'))).filter(n => !isNaN(n))
+    const maxSingle = Math.max(...allNums, 0)
+    if (!isNaN(num) && num > maxSingle) return false // likely a subtotal
+    return true
+  })
+}
+
 function sanitizeExtracted(data) {
   if (!data || typeof data !== 'object') return data
   const d = { ...data }
   d.break_options      = ensureArray(d.break_options)
-  d.surfaces_detail    = ensureArray(d.surfaces_detail)
+  d.surfaces_detail    = normalizeSurfaces(ensureArray(d.surfaces_detail))
   d.franchise_periodes = ensureArray(d.franchise_periodes)
   d.indemnites         = ensureArray(d.indemnites)
-  d.surfaces_delta          = ensureArray(d.surfaces_delta)
+  d.surfaces_delta          = normalizeSurfaces(ensureArray(d.surfaces_delta))
   d.participations_travaux  = ensureArray(d.participations_travaux)
   if (d.champs_modifies) d.champs_modifies.participations_travaux = ensureArray(d.champs_modifies?.participations_travaux)
-  d.surfaces_avant  = ensureArray(d.surfaces_avant)
-  d.surfaces_apres  = ensureArray(d.surfaces_apres)
+  d.surfaces_avant  = normalizeSurfaces(ensureArray(d.surfaces_avant))
+  d.surfaces_apres  = normalizeSurfaces(deduplicateSurfacesApres(d.surfaces_avant, d.surfaces_delta, ensureArray(d.surfaces_apres)))
   if (d.champs_modifies) {
     d.champs_modifies = { ...d.champs_modifies }
     d.champs_modifies.break_options      = ensureArray(d.champs_modifies.break_options)
-    d.champs_modifies.surfaces_detail    = ensureArray(d.champs_modifies.surfaces_detail)
+    d.champs_modifies.surfaces_detail    = normalizeSurfaces(ensureArray(d.champs_modifies.surfaces_detail))
     d.champs_modifies.franchise_periodes = ensureArray(d.champs_modifies.franchise_periodes)
     d.champs_modifies.indemnites         = ensureArray(d.champs_modifies.indemnites)
   }
@@ -1013,7 +1134,7 @@ function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, dange
   )
 }
 
-function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
+function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
   const [filter, setFilter] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
@@ -1101,7 +1222,17 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
             </button>
           ))}
         </div>
-        {tree.length > 0 && <button className="btn-clear" style={{ width: 'auto', padding: '5px 12px' }} onClick={() => setConfirmClear(true)}>Vider</button>}
+        {tree.length > 0 && (
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button className="btn" style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }} onClick={onExportAll}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Exporter tout
+            </button>
+            <button className="btn-clear" style={{ width: 'auto', padding: '5px 12px' }} onClick={() => setConfirmClear(true)}>Vider</button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -1525,8 +1656,8 @@ export default function App() {
               <div className="result-actions">
                 <button className="btn back" onClick={handleClear}>← Nouvelle extraction</button>
                 <button className="btn primary" onClick={() => exportToExcel(
-                  activeItem.document_type === 'avenant' ? activeItem.data?.champs_modifies || {} : activeItem.data || {},
-                  activeItem.file_name
+                  [{ item: activeItem, parentName: history.find(b => b.avenants?.some(a => a.id === activeItem.id))?.data?.immeuble || '' }],
+                  activeItem.data?.immeuble || activeItem.file_name
                 )}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1545,6 +1676,7 @@ export default function App() {
                 onSelect={item => { setActiveItem(item); setTab('extract') }}
                 onDelete={handleDeleteItem}
                 onClear={handleClearHistory}
+                onExportAll={() => exportAllToExcel(history)}
                 newIds={newIds}
               />
             )}
