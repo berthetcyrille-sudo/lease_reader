@@ -818,19 +818,37 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
 
   // Flatten all items for table
-  const rows = []
-  tree.forEach(bail => {
-    rows.push({ ...bail, _level: 0, _parentName: null, _bailData: bail.data })
-    ;(bail.avenants || []).forEach(av => {
-      rows.push({ ...av, _level: 1, _parentName: bail.data?.immeuble || bail.data?.adresse || bail.file_name, _bailData: bail.data })
-    })
-  })
+  const [expanded, setExpanded] = useState({}) // bailId -> bool
 
-  const filtered = rows.filter(r => {
-    if (filter === 'bail') return r.document_type === 'bail'
-    if (filter === 'avenant') return r.document_type === 'avenant'
-    return true
+  function toggleExpand(id) {
+    setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  // Build display rows based on filter and expanded state
+  const displayRows = []
+  tree.forEach(bail => {
+    const bailRow = { ...bail, _level: 0, _parentName: null, _bailData: bail.data }
+    const avRows = (bail.avenants || []).map(av => ({
+      ...av, _level: 1,
+      _parentName: bail.data?.immeuble || bail.data?.adresse || bail.file_name,
+      _bailData: bail.data
+    }))
+    if (filter === 'avenant') {
+      avRows.forEach(r => displayRows.push(r))
+      return
+    }
+    displayRows.push({ ...bailRow, _avCount: avRows.length })
+    if (filter !== 'bail' && expanded[bail.id] && avRows.length > 0) {
+      avRows.forEach(r => displayRows.push(r))
+    }
   })
+  if (filter === 'avenant') {
+    // orphan avenants
+    tree.filter(r => r.document_type === 'avenant').forEach(av => {
+      displayRows.push({ ...av, _level: 0, _parentName: null, _bailData: null })
+    })
+  }
+  const filtered = displayRows
 
   return (
     <div className="dashboard">
@@ -915,19 +933,32 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
             return (
               <div
                 key={row.id}
-                className={`dash-row${isNew ? ' dash-row-new' : ''}`}
-                onClick={() => onSelect(row)}
+                className={`dash-row${isNew ? ' dash-row-new' : ''}${row._level ? ' dash-row-av' : ''}`}
+                onClick={() => row._level === 0 && row._avCount > 0 ? toggleExpand(row.id) : onSelect(row)}
               >
                 {/* Actif / Document */}
                 <div className="dash-td" style={{ paddingLeft: row._level ? '32px' : '16px', flexDirection: 'column', alignItems: 'flex-start', gap: '2px' }}>
                   {row._level > 0 && (
                     <span style={{ position: 'absolute', left: '16px', top: 0, bottom: 0, width: '2px', background: 'var(--border)', borderRadius: '1px' }}/>
                   )}
-                  <div style={{ fontWeight: 700, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', color: 'var(--text)' }}>
-                    {isAv
-                      ? (d.objet_avenant || row.file_name.replace(/\.[^.]+$/, ''))
-                      : (d.immeuble || d.adresse || row.file_name.replace(/\.[^.]+$/, ''))
-                    }
+                  <div style={{ fontWeight: 700, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {!isAv && row._avCount > 0 && (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                        style={{ flexShrink: 0, color: 'var(--text3)', transform: expanded[row.id] ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .2s' }}>
+                        <polyline points="9 18 15 12 9 6"/>
+                      </svg>
+                    )}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {isAv
+                        ? (d.objet_avenant || row.file_name.replace(/\.[^.]+$/, ''))
+                        : (d.immeuble || d.adresse || row.file_name.replace(/\.[^.]+$/, ''))
+                      }
+                    </span>
+                    {!isAv && row._avCount > 0 && (
+                      <span style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '99px', background: 'var(--surface2)', color: 'var(--text3)', flexShrink: 0 }}>
+                        {row._avCount} av.
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
                     {isAv
@@ -986,7 +1017,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, newIds }) {
 
                 {/* Actions */}
                 <div className="dash-td dash-td-actions" onClick={e => e.stopPropagation()}>
-                  <button className="dash-action-btn" onClick={() => onSelect(row)} title="Voir le détail">
+                  <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); onSelect(row) }} title="Voir le détail">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   </button>
                   <button className="dash-action-btn dash-action-del" onClick={e => { e.stopPropagation(); setConfirmDelete(row) }} title="Supprimer">
@@ -1033,7 +1064,8 @@ export default function App() {
     const { data: rows } = await supabase.from('extractions')
       .select('id, file_name, created_at, data, document_type, parent_id')
       .order('created_at', { ascending: false }).limit(100)
-    if (rows) { setHistory(buildTree(rows)); setHistLoaded(true) }
+    setHistory(rows ? buildTree(rows) : [])
+    setHistLoaded(true)
   }
 
   function switchTab(t) { setTab(t); if (t === 'history') { setHistLoaded(false); loadHistory() } }
@@ -1205,7 +1237,10 @@ export default function App() {
 
   async function handleClearHistory() {
     await supabase.from('extractions').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    setHistory([]); setHistLoaded(false); setActiveItem(null)
+    setHistory([])
+    setHistLoaded(true) // marquer comme chargé pour éviter un rechargement parasite
+    setActiveItem(null)
+    setNewIds([])
   }
 
   function handleClear() {
