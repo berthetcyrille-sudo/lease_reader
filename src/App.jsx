@@ -80,14 +80,40 @@ const ALL_FIELDS = SECTIONS.flatMap(s => s.fields)
 
 // ─── Prompts ─────────────────────────────────────────────────────────────────
 
-const PROMPT_STRUCTUREL = `Expert baux commerciaux français. PASSE 1/2 : extrais UNIQUEMENT les données structurelles (parties, dates, surfaces, clauses). Retourne UNIQUEMENT du JSON minifié sur UNE SEULE LIGNE, sans markdown.\n\nREGLES JSON: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Echappe les guillemets internes avec backslash. Champs _montant=chiffres bruts sans symbole ni espace (ex: 123405.50). null si absent.\n\nDISTINCTION duree: duree_totale=duree totale bail (date_effet->date_fin). duree_ferme: si break_options, intervalle date_effet->premiere break; sinon=duree_totale; si bail mentionne duree ferme explicite, utiliser cette valeur.\n\n{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}\n\nFormats:\n- surfaces_detail: [{"categorie":"Bureaux","niveau":"5eme etage","surface_m2":"2224.98","prix_unitaire":"290","loyer_annuel":"645244"}] — categorie=Bureaux/Archives/Stationnement/Commerce/RIE/Autres. JAMAIS null: infere depuis contexte (etage/plateau→Bureaux, sous-sol/emplacement→Stationnement, exterieur→Stationnement, doute→Bureaux).\n- break_options: ["31/08/2027","31/08/2030"]\n- parking_nb_places: decompte exact ex: "114 places (98 interieures + 16 exterieures)"`
+const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les données du bail. JSON minifié UNE SEULE LIGNE, sans markdown.
 
-const PROMPT_FINANCIER = `Expert baux commerciaux français. PASSE 2/2 : extrais UNIQUEMENT les données financières. Retourne UNIQUEMENT du JSON minifié sur UNE SEULE LIGNE, sans markdown.\n\nREGLES JSON: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Echappe les guillemets internes avec backslash. Champs _montant=chiffres bruts sans symbole ni espace (ex: 123405.50). null si absent.\n\n{"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null}\n\nREGLES CRITIQUES:\n- loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC, chiffres bruts (ex: 493621.10). JAMAIS prix unitaire/m². Si tableau par lot: ADDITIONNER les loyers annuels. INTERDIT de retourner null si un loyer figure dans le document.\n- loyer_cours: loyer annuel "de base" ou "en cours" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².\n- franchise_periodes: TOUTES les franchises en tableau OBLIGATOIRE, y compris conditionnelles. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"246810","surface_assiette":"LC1 (701,26 m²)","indexation_incluse":"Non","condition":null}]. montant=chiffres bruts (calcule: loyer_annuel_assiette*duree_mois/12 si non explicite). condition=texte si conditionnelle, null sinon. date_debut/date_fin=null si non precisees.\n- participations_travaux: si plusieurs enveloppes travaux. Format: [{"libelle":"Locaux Initiaux LC1","montant":"822701","date_limite":"31/12/2024","remarque":null}]. libelle OBLIGATOIRE: denomination exacte du document avec tous les lots.\n- indemnites: UNIQUEMENT indemnites financieres liees a une option (break, renouvellement, fin de bail). EXCLURE: honoraires, cautionnements, penalites, provisions. Format: [{"motif":"...","due_par":"Preneur ou Bailleur","montant":"chiffres bruts","date_limite":"..."}]`
+REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent.
 
-const PROMPT_STRUCTUREL_AV = `Expert baux commerciaux français. PASSE 1/2 AVENANT : extrais les données structurelles modifiees + identification du bail + surfaces. JSON minifié UNE SEULE LIGNE, sans markdown.\n\nREGLES JSON: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Echappe les guillemets internes avec backslash. Champs _montant=chiffres bruts sans symbole ni espace (ex: 123405.50). null si absent.\n\nCHAMP surface_change_type: "inchangee"/"ajout"/"retrait"/"substitution"/"mixte".\nCHAMP surfaces_delta: surfaces concernees par la modif (sens:"ajout"/"retrait" sur chaque ligne, categorie JAMAIS null).\nCHAMP surfaces_avant: surfaces AVANT avenant (categorie JAMAIS null), null si inchangee.\nCHAMP surfaces_apres: surfaces APRES avenant consolidees (categorie JAMAIS null), null si inchangee.\ncategorie: infere si absent (etage→Bureaux, sous-sol/lot→Stationnement, exterieur→Stationnement).\n\n{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}`
+CHAMPS:
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}
 
-const PROMPT_FINANCIER_AV = `Expert baux commerciaux français. PASSE 2/2 AVENANT : extrais UNIQUEMENT les données financières modifiées par cet avenant. JSON minifié UNE SEULE LIGNE, sans markdown.\n\nREGLES JSON: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Echappe les guillemets internes avec backslash. Champs _montant=chiffres bruts sans symbole ni espace (ex: 123405.50). null si absent.\n\n{"champs_modifies":{"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null}}\n\nREGLES CRITIQUES (identiques PASSE 2 bail):\n- loyer_signature_montant: montant annuel total HT/HC, jamais prix/m². null si non modifie par l'avenant.\n- franchise_periodes: TOUTES les nouvelles franchises en tableau. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"246810","surface_assiette":"LC1 (701,26 m²)","indexation_incluse":"Non","condition":null}]. null si aucune franchise dans l'avenant.\n- participations_travaux: si plusieurs enveloppes. libelle OBLIGATOIRE avec denomination exacte + lots. null si non concerne.`
+REGLES PAR CHAMP:
+- duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: si break_options, intervalle date_effet->premiere break option; sinon=duree_totale; si mentionne explicitement, utiliser cette valeur.
+- surfaces_detail: [{\"categorie\":\"Bureaux\",\"niveau\":\"5eme etage\",\"surface_m2\":\"2224.98\",\"prix_unitaire\":\"290\",\"loyer_annuel\":\"645244\"}]. categorie JAMAIS null: etage/plateau->Bureaux, sous-sol/emplacement/lot numerote->Stationnement, exterieur->Stationnement, doute->Bureaux.
+- break_options: ["31/08/2027","31/08/2030"]
+- loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
+- loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
+- franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon.
+- participations_travaux: si plusieurs enveloppes travaux. [{\"libelle\":\"Locaux Initiaux\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null}]. libelle OBLIGATOIRE: denomination exacte + tous les lots.
+- parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
+- indemnites: UNIQUEMENT indemnites liees a une option (break, renouvellement, fin de bail). EXCLURE: honoraires, cautionnements, penalites. [{\"motif\":\"...\",\"due_par\":\"Preneur ou Bailleur\",\"montant\":\"chiffres bruts\",\"date_limite\":\"...\"}]`
 
+const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON minifié UNE SEULE LIGNE, sans markdown.
+
+REGLES: Guillemets droits ASCII. Champs _montant=chiffres bruts. Dans champs_modifies: null pour les champs NON modifies par l'avenant.
+
+surface_change_type: "inchangee"/"ajout"/"retrait"/"substitution"/"mixte".
+surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retirees). Ajouter "sens":"ajout" ou "sens":"retrait". categorie JAMAIS null.
+surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
+surfaces_apres: tableau EXACT des surfaces APRES cet avenant = surfaces_avant + surfaces_delta (ajouts) - surfaces_delta (retraits). NE PAS INVENTER de lignes. NE PAS dupliquer. categorie JAMAIS null. null si surface_change_type="inchangee".
+
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}
+
+REGLES PAR CHAMP (champs_modifies):
+- loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
+- franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant.
+- participations_travaux: si plusieurs enveloppes. [{\"libelle\":\"Locaux Initiaux\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null}]. libelle OBLIGATOIRE. null si non concerne.
+- surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).`
 
 const DETECT_PROMPT = `Analyse ce document. Le nom du fichier est un indice important. Reponds UNIQUEMENT avec ce JSON sur une ligne:
 {"type":"bail","pertinent":true,"raison":"","preneur":"","bailleur":"","adresse":"","immeuble":""}
@@ -391,39 +417,6 @@ async function callClaude(base64, mediaType, prompt) {
 }
 
 // Dual-pass extraction for bail: structural + financial in parallel, then merge
-// Smart merge: for each key, keep the non-null/non-empty value
-// structural wins for its fields, financial wins for its fields, but neither can clobber the other's data with null/[]
-function smartMerge(structural, financial) {
-  const result = { ...structural }
-  for (const [key, val] of Object.entries(financial)) {
-    if (val === null || val === undefined) continue              // financial has null → keep structural
-    if (Array.isArray(val) && val.length === 0) continue        // financial has [] → keep structural array if any
-    result[key] = val                                           // financial has real data → use it
-  }
-  return result
-}
-
-async function callClaudeDual(base64, mediaType) {
-  const [structural, financial] = await Promise.all([
-    callClaude(base64, mediaType, PROMPT_STRUCTUREL),
-    callClaude(base64, mediaType, PROMPT_FINANCIER),
-  ])
-  return sanitizeExtracted(smartMerge(structural, financial))
-}
-
-// Dual-pass extraction for avenant
-async function callClaudeDualAv(base64, mediaType) {
-  const [structural, financial] = await Promise.all([
-    callClaude(base64, mediaType, PROMPT_STRUCTUREL_AV),
-    callClaude(base64, mediaType, PROMPT_FINANCIER_AV),
-  ])
-  const merged = smartMerge(structural, financial)
-  merged.champs_modifies = smartMerge(
-    structural.champs_modifies || {},
-    financial.champs_modifies || {}
-  )
-  return sanitizeExtracted(merged)
-}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -1414,7 +1407,7 @@ export default function App() {
         setStatus(i, 'loading')
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
-        const extracted = await callClaudeDual(base64, mediaType)
+        const extracted = await callClaude(base64, mediaType, EXTRACTION_PROMPT)
         const saved = await saveExtraction(files[i], extracted, 'bail', null)
         if (saved) {
           const bwa = { ...saved, avenants: [] }
@@ -1433,7 +1426,7 @@ export default function App() {
         setStatus(i, 'loading')
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
-        const extracted = await callClaudeDualAv(base64, mediaType)
+        const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
         // Résoudre batch- id en vrai id
         let parentId = avenantLinks[i] || null
         if (parentId && parentId.startsWith('batch-')) {
