@@ -231,11 +231,14 @@ function findBestMatch(ref, bails) {
 
 // ─── Excel export ─────────────────────────────────────────────────────────────
 
-const MAX_BREAKS    = 4
-const MAX_FRANCHISE = 6
+const MAX_BREAKS    = 6
+const MAX_FRANCHISE = 8
 const MAX_INDEM     = 5
 const MAX_SURF      = 8
 const MAX_TRAV      = 4
+const MAX_PALIERS   = 4
+const MAX_ABAT      = 4
+const MAX_IB        = 4
 
 function buildExcelHeaders() {
   const breakCols     = Array.from({ length: MAX_BREAKS },    (_, i) => `Break option ${i+1}`)
@@ -251,6 +254,15 @@ function buildExcelHeaders() {
   ]).flat()
   const travCols      = Array.from({ length: MAX_TRAV },      (_, i) => [
     `Travaux ${i+1} - Libelle`, `Travaux ${i+1} - Montant`, `Travaux ${i+1} - Date limite`,
+  ]).flat()
+  const palierCols    = Array.from({ length: MAX_PALIERS },   (_, i) => [
+    `Palier ${i+1} - Debut`, `Palier ${i+1} - Fin`, `Palier ${i+1} - Montant annuel`, `Palier ${i+1} - Description`,
+  ]).flat()
+  const abatCols      = Array.from({ length: MAX_ABAT },      (_, i) => [
+    `Abattement ${i+1} - Debut`, `Abattement ${i+1} - Fin`, `Abattement ${i+1} - Montant annuel`, `Abattement ${i+1} - Description`,
+  ]).flat()
+  const ibCols        = Array.from({ length: MAX_IB },        (_, i) => [
+    `Indem.break ${i+1} - Date break`, `Indem.break ${i+1} - Motif`, `Indem.break ${i+1} - Montant`, `Indem.break ${i+1} - Formule`,
   ]).flat()
   return [
     'Type', 'Actif / Immeuble', 'Adresse', 'Ville',
@@ -270,6 +282,11 @@ function buildExcelHeaders() {
     ...travCols,
     ...indemnCols,
     'Article 606', 'Conformite', 'Remise en etat', 'Sous-location', 'Cession', 'Destination', 'Maintenance', 'Accession',
+    // Loyer variable
+    'Loyer variable - Type', 'Loyer variable - Taux', 'Loyer variable - Assiette', 'Loyer variable - Plancher', 'Loyer variable - Plafond', 'Loyer variable - Formule',
+    ...palierCols,
+    ...abatCols,
+    ...ibCols,
     // Avenant-specific
     'Objet avenant', 'Date effet avenant', 'Date signature avenant', 'Bail lie', 'Modif surfaces type',
   ]
@@ -299,6 +316,9 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   const indem     = Array.isArray(d.indemnites)             ? d.indemnites             : []
   const surfaces  = Array.isArray(d.surfaces_detail)        ? d.surfaces_detail        : []
   const trav      = Array.isArray(d.participations_travaux) ? d.participations_travaux : []
+  const paliers   = Array.isArray(d.paliers_loyer)          ? d.paliers_loyer          : []
+  const abats     = Array.isArray(d.abattements)            ? d.abattements            : []
+  const ibs       = Array.isArray(d.indemnites_break)       ? d.indemnites_break       : []
 
   const breakVals = Array.from({ length: MAX_BREAKS },    (_, i) => v(breaks[i]) )
   const fracVals  = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
@@ -314,6 +334,15 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   ]).flat()
   const travVals  = Array.from({ length: MAX_TRAV },      (_, i) => [
     v(trav[i]?.libelle), amt(trav[i]?.montant), v(trav[i]?.date_limite),
+  ]).flat()
+  const palierVals = Array.from({ length: MAX_PALIERS },   (_, i) => [
+    v(paliers[i]?.date_debut), v(paliers[i]?.date_fin), amt(paliers[i]?.montant), v(paliers[i]?.description),
+  ]).flat()
+  const abatVals   = Array.from({ length: MAX_ABAT },      (_, i) => [
+    v(abats[i]?.date_debut), v(abats[i]?.date_fin), amt(abats[i]?.montant_annuel), v(abats[i]?.description),
+  ]).flat()
+  const ibVals     = Array.from({ length: MAX_IB },        (_, i) => [
+    v(ibs[i]?.break_date), v(ibs[i]?.motif), amt(ibs[i]?.montant), v(ibs[i]?.calcul),
   ]).flat()
 
   return [
@@ -340,6 +369,12 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     ...travVals,
     ...indemVals,
     v(d.article_606), v(d.conformite), v(d.remise_en_etat), v(d.sous_location), v(d.cession), v(d.destination), v(d.maintenance), v(d.accession),
+    // Loyer variable
+    v(d.loyer_variable?.type), v(d.loyer_variable?.taux), v(d.loyer_variable?.assiette),
+    amt(d.loyer_variable?.plancher), amt(d.loyer_variable?.plafond), v(d.loyer_variable?.regles),
+    ...palierVals,
+    ...abatVals,
+    ...ibVals,
     // Avenant-specific
     v(meta.objet_avenant), v(meta.date_effet_avenant), v(meta.date_signature_avenant),
     bailParentName || '', v(meta.surface_change_type),
@@ -417,6 +452,38 @@ function exportAllToExcel(tree) {
   exportToExcel(rows, 'lease_abstract_complet')
 }
 
+const BREAK_PROMPT = `Expert baux commerciaux français. Analyse UNIQUEMENT la clause de durée et de résiliation de ce bail. Retourne UNIQUEMENT un JSON minifié sur UNE SEULE LIGNE : {"date_effet":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","break_options":["jj/mm/aaaa",...]}
+
+REGLE ABSOLUE pour break_options : liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut sortir avant le terme.
+- "a l'expiration de chaque periode triennale" → calculer date_effet + 3 ans, + 6 ans (si < date_fin)
+- "a l'expiration de la Neme annee" → calculer date_effet + N ans
+- Inclure TOUTES ces dates calculées même si elles ne sont pas écrites explicitement
+- Trier chronologiquement
+- Ne PAS inclure date_fin (terme normal)
+- Exemple: bail 01/09/2025→31/08/2034 avec triennales + 4eme + 5eme annee → ["31/08/2028","31/08/2029","31/08/2030","31/08/2031"]`
+
+const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
+
+{"loyer_signature_montant":null,"loyer_signature":null,"paliers_loyer":[],"abattements":[],"loyer_variable":null,"franchise_periodes":[],"participations_travaux":[],"indemnites_break":[]}
+
+REGLES PAR CHAMP:
+
+loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. Jamais prix unitaire/m². Si tableau par lot: additionner tous les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
+
+loyer_signature: texte descriptif complet du loyer (detail par composante, prix unitaires, etc.)
+
+paliers_loyer: tableau si le loyer evolue par etapes a des dates definies (ex: loyer annuel reduit pendant N mois puis loyer plein). Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant":"123456","description":"ex: loyer reduit periode travaux"}]. [] si aucun palier.
+
+abattements: tableau de toutes les reductions temporaires de loyer (ex: abattement RIE, reduction pendant franchise partielle, loyer minoré conditionnel). Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant_annuel":"12345","description":"ex: reduction RIE jusqu a mise en service"}]. [] si aucun abattement.
+
+loyer_variable: si le bail contient une clause de loyer variable ou indexe sur le CA/chiffre d affaires. Format: {"type":"CA ou autre","taux":"ex: 3%","assiette":"ex: CA TTC annuel","plancher":"montant brut ou null","plafond":"montant brut ou null","regles":"texte complet de la formule et des conditions de declenchement"}. null si pas de loyer variable.
+
+franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnelles et complementaires. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"123405","surface_assiette":"ex: LC1 (701 m²)","indexation_incluse":"Non","condition":"null ou texte si conditionnelle ex: si non-delivrance de conge au 31/08/2030"}]. montant: calculer si non explicite (loyer_annuel_assiette * duree_mois / 12).
+
+participations_travaux: TOUTES les enveloppes de participation financiere du bailleur aux travaux du preneur. Format: [{"libelle":"denomination exacte ex: Locaux Initiaux R+5","montant":"822701","date_limite":"31/12/2024","remarque":null}]. libelle OBLIGATOIRE, jamais null.
+
+indemnites_break: UNIQUEMENT les sommes dues par le PRENEUR au BAILLEUR en cas d exercice d une option de break (resiliation anticipee). Inclure: forfait remise en etat, restitution de franchise, indemnite de dedit, penalite de sortie anticipee. EXCLURE: honoraires, cautionnements, charges. Format: [{"break_date":"31/08/2028","motif":"ex: restitution franchise + forfait remise en etat","montant":"123456","calcul":"ex: 6 mois de loyer + 50000 euros forfait ou texte de la formule si montant non fixe a l avance"}].`
+
 // ─── JSON cleaning & parsing ──────────────────────────────────────────────────
 
 function ensureArray(val) {
@@ -482,7 +549,15 @@ function sanitizeExtracted(data) {
   d.indemnites         = ensureArray(d.indemnites)
   d.surfaces_delta          = normalizeSurfaces(ensureArray(d.surfaces_delta))
   d.participations_travaux  = ensureArray(d.participations_travaux)
-  if (d.champs_modifies) d.champs_modifies.participations_travaux = ensureArray(d.champs_modifies?.participations_travaux)
+  d.paliers_loyer           = ensureArray(d.paliers_loyer)
+  d.abattements             = ensureArray(d.abattements)
+  d.indemnites_break        = ensureArray(d.indemnites_break)
+  if (d.champs_modifies) {
+    d.champs_modifies.participations_travaux = ensureArray(d.champs_modifies?.participations_travaux)
+    d.champs_modifies.paliers_loyer          = ensureArray(d.champs_modifies?.paliers_loyer)
+    d.champs_modifies.abattements            = ensureArray(d.champs_modifies?.abattements)
+    d.champs_modifies.indemnites_break       = ensureArray(d.champs_modifies?.indemnites_break)
+  }
   d.surfaces_avant  = normalizeSurfaces(ensureArray(d.surfaces_avant))
   d.surfaces_apres  = normalizeSurfaces(deduplicateSurfacesApres(d.surfaces_avant, d.surfaces_delta, ensureArray(d.surfaces_apres)))
   if (d.champs_modifies) {
@@ -1108,16 +1183,99 @@ function ResultsView({ item }) {
         </div>
       )}
 
-      {/* Indemnités */}
-      {(indemnites || d.indemnites_detail) && (
+      {/* Paliers de loyer */}
+      {d.paliers_loyer?.length > 0 && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Indemnités contractuelles liées aux échéances</div></div>
-          {indemnites && <IndemniteTable indemnites={indemnites} />}
-          {show('indemnites_detail') && d.indemnites_detail && (
-            <div style={{ marginTop: indemnites ? '8px' : 0 }}>
-              <Field label="Détail" value={d.indemnites_detail} verbose />
-            </div>
+          <div className="sec-hd"><div className="sec-label">Paliers de loyer</div></div>
+          <div className="table-wrap">
+            <table className="indemnites-table">
+              <thead><tr>
+                <th>Date début</th><th>Date fin</th>
+                <th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th>
+                <th>Description</th>
+              </tr></thead>
+              <tbody>
+                {d.paliers_loyer.map((row, i) => (
+                  <tr key={i}>
+                    <td>{safeStr(row.date_debut) || '—'}</td>
+                    <td>{safeStr(row.date_fin) || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
+                    <td style={{ color: 'var(--text2)' }}>{safeStr(row.description) || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Abattements temporaires */}
+      {d.abattements?.length > 0 && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Abattements et réductions temporaires de loyer</div></div>
+          <div className="table-wrap">
+            <table className="indemnites-table">
+              <thead><tr>
+                <th>Date début</th><th>Date fin</th>
+                <th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th>
+                <th>Description</th>
+              </tr></thead>
+              <tbody>
+                {d.abattements.map((row, i) => (
+                  <tr key={i}>
+                    <td>{safeStr(row.date_debut) || '—'}</td>
+                    <td>{safeStr(row.date_fin) || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.montant_annuel ? fmtEur(row.montant_annuel) : '—'}</td>
+                    <td style={{ color: 'var(--text2)' }}>{safeStr(row.description) || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Loyer variable */}
+      {d.loyer_variable && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Loyer variable</div></div>
+          <div className="g3" style={{ marginBottom: '8px' }}>
+            {d.loyer_variable.type && <Field label="Type" value={safeStr(d.loyer_variable.type)} />}
+            {d.loyer_variable.taux && <Field label="Taux" value={safeStr(d.loyer_variable.taux)} />}
+            {d.loyer_variable.assiette && <Field label="Assiette de calcul" value={safeStr(d.loyer_variable.assiette)} />}
+            {d.loyer_variable.plancher && <Field label="Plancher" value={fmtEur(d.loyer_variable.plancher) || safeStr(d.loyer_variable.plancher)} />}
+            {d.loyer_variable.plafond && <Field label="Plafond" value={fmtEur(d.loyer_variable.plafond) || safeStr(d.loyer_variable.plafond)} />}
+          </div>
+          {d.loyer_variable.regles && (
+            <Field label="Formule et règles de déclenchement" value={safeStr(d.loyer_variable.regles)} verbose />
           )}
+        </div>
+      )}
+
+      {/* Indemnités de break */}
+      {d.indemnites_break?.length > 0 && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Indemnités dues par le preneur en cas d'exercice d'une option de break</div></div>
+          <div className="table-wrap">
+            <table className="indemnites-table">
+              <thead><tr>
+                <th>Date de break</th>
+                <th>Motif</th>
+                <th style={{ textAlign: 'right' }}>Montant</th>
+                <th>Base de calcul / Formule</th>
+              </tr></thead>
+              <tbody>
+                {d.indemnites_break.map((row, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{safeStr(row.break_date) || '—'}</td>
+                    <td style={{ fontWeight: 500 }}>{safeStr(row.motif) || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
+                    <td style={{ color: 'var(--text2)' }}>{safeStr(row.calcul) || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -1575,6 +1733,26 @@ export default function App() {
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
         const extracted = await callClaude(base64, mediaType, EXTRACTION_PROMPT)
+        // Appels dédiés en parallèle : breaks + financier critique
+        try {
+          const [breakResult, financialResult] = await Promise.all([
+            callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
+            callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
+          ])
+          if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
+          if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
+          if (financialResult) {
+            const f = financialResult
+            if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
+            if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
+            if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
+            if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
+            if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
+            if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
+            if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
+            if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
+          }
+        } catch (_) { /* non bloquant */ }
         const saved = await saveExtraction(files[i], extracted, 'bail', null)
         if (saved) {
           const bwa = { ...saved, avenants: [] }
@@ -1594,6 +1772,23 @@ export default function App() {
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
         const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
+        // Appel dédié financier pour les avenants
+        try {
+          const financialResult = await callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null)
+          if (financialResult) {
+            const f = financialResult
+            const mods = extracted.champs_modifies || {}
+            if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
+            if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
+            if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
+            if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
+            if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
+            if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
+            if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
+            if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) mods.indemnites_break = f.indemnites_break
+            extracted.champs_modifies = mods
+          }
+        } catch (_) { /* non bloquant */ }
         // Résoudre batch- id en vrai id
         let parentId = avenantLinks[i] || null
         if (parentId && parentId.startsWith('batch-')) {
