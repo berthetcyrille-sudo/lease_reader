@@ -915,7 +915,9 @@ function ResultsView({ item }) {
   if (!Array.isArray(d.surfaces_detail)) d.surfaces_detail = []
   const meta = item.data || {}
 
-  const breaks = d.break_options
+  // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
+  const breaks = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options || [])
+
   const indemnites = d.indemnites.length > 0 ? d.indemnites : null
 
   const pills = []
@@ -990,9 +992,6 @@ function ResultsView({ item }) {
                 <div key={f.key} className="date-card">
                   <div className="date-lbl">{f.label}</div>
                   <div className="date-val">{d[f.key]}</div>
-                  {f.key === 'date_fin' && d.notice && (
-                    <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>
-                  )}
                 </div>
               ))}
               {breaks.map((br, i) => (
