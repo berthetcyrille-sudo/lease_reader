@@ -90,7 +90,7 @@ CHAMPS:
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: si break_options, intervalle date_effet->premiere break option; sinon=duree_totale; si mentionne explicitement, utiliser cette valeur.
 - surfaces_detail: [{\"categorie\":\"Bureaux\",\"niveau\":\"5eme etage\",\"surface_m2\":\"2224.98\",\"prix_unitaire\":\"290\",\"loyer_annuel\":\"645244\"}]. categorie JAMAIS null: etage/plateau->Bureaux, sous-sol/emplacement/lot numerote->Stationnement, exterieur->Stationnement, doute->Bureaux.
-- break_options: ["31/08/2027","31/08/2030"]
+- break_options: liste COMPLETE de toutes les dates de sortie anticipée possibles pour le PRENEUR, triée chronologiquement. Format: ["31/08/2028","31/08/2029","31/08/2030"]. REGLE DE CALCUL: si le bail mentionne "a l'expiration de chaque periode triennale" -> calculer date_effet + 3 ans, + 6 ans, + 9 ans (sauf si = date_fin). Si mention "a l'expiration de la Neme annee" -> calculer date_effet + N ans. Inclure TOUTES ces dates meme si non ecrites explicitement dans le document.
 - loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
 - franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon.
@@ -254,7 +254,7 @@ function buildExcelHeaders() {
   ]).flat()
   return [
     'Type', 'Actif / Immeuble', 'Adresse', 'Ville',
-    'Preneur', 'Bailleur', 'Garant',
+    'Preneur', 'Bailleur',
     'Type de bail', 'Duree totale', 'Duree ferme',
     'Date effet', 'Date signature', 'Date fin', 'Date conge limite', 'Preavis', 'Date limite travaux preneur',
     ...breakCols,
@@ -323,7 +323,6 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     v(d.ville),
     v(d.preneur  || raw.bail_reference?.preneur),
     v(d.bailleur || raw.bail_reference?.bailleur),
-    v(d.garant),
     v(d.type_bail), v(d.duree_totale), v(d.duree_ferme),
     // Date effet / signature : pour avenant, utiliser les dates propres à l'avenant
     isAv ? v(meta.date_effet_avenant) : v(d.date_effet),
@@ -362,6 +361,12 @@ function exportToExcel(items, fileName) {
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
 
   // Column widths
+  // Bold header row
+  headers.forEach((_, colIdx) => {
+    const addr = XLSX.utils.encode_cell({ r: 0, c: colIdx })
+    if (ws[addr]) ws[addr].s = { font: { bold: true } }
+  })
+
   ws['!cols'] = headers.map(h => ({
     wch: h.includes('detail') || h.includes('modalites') || h.includes('Condition') || h.includes('Motif') ? 40
        : h.includes('Libelle') || h.includes('Assiette') ? 35
@@ -383,7 +388,17 @@ function exportToExcel(items, fileName) {
 
   XLSX.utils.book_append_sheet(wb, ws, 'Base de données')
   const safeName = (fileName || 'lease_abstract').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_\-]/g, '_')
-  XLSX.writeFile(wb, `${safeName}.xlsx`)
+  // Use write + blob to support cell styles
+  try {
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true })
+    const blob = new Blob([wbout], { type: 'application/octet-stream' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `${safeName}.xlsx`
+    document.body.appendChild(a); a.click()
+    setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a) }, 100)
+  } catch {
+    XLSX.writeFile(wb, `${safeName}.xlsx`)
+  }
 }
 
 function exportAllToExcel(tree) {
