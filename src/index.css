@@ -118,8 +118,8 @@ button, input { font-family: inherit; cursor: pointer; }
 .av-banner-date { margin-left: auto; font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; }
 
 /* ── Sections ── */
-.sec { margin-bottom: 28px; }
-.sec-hd { margin-bottom: 12px; }
+.sec { margin-bottom: 44px; }
+.sec-hd { margin-bottom: 16px; }
 .sec-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .10em; color: var(--text3); }
 
 /* ── Grids ── */
