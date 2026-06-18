@@ -833,7 +833,7 @@ function ResultsView({ item }) {
       )}
 
       {/* Dates */}
-      {(dateFields.length > 0 || breaks.length > 0 || show('notice')) && (
+      {(dateFields.length > 0 || breaks.length > 0 || show('notice') || show('conditions_break')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Dates clés</div></div>
           {(dateFields.length > 0 || breaks.length > 0) && (
@@ -848,15 +848,20 @@ function ResultsView({ item }) {
                 <div key={i} className="date-card">
                   <div className="date-lbl"><span className="break-tag">B{breaks.length > 1 ? i + 1 : ''}</span> Break option</div>
                   <div className="date-val break">{br}</div>
+                  {d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
                 </div>
               ))}
             </div>
           )}
           <div className="g3">
-            {show('notice') && <Field label="Préavis" value={d.notice} />}
             {show('date_limite_travaux') && d.date_limite_travaux && <Field label="Date limite travaux preneur" value={d.date_limite_travaux} />}
-            {show('conditions_break') && d.conditions_break && <Field label="Conditions financières du break" value={d.conditions_break} verbose />}
           </div>
+          {show('conditions_break') && d.conditions_break && (
+            <div className="field full" style={{ marginTop: '8px' }}>
+              <div className="field-lbl">Détail de la clause de résiliation anticipée</div>
+              <div className="field-val verbose">{safeStr(d.conditions_break)}</div>
+            </div>
+          )}
         </div>
       )}
 
