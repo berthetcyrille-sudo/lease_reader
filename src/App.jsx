@@ -1126,8 +1126,8 @@ function ResultsView({ item }) {
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Refacturation et jouissance</div></div>
           <div className="g2">
-            {show('destination') && <Field label="Destination" value={d.destination} />}
-            {show('article_606') && <Field label="Article 606" value={d.article_606} />}
+            {show('destination') && <Field label="Destination" value={d.destination} verbose />}
+            {show('article_606') && <Field label="Article 606" value={d.article_606} verbose />}
             {show('sous_location') && <Field label="Sous-location" value={d.sous_location} verbose />}
             {show('cession') && <Field label="Cession" value={d.cession} verbose />}
             {show('remise_en_etat') && d.remise_en_etat && <Field label="Remise en état" value={d.remise_en_etat} verbose />}
