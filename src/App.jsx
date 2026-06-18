@@ -842,6 +842,9 @@ function ResultsView({ item }) {
                 <div key={f.key} className="date-card">
                   <div className="date-lbl">{f.label}</div>
                   <div className="date-val">{d[f.key]}</div>
+                  {f.key === 'date_fin' && d.notice && (
+                    <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>
+                  )}
                 </div>
               ))}
               {breaks.map((br, i) => (
@@ -858,7 +861,7 @@ function ResultsView({ item }) {
           </div>
           {show('conditions_break') && d.conditions_break && (
             <div className="field full" style={{ marginTop: '8px' }}>
-              <div className="field-lbl">Détail de la clause de résiliation anticipée</div>
+              <div className="field-lbl">Détail échéances</div>
               <div className="field-val verbose">{safeStr(d.conditions_break)}</div>
             </div>
           )}
@@ -873,7 +876,7 @@ function ResultsView({ item }) {
             {show('surface_totale_m2') && (
               <div className="field">
                 <div className="field-lbl">Surface totale</div>
-                <div className="field-val" style={{ fontWeight: 700 }}>{d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}</div>
+                <div className="field-val mono">{d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}</div>
               </div>
             )}
             {show('parking_nb_places') && (
