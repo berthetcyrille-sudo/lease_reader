@@ -555,25 +555,27 @@ function parseFR(s) {
 function fmtFR(d) {
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
 }
-// Add N years to a date, keeping same day/month
-function addYears(d, n) {
-  return new Date(d.getFullYear() + n, d.getMonth(), d.getDate())
+// Add N years to a date, keeping same day/month-1 (last day of previous month = expiry convention)
+function addYearsExpiry(d, n) {
+  // bail starting 01/09/2025 + 3 years → expiry 31/08/2028 (day before same date)
+  const result = new Date(d.getFullYear() + n, d.getMonth(), d.getDate() - 1)
+  return result
 }
-// Compute exhaustive break_options from date_effet, date_fin, conditions_break text + existing breaks
+
 function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, existing) {
   const effet = parseFR(date_effet_str)
   const fin   = parseFR(date_fin_str)
   if (!effet || !fin) return existing || []
 
   const clauseText = (conditions_break_str || '').toLowerCase()
-  const candidates = new Set((existing || []).map(s => String(s).trim()))
+  const candidates = new Set()
 
   // Detect triennales
-  const hasTriennale = /triennale|p.riode.{0,10}3\s*ans|3\s*ans/i.test(clauseText) ||
+  const hasTriennale = /triennale|p.riode.{0,10}3\s*ans/i.test(clauseText) ||
                        /chaque.{0,20}(p.riode|terme|fin)/i.test(clauseText)
   if (hasTriennale) {
     for (let y = 3; y < 9; y += 3) {
-      const d = addYears(effet, y)
+      const d = addYearsExpiry(effet, y)
       if (d < fin) candidates.add(fmtFR(d))
     }
   }
@@ -584,24 +586,15 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
   while ((match = yearPattern.exec(clauseText)) !== null) {
     const n = parseInt(match[1])
     if (n > 0 && n < 9) {
-      const d = addYears(effet, n)
+      const d = addYearsExpiry(effet, n)
       if (d < fin) candidates.add(fmtFR(d))
     }
   }
 
-  // Also parse "N ans" patterns near "expiration" or "fin"
-  const nAnsPattern = /(?:expiration|fin|terme).{0,30}(\d+)\s+ans/gi
-  while ((match = nAnsPattern.exec(clauseText)) !== null) {
-    const n = parseInt(match[1])
-    if (n > 0 && n < 9) {
-      const d = addYears(effet, n)
-      if (d < fin) candidates.add(fmtFR(d))
-    }
-  }
-
+  // If no clause text available, fall back to existing extracted breaks
   if (!candidates.size) return existing || []
 
-  // Sort chronologically
+  // Return only computed dates (ignore Claude's extracted breaks to avoid duplicates)
   return [...candidates].sort((a, b) => {
     const da = parseFR(a), db = parseFR(b)
     if (!da || !db) return 0
