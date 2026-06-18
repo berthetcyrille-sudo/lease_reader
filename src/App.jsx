@@ -85,11 +85,12 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent.
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null}
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: si break_options, intervalle date_effet->premiere break option; sinon=duree_totale; si mentionne explicitement, utiliser cette valeur.
 - surfaces_detail: [{\"categorie\":\"Bureaux\",\"niveau\":\"5eme etage\",\"surface_m2\":\"2224.98\",\"prix_unitaire\":\"290\",\"loyer_annuel\":\"645244\"}]. categorie JAMAIS null: etage/plateau->Bureaux, sous-sol/emplacement/lot numerote->Stationnement, exterieur->Stationnement, doute->Bureaux.
+- mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
 - break_options: liste COMPLETE de toutes les dates de sortie anticipée possibles pour le PRENEUR, triée chronologiquement. Format: ["31/08/2028","31/08/2029","31/08/2030"]. REGLE DE CALCUL: si le bail mentionne "a l'expiration de chaque periode triennale" -> calculer date_effet + 3 ans, + 6 ans, + 9 ans (sauf si = date_fin). Si mention "a l'expiration de la Neme annee" -> calculer date_effet + N ans. Inclure TOUTES ces dates meme si non ecrites explicitement dans le document.
 - loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
@@ -107,7 +108,7 @@ surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retiree
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant = surfaces_avant + surfaces_delta (ajouts) - surfaces_delta (retraits). NE PAS INVENTER de lignes. NE PAS dupliquer. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null}}
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
@@ -482,7 +483,10 @@ franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnel
 
 participations_travaux: TOUTES les enveloppes de participation financiere du bailleur aux travaux du preneur. Format: [{"libelle":"denomination exacte ex: Locaux Initiaux R+5","montant":"822701","date_limite":"31/12/2024","remarque":null}]. libelle OBLIGATOIRE, jamais null.
 
-indemnites_break: UNIQUEMENT les sommes dues par le PRENEUR au BAILLEUR en cas d exercice d une option de break (resiliation anticipee). Inclure: forfait remise en etat, restitution de franchise, indemnite de dedit, penalite de sortie anticipee. EXCLURE: honoraires, cautionnements, charges. Format: [{"break_date":"31/08/2028","motif":"ex: restitution franchise + forfait remise en etat","montant":"123456","calcul":"ex: 6 mois de loyer + 50000 euros forfait ou texte de la formule si montant non fixe a l avance"}].`
+indemnites_break: Sommes dues par le PRENEUR au BAILLEUR en cas d exercice d une option de break. DEUX CAS A DISTINGUER:
+1) FORFAIT CHIFFRE PAR DATE: si le bail prevoit un montant ou une formule specifique par date de break (ex: "6 mois de loyer si conge au 31/08/2028") -> creer une ligne par break date avec le montant ou la formule.
+2) OBLIGATION GENERALE DE REMBOURSEMENT: si le bail prevoit uniquement une clause generale de remboursement des avantages accordes (franchises, travaux, MDA) en cas de sortie avant leur terme -> creer UNE SEULE ligne sans break_date specifique, avec motif="Remboursement des mesures d accompagnement si sortie avant terme" et calcul=texte synthetique de la clause.
+NE PAS INVENTER de montants par date si le bail ne les prevoit pas explicitement. Format: [{"break_date":"31/08/2028 ou null si clause generale","motif":"texte","montant":"chiffres bruts ou null si non chiffre","calcul":"formule ou texte de la clause"}].`
 
 // ─── JSON cleaning & parsing ──────────────────────────────────────────────────
 
@@ -540,10 +544,79 @@ function deduplicateSurfacesApres(avant, delta, apres) {
   })
 }
 
+// Parse dd/mm/yyyy → Date object
+function parseFR(s) {
+  if (!s) return null
+  const m = String(s).match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) return null
+  return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]))
+}
+// Format Date → dd/mm/yyyy
+function fmtFR(d) {
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
+}
+// Add N years to a date, keeping same day/month
+function addYears(d, n) {
+  return new Date(d.getFullYear() + n, d.getMonth(), d.getDate())
+}
+// Compute exhaustive break_options from date_effet, date_fin, conditions_break text + existing breaks
+function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, existing) {
+  const effet = parseFR(date_effet_str)
+  const fin   = parseFR(date_fin_str)
+  if (!effet || !fin) return existing || []
+
+  const clauseText = (conditions_break_str || '').toLowerCase()
+  const candidates = new Set((existing || []).map(s => String(s).trim()))
+
+  // Detect triennales
+  const hasTriennale = /triennale|p.riode.{0,10}3\s*ans|3\s*ans/i.test(clauseText) ||
+                       /chaque.{0,20}(p.riode|terme|fin)/i.test(clauseText)
+  if (hasTriennale) {
+    for (let y = 3; y < 9; y += 3) {
+      const d = addYears(effet, y)
+      if (d < fin) candidates.add(fmtFR(d))
+    }
+  }
+
+  // Detect Neme année patterns: "4ème année", "5e année", etc.
+  const yearPattern = /(\d+)[eè][mr]?[eè]?\s+ann[eé]e/gi
+  let match
+  while ((match = yearPattern.exec(clauseText)) !== null) {
+    const n = parseInt(match[1])
+    if (n > 0 && n < 9) {
+      const d = addYears(effet, n)
+      if (d < fin) candidates.add(fmtFR(d))
+    }
+  }
+
+  // Also parse "N ans" patterns near "expiration" or "fin"
+  const nAnsPattern = /(?:expiration|fin|terme).{0,30}(\d+)\s+ans/gi
+  while ((match = nAnsPattern.exec(clauseText)) !== null) {
+    const n = parseInt(match[1])
+    if (n > 0 && n < 9) {
+      const d = addYears(effet, n)
+      if (d < fin) candidates.add(fmtFR(d))
+    }
+  }
+
+  if (!candidates.size) return existing || []
+
+  // Sort chronologically
+  return [...candidates].sort((a, b) => {
+    const da = parseFR(a), db = parseFR(b)
+    if (!da || !db) return 0
+    return da - db
+  })
+}
+
 function sanitizeExtracted(data) {
   if (!data || typeof data !== 'object') return data
   const d = { ...data }
-  d.break_options      = ensureArray(d.break_options)
+  d.break_options = ensureArray(d.break_options)
+  // Enrichir les breaks par calcul côté code — fiable à 100%
+  if (d.date_effet || d.date_fin) {
+    d.break_options = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options)
+  }
   d.surfaces_detail    = normalizeSurfaces(ensureArray(d.surfaces_detail))
   d.franchise_periodes = ensureArray(d.franchise_periodes)
   d.indemnites         = ensureArray(d.indemnites)
@@ -943,7 +1016,41 @@ function ResultsView({ item }) {
         </div>
       )}
 
-      {/* Surfaces */}
+      {/* Mise à disposition anticipée */}
+      {d.mise_a_disposition && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Mise à disposition anticipée</div></div>
+          <div className="g3">
+            {d.mise_a_disposition.date_debut && <Field label="Date de début" value={d.mise_a_disposition.date_debut} />}
+            {d.mise_a_disposition.date_fin   && <Field label="Date de fin"   value={d.mise_a_disposition.date_fin} />}
+            {d.mise_a_disposition.loyer_paye && (
+              <div className="field">
+                <div className="field-lbl">Loyer payé</div>
+                <div className="field-val">
+                  <span className={`pill ${d.mise_a_disposition.loyer_paye === 'Oui' ? 'pill-danger' : d.mise_a_disposition.loyer_paye === 'Non' ? 'pill-green' : 'pill-blue'}`}>
+                    {d.mise_a_disposition.loyer_paye}
+                  </span>
+                </div>
+              </div>
+            )}
+            {d.mise_a_disposition.charges_payees && (
+              <div className="field">
+                <div className="field-lbl">Charges payées</div>
+                <div className="field-val">
+                  <span className={`pill ${d.mise_a_disposition.charges_payees === 'Oui' ? 'pill-danger' : d.mise_a_disposition.charges_payees === 'Non' ? 'pill-green' : 'pill-blue'}`}>
+                    {d.mise_a_disposition.charges_payees}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+          {d.mise_a_disposition.conditions && (
+            <Field label="Conditions financières" value={safeStr(d.mise_a_disposition.conditions)} verbose />
+          )}
+        </div>
+      )}
+
+
       {(show('surfaces_detail') || show('surface_totale_m2')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Surfaces</div></div>
@@ -1267,9 +1374,9 @@ function ResultsView({ item }) {
               <tbody>
                 {d.indemnites_break.map((row, i) => (
                   <tr key={i}>
-                    <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{safeStr(row.break_date) || '—'}</td>
-                    <td style={{ fontWeight: 500 }}>{safeStr(row.motif) || '—'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{safeStr(row.break_date) || '—'}</td>
+                    <td>{safeStr(row.motif) || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
                     <td style={{ color: 'var(--text2)' }}>{safeStr(row.calcul) || '—'}</td>
                   </tr>
                 ))}
