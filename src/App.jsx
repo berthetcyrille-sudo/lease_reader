@@ -1028,7 +1028,7 @@ function ResultsView({ item }) {
             <div style={{ marginTop: '8px' }}>
               {d.franchise_periodes?.length > 0 && (
                 <div style={{ marginBottom: '4px' }}>
-                  <div className="field-lbl" style={{ marginBottom: '6px' }}>Franchise — périodes</div>
+                  <div className="field-lbl" style={{ marginBottom: '6px', marginTop: '24px' }}>Franchise — périodes</div>
                   <FranchiseTable periodes={d.franchise_periodes} />
                 </div>
               )}
