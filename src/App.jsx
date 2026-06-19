@@ -91,7 +91,7 @@ REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: si break_options, intervalle date_effet->premiere break option; sinon=duree_totale; si mentionne explicitement, utiliser cette valeur.
 - surfaces_detail: [{\"categorie\":\"Bureaux\",\"niveau\":\"5eme etage\",\"surface_m2\":\"2224.98\",\"prix_unitaire\":\"290\",\"loyer_annuel\":\"645244\"}]. categorie JAMAIS null: etage/plateau->Bureaux, sous-sol/emplacement/lot numerote->Stationnement, exterieur->Stationnement, doute->Bureaux.
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
-- break_options: liste COMPLETE de toutes les dates de sortie anticipée possibles pour le PRENEUR, triée chronologiquement. Format: ["31/08/2028","31/08/2029","31/08/2030"]. REGLE DE CALCUL: si le bail mentionne "a l'expiration de chaque periode triennale" -> calculer date_effet + 3 ans, + 6 ans, + 9 ans (sauf si = date_fin). Si mention "a l'expiration de la Neme annee" -> calculer date_effet + N ans. Inclure TOUTES ces dates meme si non ecrites explicitement dans le document.
+- break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2029","31/08/2030"]. REGLE CRITIQUE: les Conditions Particulières (CP) priment TOUJOURS sur les Conditions Générales (CG). Si les CG preVoient des echeances triennales MAIS que les CP contiennent une renonciation expresse du preneur ("le PRENEUR renonce expressement a sa faculte de resiliation triennale" ou equivalent) → il N'Y A PAS de break triennale, indiquer uniquement les dates expressement stipulees dans les CP. REGLE DE CALCUL quand les breaks sont confirmees par les CP: "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans (si < date_fin). "a l'expiration de la Neme annee" → date_effet + N ans. Inclure TOUTES ces dates calculees meme si non ecrites explicitement. Ne PAS inclure date_fin.
 - loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
 - franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon.
@@ -455,13 +455,15 @@ function exportAllToExcel(tree) {
 
 const BREAK_PROMPT = `Expert baux commerciaux français. Analyse UNIQUEMENT la clause de durée et de résiliation de ce bail. Retourne UNIQUEMENT un JSON minifié sur UNE SEULE LIGNE : {"date_effet":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","break_options":["jj/mm/aaaa",...]}
 
-REGLE ABSOLUE pour break_options : liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut sortir avant le terme.
-- "a l'expiration de chaque periode triennale" → calculer date_effet + 3 ans, + 6 ans (si < date_fin)
-- "a l'expiration de la Neme annee" → calculer date_effet + N ans
-- Inclure TOUTES ces dates calculées même si elles ne sont pas écrites explicitement
-- Trier chronologiquement
-- Ne PAS inclure date_fin (terme normal)
-- Exemple: bail 01/09/2025→31/08/2034 avec triennales + 4eme + 5eme annee → ["31/08/2028","31/08/2029","31/08/2030","31/08/2031"]`
+REGLE ABSOLUE pour break_options : liste COMPLETE et EXHAUSTIVE.
+REGLE CRITIQUE CP PRIMENT SUR CG: si les Conditions Générales preVoient des echeances triennales MAIS que les Conditions Particulières contiennent une renonciation expresse du preneur ("le PRENEUR renonce expressement a sa faculte de resiliation triennale" ou equivalent) → PAS de break triennale, indiquer UNIQUEMENT les dates expressement stipulees dans les CP.
+Si breaks confirmees:
+- "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans (si < date_fin)
+- "a l'expiration de la Neme annee" → date_effet + N ans
+- Inclure TOUTES ces dates calculees meme si non ecrites explicitement
+- Trier chronologiquement. Ne PAS inclure date_fin.
+- Exemple avec triennales + 4eme + 5eme: bail 01/09/2025→31/08/2034 → ["31/08/2028","31/08/2029","31/08/2030","31/08/2031"]
+- Exemple avec renonciation aux triennales: bail 31/12/2023→14/04/2033, CP stipulent "congé possible pour le 31/08/2030 uniquement" → ["31/08/2030"]`
 
 const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
 
@@ -568,33 +570,64 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
   if (!effet || !fin) return existing || []
 
   const clauseText = (conditions_break_str || '').toLowerCase()
+
   const candidates = new Set()
 
-  // Detect triennales
-  const hasTriennale = /triennale|p.riode.{0,10}3\s*ans/i.test(clauseText) ||
-                       /chaque.{0,20}(p.riode|terme|fin)/i.test(clauseText)
-  if (hasTriennale) {
-    for (let y = 3; y < 9; y += 3) {
-      const d = addYearsExpiry(effet, y)
-      if (d < fin) candidates.add(fmtFR(d))
+  // Detect explicit waiver of triennales ("renonce à sa faculté de résiliation triennale")
+  const hasWaiver = /renonce.{0,30}triennale|pas.{0,20}triennale|supprim.{0,20}triennale/i.test(clauseText)
+
+  // Detect explicit single break dates ("ne pourra donner congé que pour le jj/mm/aaaa")
+  const explicitDates = clauseText.match(/(\d{2})\s*(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s*(\d{4})/gi) || []
+  const monthMap = { janvier:1,février:2,mars:3,avril:4,mai:5,juin:6,juillet:7,août:8,septembre:9,octobre:10,novembre:11,décembre:12 }
+
+  if (!hasWaiver) {
+    // Detect triennales (only if no waiver)
+    const hasTriennale = /triennale|p.riode.{0,10}3\s*ans/i.test(clauseText) ||
+                         /chaque.{0,20}(p.riode|terme|fin)/i.test(clauseText)
+    if (hasTriennale) {
+      for (let y = 3; y < 9; y += 3) {
+        const d = addYearsExpiry(effet, y)
+        if (d < fin) candidates.add(fmtFR(d))
+      }
+    }
+
+    // Detect Nème année patterns
+    const yearPattern = /(\d+)[eè][mr]?[eè]?\s+ann[eé]e/gi
+    let match
+    while ((match = yearPattern.exec(clauseText)) !== null) {
+      const n = parseInt(match[1])
+      if (n > 0 && n < 9) {
+        const d = addYearsExpiry(effet, n)
+        if (d < fin) candidates.add(fmtFR(d))
+      }
     }
   }
 
-  // Detect Neme année patterns: "4ème année", "5e année", etc.
-  const yearPattern = /(\d+)[eè][mr]?[eè]?\s+ann[eé]e/gi
-  let match
-  while ((match = yearPattern.exec(clauseText)) !== null) {
-    const n = parseInt(match[1])
-    if (n > 0 && n < 9) {
-      const d = addYearsExpiry(effet, n)
-      if (d < fin) candidates.add(fmtFR(d))
+  // Always detect explicit "ne pourra donner congé que pour le DD mois YYYY" patterns
+  const explicitPattern = /(\d{1,2})\s+(janvier|f[eé]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[eé]cembre)\s+(\d{4})/gi
+  let exMatch
+  while ((exMatch = explicitPattern.exec(clauseText)) !== null) {
+    const day = parseInt(exMatch[1])
+    const month = monthMap[exMatch[2].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')] ||
+                  monthMap[exMatch[2].toLowerCase()]
+    const year = parseInt(exMatch[3])
+    if (month && year > 2000) {
+      const d = new Date(year, month - 1, day)
+      if (d > effet && d < fin) candidates.add(fmtFR(d))
     }
   }
 
-  // If no clause text available, fall back to existing extracted breaks
-  if (!candidates.size) return existing || []
+  // Also detect dd/mm/yyyy patterns in clause text
+  const datePattern = /(\d{2})\/(\d{2})\/(\d{4})/g
+  let dMatch
+  while ((dMatch = datePattern.exec(clauseText)) !== null) {
+    const d = parseFR(`${dMatch[1]}/${dMatch[2]}/${dMatch[3]}`)
+    if (d && d > effet && d < fin) candidates.add(fmtFR(d))
+  }
 
-  // Return only computed dates (ignore Claude's extracted breaks to avoid duplicates)
+  // If nothing computed and no waiver, fall back to Claude's extracted breaks
+  if (!candidates.size && !hasWaiver) return existing || []
+
   return [...candidates].sort((a, b) => {
     const da = parseFR(a), db = parseFR(b)
     if (!da || !db) return 0
