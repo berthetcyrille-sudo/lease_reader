@@ -699,7 +699,7 @@ function sanitizeExtracted(data) {
     d.champs_modifies.indemnites_break       = ensureArray(d.champs_modifies?.indemnites_break)
   }
   d.surfaces_avant  = cs(ensureArray(d.surfaces_avant))
-  d.surfaces_apres  = cs(deduplicateSurfacesApres(d.surfaces_avant, d.surfaces_delta, mergeSurfacesByCategory(ensureArray(d.surfaces_apres))))
+  d.surfaces_apres  = cs(mergeSurfacesByCategory(ensureArray(d.surfaces_apres)))
   if (d.champs_modifies) {
     d.champs_modifies = { ...d.champs_modifies }
     d.champs_modifies.break_options      = ensureArray(d.champs_modifies.break_options)
