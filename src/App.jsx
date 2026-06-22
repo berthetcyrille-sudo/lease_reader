@@ -2043,6 +2043,10 @@ export default function App() {
 
   async function handleDeleteItem(item, e) {
     e.stopPropagation()
+    // Si bail : supprimer aussi les avenants liés en base
+    if (item.document_type === 'bail') {
+      await supabase.from('extractions').delete().eq('parent_id', item.id)
+    }
     await supabase.from('extractions').delete().eq('id', item.id)
     if (activeItem?.id === item.id) setActiveItem(null)
     setHistory(prev => prev.filter(b => b.id !== item.id).map(b => ({ ...b, avenants: (b.avenants || []).filter(a => a.id !== item.id) })))
