@@ -640,7 +640,18 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
   })
 }
 
-// Merge surfaces rows with same categorie (sum surface_m2, keep first niveau)
+// Remove parking rows that have no useful data (no surface_m2 and no loyer_annuel)
+function cleanSurfaces(rows) {
+  if (!Array.isArray(rows)) return rows
+  return rows.filter(r => {
+    const cat = (r.categorie || r.typologie || '').toLowerCase()
+    const isPark = cat.includes('station') || cat.includes('parking') || cat.includes('place')
+    if (!isPark) return true
+    // Keep parking row only if it has a surface or a loyer
+    return (r.surface_m2 && String(r.surface_m2).trim() !== '' && String(r.surface_m2) !== '0') ||
+           (r.loyer_annuel && String(r.loyer_annuel).trim() !== '')
+  })
+}
 function mergeSurfacesByCategory(rows) {
   if (!Array.isArray(rows) || rows.length <= 1) return rows
   const map = new Map()
@@ -672,10 +683,11 @@ function sanitizeExtracted(data) {
   if (d.date_effet || d.date_fin) {
     d.break_options = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options)
   }
-  d.surfaces_detail    = normalizeSurfaces(ensureArray(d.surfaces_detail))
+  const cs = rows => cleanSurfaces(normalizeSurfaces(rows))
+  d.surfaces_detail    = cs(ensureArray(d.surfaces_detail))
   d.franchise_periodes = ensureArray(d.franchise_periodes)
   d.indemnites         = ensureArray(d.indemnites)
-  d.surfaces_delta          = normalizeSurfaces(ensureArray(d.surfaces_delta))
+  d.surfaces_delta          = cs(ensureArray(d.surfaces_delta))
   d.participations_travaux  = ensureArray(d.participations_travaux)
   d.paliers_loyer           = ensureArray(d.paliers_loyer)
   d.abattements             = ensureArray(d.abattements)
@@ -686,12 +698,12 @@ function sanitizeExtracted(data) {
     d.champs_modifies.abattements            = ensureArray(d.champs_modifies?.abattements)
     d.champs_modifies.indemnites_break       = ensureArray(d.champs_modifies?.indemnites_break)
   }
-  d.surfaces_avant  = normalizeSurfaces(ensureArray(d.surfaces_avant))
-  d.surfaces_apres  = normalizeSurfaces(deduplicateSurfacesApres(d.surfaces_avant, d.surfaces_delta, mergeSurfacesByCategory(ensureArray(d.surfaces_apres))))
+  d.surfaces_avant  = cs(ensureArray(d.surfaces_avant))
+  d.surfaces_apres  = cs(deduplicateSurfacesApres(d.surfaces_avant, d.surfaces_delta, mergeSurfacesByCategory(ensureArray(d.surfaces_apres))))
   if (d.champs_modifies) {
     d.champs_modifies = { ...d.champs_modifies }
     d.champs_modifies.break_options      = ensureArray(d.champs_modifies.break_options)
-    d.champs_modifies.surfaces_detail    = normalizeSurfaces(ensureArray(d.champs_modifies.surfaces_detail))
+    d.champs_modifies.surfaces_detail    = cs(ensureArray(d.champs_modifies.surfaces_detail))
     d.champs_modifies.franchise_periodes = ensureArray(d.champs_modifies.franchise_periodes)
     d.champs_modifies.indemnites         = ensureArray(d.champs_modifies.indemnites)
   }
