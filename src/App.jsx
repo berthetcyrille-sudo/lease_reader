@@ -1002,6 +1002,13 @@ function ResultsView({ item }) {
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
   const breaks = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options || [])
 
+  // Clean surfaces at display time too (for data already in DB)
+  const cs = rows => cleanSurfaces(normalizeSurfaces(Array.isArray(rows) ? rows : []))
+  d.surfaces_detail = cs(d.surfaces_detail)
+  if (d.surfaces_avant) d.surfaces_avant = cs(d.surfaces_avant)
+  if (d.surfaces_delta) d.surfaces_delta = cs(d.surfaces_delta)
+  if (d.surfaces_apres) d.surfaces_apres = cs(mergeSurfacesByCategory(d.surfaces_apres))
+
   const indemnites = d.indemnites.length > 0 ? d.indemnites : null
 
   const pills = []
