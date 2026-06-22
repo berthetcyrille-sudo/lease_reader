@@ -106,7 +106,7 @@ REGLES: Guillemets droits ASCII. Champs _montant=chiffres bruts. Dans champs_mod
 surface_change_type: "inchangee"/"ajout"/"retrait"/"substitution"/"mixte".
 surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retirees). Ajouter "sens":"ajout" ou "sens":"retrait". categorie JAMAIS null.
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
-surfaces_apres: tableau EXACT des surfaces APRES cet avenant = surfaces_avant + surfaces_delta (ajouts) - surfaces_delta (retraits). NE PAS INVENTER de lignes. NE PAS dupliquer. categorie JAMAIS null. null si surface_change_type="inchangee".
+surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie (ex: 2 lignes Bureaux → une seule ligne avec la surface totale). NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
 {"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null}}
 
@@ -185,7 +185,12 @@ function parseAmount(val) {
 // Condense verbose parking text to short summary e.g. "99 int. + 30 ext. = 129 places"
 function parseParkingShort(val) {
   if (!val) return null
+  // Handle object: try common keys
+  if (typeof val === 'object' && !Array.isArray(val)) {
+    val = val.total || val.nombre || val.nb || val.value || val.texte || val.commentaire || Object.values(val).find(v => v) || ''
+  }
   const s = String(val)
+  if (!s || s === 'null' || s === 'undefined') return null
   const intMatch = s.match(/(\d+)\s+int[eé]r/i)
   const extMatch = s.match(/(\d+)\s+ext[eé]r/i)
   const totalMatch = s.match(/^(\d+)\s+place/i)
@@ -635,6 +640,30 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
   })
 }
 
+// Merge surfaces rows with same categorie (sum surface_m2, keep first niveau)
+function mergeSurfacesByCategory(rows) {
+  if (!Array.isArray(rows) || rows.length <= 1) return rows
+  const map = new Map()
+  rows.forEach(r => {
+    const cat = r.categorie || r.typologie || '—'
+    if (!map.has(cat)) {
+      map.set(cat, { ...r })
+    } else {
+      const existing = map.get(cat)
+      const a = parseFloat(String(existing.surface_m2 || '').replace(',', '.')) || 0
+      const b = parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0
+      if (a > 0 && b > 0) {
+        existing.surface_m2 = String(Math.round((a + b) * 100) / 100)
+        existing.niveau = null // mixed
+        // Sum loyer_annuel too
+        const la = parseAmount(existing.loyer_annuel), lb = parseAmount(r.loyer_annuel)
+        if (la !== null && lb !== null) existing.loyer_annuel = String(la + lb)
+      }
+    }
+  })
+  return [...map.values()]
+}
+
 function sanitizeExtracted(data) {
   if (!data || typeof data !== 'object') return data
   const d = { ...data }
@@ -658,7 +687,7 @@ function sanitizeExtracted(data) {
     d.champs_modifies.indemnites_break       = ensureArray(d.champs_modifies?.indemnites_break)
   }
   d.surfaces_avant  = normalizeSurfaces(ensureArray(d.surfaces_avant))
-  d.surfaces_apres  = normalizeSurfaces(deduplicateSurfacesApres(d.surfaces_avant, d.surfaces_delta, ensureArray(d.surfaces_apres)))
+  d.surfaces_apres  = normalizeSurfaces(deduplicateSurfacesApres(d.surfaces_avant, d.surfaces_delta, mergeSurfacesByCategory(ensureArray(d.surfaces_apres))))
   if (d.champs_modifies) {
     d.champs_modifies = { ...d.champs_modifies }
     d.champs_modifies.break_options      = ensureArray(d.champs_modifies.break_options)
@@ -814,43 +843,60 @@ function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue }) 
 function SurfaceTable({ surfaces }) {
   const safe = Array.isArray(surfaces) ? surfaces : []
   if (!safe.length) return null
-  const total = safe.reduce((acc, r) => {
-    const cat = (r.categorie || r.typologie || '').toLowerCase()
-    if (cat.includes('station') || cat.includes('parking') || cat.includes('place')) return acc
-    return acc + (parseFloat(String(r.surface_m2).replace(/[^0-9.]/g, '')) || 0)
-  }, 0)
+  const isPark = r => { const cat = (r.categorie || r.typologie || '').toLowerCase(); return cat.includes('station') || cat.includes('parking') || cat.includes('place') }
+  const mainRows = safe.filter(r => !isPark(r))
+  const parkRows = safe.filter(r => isPark(r))
+  const total = mainRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
+  const parkTotal = parkRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
+  const parkLoyer = parkRows.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
   return (
-    <div className="table-wrap">
-      <table className="indemnites-table">
-        <thead>
-          <tr>
-            <th>Catégorie</th><th>Niveau / Localisation</th>
-            <th style={{ textAlign: 'right' }}>Surface (m²)</th>
-            <th style={{ textAlign: 'right' }}>Prix (€/m²)</th>
-            <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {safe.map((row, i) => (
-            <tr key={i}>
-              <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
-              <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
-              <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 ? `${row.surface_m2} m²` : '—'}</td>
-              <td style={{ textAlign: 'right' }}>{row.prix_unitaire ? fmtEur(row.prix_unitaire) : '—'}</td>
-              <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
-            </tr>
+    <div>
+      {mainRows.length > 0 && (
+        <div className="table-wrap">
+          <table className="indemnites-table">
+            <thead>
+              <tr>
+                <th>Catégorie</th><th>Niveau / Localisation</th>
+                <th style={{ textAlign: 'right' }}>Surface (m²)</th>
+                <th style={{ textAlign: 'right' }}>Prix (€/m²)</th>
+                <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mainRows.map((row, i) => (
+                <tr key={i}>
+                  <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
+                  <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 ? `${row.surface_m2} m²` : '—'}</td>
+                  <td style={{ textAlign: 'right' }}>{row.prix_unitaire ? fmtEur(row.prix_unitaire) : '—'}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+            {total > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: '1px solid var(--border2)' }}>
+                  <td colSpan={2} style={{ fontWeight: 600, padding: '8px 10px' }}>Total</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{total.toLocaleString('fr-FR')} m²</td>
+                  <td></td><td></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+      {parkRows.length > 0 && (
+        <div style={{ marginTop: mainRows.length > 0 ? '10px' : 0, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Stationnement</span>
+          {parkRows.map((row, i) => (
+            <span key={i} style={{ fontSize: '12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '3px 10px', color: 'var(--text2)' }}>
+              {row.niveau || row.localisation || `Lot ${i+1}`}{row.surface_m2 ? ` · ${row.surface_m2} m²` : ''}{row.loyer_annuel ? ` · ${fmtEur(row.loyer_annuel)}` : ''}
+            </span>
           ))}
-        </tbody>
-        {total > 0 && (
-          <tfoot>
-            <tr style={{ borderTop: '1px solid var(--border2)' }}>
-              <td colSpan={2} style={{ fontWeight: 600, padding: '8px 10px' }}>Total bureaux + archives</td>
-              <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{total.toLocaleString('fr-FR')} m²</td>
-              <td></td><td></td>
-            </tr>
-          </tfoot>
-        )}
-      </table>
+          {parkTotal > 0 && <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>{parkTotal.toLocaleString('fr-FR')} m²</span>}
+          {parkLoyer > 0 && <span style={{ fontSize: '12px', color: 'var(--text2)' }}>— {fmtEur(parkLoyer)} /an</span>}
+        </div>
+      )}
     </div>
   )
 }
@@ -1092,7 +1138,7 @@ function ResultsView({ item }) {
             {show('surface_totale_m2') && (
               <div className="field">
                 <div className="field-lbl">Surface totale</div>
-                <div className="field-val mono">{d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}</div>
+                <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em' }}>{d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}</div>
               </div>
             )}
             {show('parking_nb_places') && (
@@ -1123,12 +1169,17 @@ function ResultsView({ item }) {
             // Helper : mini-table surfaces
             function SurfMiniTable({ rows, accentSens }) {
               if (!Array.isArray(rows) || !rows.length) return <span style={{ fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>—</span>
-              const totalM2 = rows.reduce((acc, r) => {
-                const cat = (r.categorie || r.typologie || '').toLowerCase()
-                if (cat.includes('station') || cat.includes('parking') || cat.includes('place')) return acc
-                return acc + (parseFloat(String(r.surface_m2).replace(/[^0-9.]/g, '')) || 0)
+              const isPark = r => { const cat = (r.categorie || r.typologie || '').toLowerCase(); return cat.includes('station') || cat.includes('parking') || cat.includes('place') }
+              const mainRows = rows.filter(r => !isPark(r))
+              const parkRows = rows.filter(r => isPark(r))
+              const totalM2 = mainRows.reduce((acc, r) => {
+                return acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0)
+              }, 0)
+              const parkCount = parkRows.reduce((acc, r) => {
+                return acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0)
               }, 0)
               return (
+                <div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border2)' }}>
@@ -1161,13 +1212,25 @@ function ResultsView({ item }) {
                   {totalM2 > 0 && (
                     <tfoot>
                       <tr>
-                        <td colSpan={accentSens ? 3 : 2} style={{ padding: '5px 6px', fontWeight: 600, fontSize: '11px', color: 'var(--text2)' }}>Total (hors parkings)</td>
+                        <td colSpan={accentSens ? 3 : 2} style={{ padding: '5px 6px', fontWeight: 600, fontSize: '11px', color: 'var(--text2)' }}>Total</td>
                         <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{totalM2.toLocaleString('fr-FR')} m²</td>
                         <td />
                       </tr>
                     </tfoot>
                   )}
                 </table>
+                {parkRows.length > 0 && (
+                  <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Parking</span>
+                    {parkRows.map((r, i) => (
+                      <span key={i} style={{ fontSize: '11px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '4px', padding: '2px 7px', color: 'var(--text2)' }}>
+                        {r.niveau || r.localisation || `Lot ${i+1}`}{r.surface_m2 ? ` · ${r.surface_m2} m²` : ''}
+                      </span>
+                    ))}
+                    {parkCount > 0 && <span style={{ fontSize: '11px', fontWeight: 600 }}>{parkCount.toLocaleString('fr-FR')} m²</span>}
+                  </div>
+                )}
+                </div>
               )
             }
 
