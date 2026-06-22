@@ -960,15 +960,18 @@ function ResultsView({ item }) {
     pills.push({ label: 'Franchise', cls: 'pill-green' })
   }
 
-  const dateFields = [
-    { key: 'date_effet', label: "Prise d'effet" },
-    { key: 'date_signature', label: 'Signature' },
-    { key: 'date_conge', label: 'Limite congé' },
-    { key: 'date_fin', label: 'Expiration' },
+  const primaryDates = [
+    d.date_effet ? { key: 'date_effet', label: "Prise d'effet", type: 'primary' } : null,
+    ...breaks.map((br, i) => ({ key: `break_${i}`, label: `Break option${breaks.length > 1 ? ' '+( i+1) : ''}`, val: br, type: 'break' })),
+    d.date_fin   ? { key: 'date_fin',   label: 'Expiration',    type: 'primary' } : null,
+  ].filter(Boolean)
+
+  const secondaryDates = [
+    { key: 'date_signature',      label: 'Signature' },
+    { key: 'date_conge',          label: 'Limite congé' },
+    { key: 'date_limite_travaux', label: 'Date limite travaux preneur' },
   ].filter(f => d[f.key])
 
-  const totalDates = dateFields.length + breaks.length
-  const dateCols = Math.min(Math.max(totalDates, 2), 4)
   const show = key => !isAv || d[key] != null
 
   return (
@@ -1009,29 +1012,35 @@ function ResultsView({ item }) {
       )}
 
       {/* Dates */}
-      {(dateFields.length > 0 || breaks.length > 0 || show('notice') || show('conditions_break')) && (
+      {(primaryDates.length > 0 || secondaryDates.length > 0 || show('conditions_break')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Dates clés</div></div>
-          {(dateFields.length > 0 || breaks.length > 0) && (
-            <div className="date-strip" style={{ gridTemplateColumns: `repeat(${dateCols},1fr)`, marginBottom: '8px' }}>
-              {dateFields.map(f => (
-                <div key={f.key} className="date-card">
-                  <div className="date-lbl">{f.label}</div>
-                  <div className="date-val">{d[f.key]}</div>
-                </div>
-              ))}
-              {breaks.map((br, i) => (
-                <div key={i} className="date-card">
-                  <div className="date-lbl"><span className="break-tag">B{breaks.length > 1 ? i + 1 : ''}</span> Break option</div>
-                  <div className="date-val break">{br}</div>
-                  {d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
+          {/* Rangée principale : effet — breaks — expiration */}
+          {primaryDates.length > 0 && (
+            <div className="date-strip" style={{ gridTemplateColumns: `repeat(${Math.min(primaryDates.length, 5)}, 1fr)`, marginBottom: '12px' }}>
+              {primaryDates.map(f => (
+                <div key={f.key} className={`date-card${f.type === 'break' ? ' date-card-break' : ''}`}>
+                  <div className="date-lbl">
+                    {f.type === 'break' && <span className="break-tag">B{breaks.length > 1 ? f.key.split('_')[1]*1+1 : ''}</span>}
+                    {' '}{f.label}
+                  </div>
+                  <div className={`date-val${f.type === 'break' ? ' break' : ''}`}>{f.val || d[f.key]}</div>
+                  {f.type === 'break' && d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
                 </div>
               ))}
             </div>
           )}
-          <div className="g3">
-            {show('date_limite_travaux') && d.date_limite_travaux && <Field label="Date limite travaux preneur" value={d.date_limite_travaux} />}
-          </div>
+          {/* Rangée secondaire : signature, congé, travaux */}
+          {secondaryDates.length > 0 && (
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+              {secondaryDates.map(f => (
+                <div key={f.key} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 14px', minWidth: '160px' }}>
+                  <div className="date-lbl" style={{ fontSize: '10px', marginBottom: '3px' }}>{f.label}</div>
+                  <div style={{ fontSize: '13px', color: 'var(--text2)', fontWeight: 400 }}>{d[f.key]}</div>
+                </div>
+              ))}
+            </div>
+          )}
           {show('conditions_break') && d.conditions_break && (
             <div className="field full" style={{ marginTop: '8px' }}>
               <div className="field-lbl">Détail échéances</div>
@@ -1634,7 +1643,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
                   <div style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
                     {isAv
                       ? (row._parentName || '')
-                      : (d.preneur?.split(',')[0]?.split(' SAS')[0]?.split(' SA')[0] || d.ville || '')
+                      : (d.preneur?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim() || d.ville || '')
                     }
                   </div>
                 </div>
@@ -1972,7 +1981,8 @@ export default function App() {
 
   const d = activeItem?.data || {}
   const resultTitle = d.immeuble || d.adresse || activeItem?.file_name || ''
-  const resultSub = [d.preneur?.split(',')[0], d.bailleur?.split(',')[0], d.date_signature ? `Signé le ${d.date_signature}` : null].filter(Boolean).join(' · ')
+  const shortName = s => s?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim()
+  const resultSub = [shortName(d.preneur), shortName(d.bailleur), d.date_signature ? `Signé le ${d.date_signature}` : null].filter(Boolean).join(' · ')
 
   return (
     <>
