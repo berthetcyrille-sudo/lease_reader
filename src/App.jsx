@@ -579,7 +579,7 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
   const candidates = new Set()
 
   // Detect explicit waiver of triennales ("renonce à sa faculté de résiliation triennale")
-  const hasWaiver = /renonce.{0,30}triennale|pas.{0,20}triennale|supprim.{0,20}triennale/i.test(clauseText)
+  const hasWaiver = /renonce.{0,80}triennale|pas.{0,20}triennale|supprim.{0,20}triennale|faculté.{0,10}résiliation.{0,10}triennale/i.test(clauseText)
 
   // Detect explicit single break dates ("ne pourra donner congé que pour le jj/mm/aaaa")
   const explicitDates = clauseText.match(/(\d{2})\s*(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s*(\d{4})/gi) || []
