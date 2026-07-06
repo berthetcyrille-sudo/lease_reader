@@ -85,7 +85,7 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent.
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[]}
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: si break_options, intervalle date_effet->premiere break option; sinon=duree_totale; si mentionne explicitement, utiliser cette valeur.
@@ -109,7 +109,7 @@ surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retiree
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie (ex: 2 lignes Bureaux → une seule ligne avec la surface totale). NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[]}}
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
@@ -491,10 +491,13 @@ franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnel
 
 participations_travaux: TOUTES les enveloppes de participation financiere du bailleur aux travaux du preneur. Format: [{"libelle":"denomination exacte ex: Locaux Initiaux R+5","montant":"822701","date_limite":"31/12/2024","remarque":null}]. libelle OBLIGATOIRE, jamais null.
 
-indemnites_break: Sommes dues par le PRENEUR au BAILLEUR en cas d exercice d une option de break. DEUX CAS A DISTINGUER:
-1) FORFAIT CHIFFRE PAR DATE: si le bail prevoit un montant ou une formule specifique par date de break (ex: "6 mois de loyer si conge au 31/08/2028") -> creer une ligne par break date avec le montant ou la formule.
-2) OBLIGATION GENERALE DE REMBOURSEMENT: si le bail prevoit uniquement une clause generale de remboursement des avantages accordes (franchises, travaux, MDA) en cas de sortie avant leur terme -> creer UNE SEULE ligne sans break_date specifique, avec motif="Remboursement des mesures d accompagnement si sortie avant terme" et calcul=texte synthetique de la clause.
-NE PAS INVENTER de montants par date si le bail ne les prevoit pas explicitement. Format: [{"break_date":"31/08/2028 ou null si clause generale","motif":"texte","montant":"chiffres bruts ou null si non chiffre","calcul":"formule ou texte de la clause"}].`
+indemnites_restitution: tableau EXHAUSTIF de TOUTES les indemnites financieres dues a CHAQUE TERME du bail (breaks intermediaires ET fin de bail). Couvrir: indemnite forfaitaire de remise en etat, restitution de franchise si conge, indemnite d eviction due par le bailleur, indemnite de non-renouvellement, tout autre flux financier prevu a une echeance specifique. Inclure TOUTES les tranches meme si le montant varie selon l echeance. EXCLURE: depots de garantie, provisions de charges, remboursements de cession. Format: [{"terme":"ex: Break 28/06/2032 ou Terme du bail 28/06/2035 ou Tout terme","due_par":"Preneur ou Bailleur","motif":"ex: Indemnite forfaitaire remise en etat ou Restitution franchise ou Indemnite d eviction","montant":"115840 ou null si non chiffre","calcul":"ex: Forfait indexe BT01 ou formule ou texte de la clause"}]. null si aucune indemnite de ce type.
+indemnites_break: Sommes dues par le PRENEUR au BAILLEUR UNIQUEMENT en cas d exercice de son droit de CONGE (sortie anticipee par le preneur via l option de break). TROIS CAS A DISTINGUER:
+1) FORFAIT CHIFFRE PAR DATE DE BREAK: montant ou formule specifique par echéance (ex: "6 mois de loyer si conge au 31/08/2028") -> une ligne par break date.
+2) INDEMNITE DE RESTITUTION/REMISE EN ETAT: si le bail prevoit une indemnite forfaitaire due a la restitution en cas de sortie anticipee (ex: "indemnite forfaitaire de remise en etat de 115 840 € en cas de depart a compter de la 6eme annee") -> inclure avec break_date=date de la premiere break concernee et calcul=formule ou texte.
+3) REMBOURSEMENT DES MESURES D ACCOMPAGNEMENT SI CONGE: clause generale de remboursement des avantages (franchises, MDA, travaux) si le preneur exerce son conge avant terme -> une ligne sans break_date specifique.
+A EXCLURE de indemnites_break: les clauses de remboursement uniquement en cas de CESSION du bail ou du fonds (pas un conge). Ces clauses-la relèvent de la cession et ne sont pas des indemnites de break.
+NE PAS INVENTER de montants. Format: [{"break_date":"31/08/2028 ou null","motif":"texte","montant":"chiffres bruts ou null","calcul":"formule ou texte de la clause"}].`
 
 // ─── JSON cleaning & parsing ──────────────────────────────────────────────────
 
@@ -693,6 +696,7 @@ function sanitizeExtracted(data) {
   d.paliers_loyer           = ensureArray(d.paliers_loyer)
   d.abattements             = ensureArray(d.abattements)
   d.indemnites_break        = ensureArray(d.indemnites_break)
+  d.indemnites_restitution  = ensureArray(d.indemnites_restitution)
   if (d.champs_modifies) {
     d.champs_modifies.participations_travaux = ensureArray(d.champs_modifies?.participations_travaux)
     d.champs_modifies.paliers_loyer          = ensureArray(d.champs_modifies?.paliers_loyer)
@@ -1476,7 +1480,42 @@ function ResultsView({ item }) {
         </div>
       )}
 
-      {/* Indemnités de break */}
+      {/* Indemnités par terme de bail */}
+      {d.indemnites_restitution?.length > 0 && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Indemnités par terme (breaks & fin de bail)</div></div>
+          <div className="table-wrap">
+            <table className="indemnites-table">
+              <thead><tr>
+                <th>Terme / Échéance</th>
+                <th>Due par</th>
+                <th>Motif</th>
+                <th style={{ textAlign: 'right' }}>Montant</th>
+                <th>Base de calcul</th>
+              </tr></thead>
+              <tbody>
+                {d.indemnites_restitution.map((row, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{safeStr(row.terme) || '—'}</td>
+                    <td>
+                      {row.due_par && (
+                        <span className={`pill ${row.due_par === 'Preneur' ? 'pill-danger' : 'pill-blue'}`} style={{ fontSize: '11px' }}>
+                          {row.due_par}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ fontWeight: 500 }}>{safeStr(row.motif) || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
+                    <td style={{ color: 'var(--text2)' }}>{safeStr(row.calcul) || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+
       {d.indemnites_break?.length > 0 && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Indemnités dues par le preneur en cas d'exercice d'une option de break</div></div>
