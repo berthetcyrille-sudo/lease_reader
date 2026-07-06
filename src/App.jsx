@@ -31,7 +31,7 @@ const SECTIONS = [
     { key: 'date_signature', label: 'Date de signature' },
     { key: 'break_options', label: 'Break options' },
     { key: 'notice', label: 'Préavis' },
-    { key: 'date_conge', label: 'Date limite de congé' },
+    { key: 'date_conge', label: 'Date limite de congé' },  // kept for legacy display only
     { key: 'date_fin', label: 'Date de fin' },
     { key: 'date_limite_travaux', label: 'Date limite travaux preneur' },
     { key: 'conditions_break', label: 'Conditions financières du break' },
@@ -90,12 +90,13 @@ CHAMPS:
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: si break_options, intervalle date_effet->premiere break option; sinon=duree_totale; si mentionne explicitement, utiliser cette valeur.
 - surfaces_detail: [{\"categorie\":\"Bureaux\",\"niveau\":\"5eme etage\",\"surface_m2\":\"2224.98\",\"prix_unitaire\":\"290\",\"loyer_annuel\":\"645244\"}]. categorie JAMAIS null: etage/plateau->Bureaux, sous-sol/emplacement/lot numerote->Stationnement, exterieur->Stationnement, doute->Bureaux.
+- notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
 - break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2029","31/08/2030"]. REGLE CRITIQUE: les Conditions Particulières (CP) priment TOUJOURS sur les Conditions Générales (CG). Si les CG preVoient des echeances triennales MAIS que les CP contiennent une renonciation expresse du preneur ("le PRENEUR renonce expressement a sa faculte de resiliation triennale" ou equivalent) → il N'Y A PAS de break triennale, indiquer uniquement les dates expressement stipulees dans les CP. REGLE DE CALCUL quand les breaks sont confirmees par les CP: "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans (si < date_fin). "a l'expiration de la Neme annee" → date_effet + N ans. Inclure TOUTES ces dates calculees meme si non ecrites explicitement. Ne PAS inclure date_fin.
 - loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
 - franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon.
-- participations_travaux: si plusieurs enveloppes travaux. [{\"libelle\":\"Locaux Initiaux\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null}]. libelle OBLIGATOIRE: denomination exacte + tous les lots.
+- participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null}]. libelle OBLIGATOIRE.
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
 - indemnites: UNIQUEMENT indemnites liees a une option (break, renouvellement, fin de bail). EXCLURE: honoraires, cautionnements, penalites. [{\"motif\":\"...\",\"due_par\":\"Preneur ou Bailleur\",\"montant\":\"chiffres bruts\",\"date_limite\":\"...\"}]`
 
@@ -113,7 +114,7 @@ surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: reg
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
 - franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant.
-- participations_travaux: si plusieurs enveloppes. [{\"libelle\":\"Locaux Initiaux\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null}]. libelle OBLIGATOIRE. null si non concerne.
+- participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null}]. null si non concerne.
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).`
 
 const DETECT_PROMPT = `Analyse ce document. Le nom du fichier est un indice important. Reponds UNIQUEMENT avec ce JSON sur une ligne:
@@ -1033,7 +1034,7 @@ function ResultsView({ item }) {
 
   const secondaryDates = [
     { key: 'date_signature',      label: 'Signature' },
-    { key: 'date_conge',          label: 'Limite congé' },
+    { key: 'notice',              label: 'Préavis' },
     { key: 'date_limite_travaux', label: 'Date limite travaux preneur' },
   ].filter(f => d[f.key])
 
