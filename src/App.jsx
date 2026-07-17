@@ -366,8 +366,8 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   ]).flat()
 
   return [
-    item.id || '',
-    isAv ? (item.parent_id || '') : '',
+    (item.id || '').slice(0, 8),
+    isAv ? (item.parent_id || '').slice(0, 8) : '',
     isAv ? 'Avenant' : 'Bail',
     v(d.immeuble || raw.bail_reference?.immeuble),
     v(d.adresse  || raw.bail_reference?.adresse),
