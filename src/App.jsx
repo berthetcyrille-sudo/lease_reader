@@ -321,6 +321,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
 
   const v    = (val) => { const s = safeStr(val); return s || '' }
   const amt  = (val) => { const n = parseAmount(val); return n !== null ? n : '' }
+  const surf = (val) => { const n = parseFloat(String(val || '').replace(',', '.')); return isNaN(n) ? '' : n }
 
   const breaks    = Array.isArray(d.break_options)          ? d.break_options          : []
   const franchise = Array.isArray(d.franchise_periodes)     ? d.franchise_periodes     : []
@@ -346,7 +347,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     if (!r) return ['', '', '', '', '']
     const up = r.prix_unitaire ? amt(r.prix_unitaire) :
                (() => { const l = parseAmount(r.loyer_annuel); const s = parseFloat(String(r.surface_m2||'').replace(',','.'))||0; return (l!==null&&s>0) ? Math.round(l/s) : '' })()
-    return [v(r.categorie), v(r.niveau), v(r.surface_m2), up, amt(r.loyer_annuel)]
+    return [v(r.categorie), v(r.niveau), surf(r.surface_m2), up, amt(r.loyer_annuel)]
   }).flat()
   // Parking unit price
   const pkUnit = computeParkingUnitPrice(d.parking_nb_places, surfaces)
@@ -377,7 +378,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
     ...breakVals,
     v(d.conditions_break),
-    v(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', pkUnit || '', v(d.rie),
+    surf(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', pkUnit || '', v(d.rie),
     ...surfVals,
     amt(d.loyer_signature_montant), amt(d.loyer_cours), v(d.indexation), v(d.loyer_signature),
     ...fracVals,
