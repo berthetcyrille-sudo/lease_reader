@@ -1926,7 +1926,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {isAv
                         ? `Avenant ${row._avNum || ''}`
-                        : (d.immeuble || d.adresse || row.file_name.replace(/\.[^.]+$/, ''))
+                        : (d.immeuble || d.adresse || row.file_name.replace(/\.[^.]+$/, '')).toUpperCase()
                       }
                     </span>
                     {!isAv && row._avCount > 0 && (
@@ -1936,10 +1936,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
                     )}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
-                    {isAv
-                      ? (row._parentName || '')
-                      : (d.preneur?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim() || d.ville || '')
-                    }
+                    {isAv ? (row._parentName || '') : (d.ville || '')}
                   </div>
                 </div>
 
@@ -1950,13 +1947,11 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
                   </span>
                 </div>
 
-                {/* Bail lié */}
+                {/* Preneur */}
                 <div className="dash-td">
-                  {isAv && row._parentName ? (
-                    <span style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                      {row._parentName}
-                    </span>
-                  ) : <span/>}
+                  <span style={{ fontSize: '12px', color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                    {shortPartyName(d.preneur)?.toUpperCase() || '—'}
+                  </span>
                 </div>
 
                 {/* Date effet */}
