@@ -278,7 +278,7 @@ function buildExcelHeaders() {
     'Date effet', 'Date signature', 'Date fin', 'Date conge limite', 'Preavis', 'Date limite travaux preneur',
     ...breakCols,
     'Conditions break',
-    'Surface totale m2', 'Parking nb places', 'RIE',
+    'Surface totale m2', 'Parking nb places', 'Parking loyer unitaire (€/place/an)', 'RIE',
     ...surfCols,
     'Loyer HT/HC annuel signature', 'Loyer de base annuel', 'Indexation', 'Loyer signature detail',
     ...franchiseCols,
@@ -294,6 +294,10 @@ function buildExcelHeaders() {
     ...palierCols,
     ...abatCols,
     ...ibCols,
+    // Indemnites restitution
+    'Indem.restitution 1 - Terme', 'Indem.restitution 1 - Due par', 'Indem.restitution 1 - Motif', 'Indem.restitution 1 - Montant', 'Indem.restitution 1 - Calcul',
+    'Indem.restitution 2 - Terme', 'Indem.restitution 2 - Due par', 'Indem.restitution 2 - Motif', 'Indem.restitution 2 - Montant', 'Indem.restitution 2 - Calcul',
+    'Indem.restitution 3 - Terme', 'Indem.restitution 3 - Due par', 'Indem.restitution 3 - Motif', 'Indem.restitution 3 - Montant', 'Indem.restitution 3 - Calcul',
     // Avenant-specific
     'Objet avenant', 'Date effet avenant', 'Date signature avenant', 'Bail lie', 'Modif surfaces type',
   ]
@@ -335,10 +339,17 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   const indemVals = Array.from({ length: MAX_INDEM },     (_, i) => [
     v(indem[i]?.motif), v(indem[i]?.due_par), amt(indem[i]?.montant), v(indem[i]?.date_limite),
   ]).flat()
-  const surfVals  = Array.from({ length: MAX_SURF },      (_, i) => [
-    v(surfaces[i]?.categorie), v(surfaces[i]?.niveau), v(surfaces[i]?.surface_m2),
-    amt(surfaces[i]?.prix_unitaire), amt(surfaces[i]?.loyer_annuel),
-  ]).flat()
+  // Enrich surfaces with computed prix_unitaire
+  const surfEnriched = computeUnitPrices(surfaces, d.parking_nb_places, null)
+  const surfVals  = Array.from({ length: MAX_SURF },      (_, i) => {
+    const r = surfEnriched[i]
+    if (!r) return ['', '', '', '', '']
+    const up = r.prix_unitaire ? amt(r.prix_unitaire) :
+               (() => { const l = parseAmount(r.loyer_annuel); const s = parseFloat(String(r.surface_m2||'').replace(',','.'))||0; return (l!==null&&s>0) ? Math.round(l/s) : '' })()
+    return [v(r.categorie), v(r.niveau), v(r.surface_m2), up, amt(r.loyer_annuel)]
+  }).flat()
+  // Parking unit price
+  const pkUnit = computeParkingUnitPrice(d.parking_nb_places, surfaces)
   const travVals  = Array.from({ length: MAX_TRAV },      (_, i) => [
     v(trav[i]?.libelle), amt(trav[i]?.montant), v(trav[i]?.date_limite),
   ]).flat()
@@ -366,7 +377,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
     ...breakVals,
     v(d.conditions_break),
-    v(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', v(d.rie),
+    v(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', pkUnit || '', v(d.rie),
     ...surfVals,
     amt(d.loyer_signature_montant), amt(d.loyer_cours), v(d.indexation), v(d.loyer_signature),
     ...fracVals,
@@ -382,6 +393,12 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     ...palierVals,
     ...abatVals,
     ...ibVals,
+    // Indemnites restitution
+    ...Array.from({ length: 3 }, (_, i) => {
+      const r = (d.indemnites_restitution || [])[i]
+      if (!r) return ['', '', '', '', '']
+      return [v(r.terme), v(r.due_par), v(r.motif), amt(r.montant), v(r.calcul)]
+    }).flat(),
     // Avenant-specific
     v(meta.objet_avenant), v(meta.date_effet_avenant), v(meta.date_signature_avenant),
     bailParentName || '', v(meta.surface_change_type),
@@ -491,7 +508,7 @@ franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnel
 
 participations_travaux: TOUTES les enveloppes de participation financiere du bailleur aux travaux du preneur. Format: [{"libelle":"denomination exacte ex: Locaux Initiaux R+5","montant":"822701","date_limite":"31/12/2024","remarque":null}]. libelle OBLIGATOIRE, jamais null.
 
-indemnites_restitution: tableau EXHAUSTIF de TOUTES les indemnites financieres dues a CHAQUE TERME du bail (breaks intermediaires ET fin de bail). Couvrir: indemnite forfaitaire de remise en etat, restitution de franchise si conge, indemnite d eviction due par le bailleur, indemnite de non-renouvellement, tout autre flux financier prevu a une echeance specifique. Inclure TOUTES les tranches meme si le montant varie selon l echeance. EXCLURE: depots de garantie, provisions de charges, remboursements de cession. REGLE terme: OBLIGATOIRE. Calculer la date exacte depuis date_effet + nombre d annees (ex: bail 29/06/2026 + 6 ans = 28/06/2032). Si l indemnite s applique a plusieurs termes, creer une ligne par terme. REGLE calcul: toujours renseigner la base de calcul/indexation meme si simple (ex: "Forfait indexe BT01 - indice base: date signature, indice revision: date restitution" ou "Montant fixe non indexe"). Format: [{"terme":"ex: Break 28/06/2032","due_par":"Preneur ou Bailleur","motif":"ex: Indemnite forfaitaire remise en etat","montant":"115840","calcul":"Forfait indexe BT01 selon formule: indemnite revisee = indemnite base x (indice revision / indice base)"}]. null si aucune indemnite de ce type.
+indemnites_restitution: tableau des indemnites FORFAITAIRES DE REMISE EN ETAT contractuellement prevues, dont le montant varie selon la date de sortie du preneur (break ou terme). Ce champ cible UNIQUEMENT les clauses du type "le PRENEUR versera au BAILLEUR une indemnite forfaitaire de X euros en cas de depart a compter de la Neme annee". Creer UNE LIGNE PAR TRANCHE DE MONTANT. EXCLURE absolument: penalites d immobilisation pour non-restitution tardive, indemnites d eviction, depots de garantie, penalites de retard, indemnites de non-renouvellement. REGLE terme: calculer la date exacte depuis date_effet + N annees (ex: 29/06/2026 + 6 ans = 28/06/2032). REGLE calcul: indiquer l indexation si prevue. Format: [{"terme":"28/06/2032 (expiration 6eme annee)","due_par":"Preneur","motif":"Indemnite forfaitaire remise en etat","montant":"115840","calcul":"Forfait indexe BT01: indemnite revisee = base x (indice revision / indice base)"}]. null si aucune indemnite forfaitaire de ce type.
 indemnites_break: Sommes dues par le PRENEUR au BAILLEUR UNIQUEMENT en cas d exercice de son droit de CONGE (sortie anticipee par le preneur via l option de break). TROIS CAS A DISTINGUER:
 1) FORFAIT CHIFFRE PAR DATE DE BREAK: montant ou formule specifique par echéance (ex: "6 mois de loyer si conge au 31/08/2028") -> une ligne par break date.
 2) INDEMNITE DE RESTITUTION/REMISE EN ETAT: si le bail prevoit une indemnite forfaitaire due a la restitution en cas de sortie anticipee (ex: "indemnite forfaitaire de remise en etat de 115 840 € en cas de depart a compter de la 6eme annee") -> inclure avec break_date=date de la premiere break concernee et calcul=formule ou texte.
@@ -679,6 +696,41 @@ function mergeSurfacesByCategory(rows) {
   return [...map.values()]
 }
 
+
+// Compute loyer unitaire if missing from surfaces_detail
+function computeUnitPrices(surfaces, parkingNbPlaces, parkingLoyer) {
+  if (!Array.isArray(surfaces)) return surfaces
+  return surfaces.map(row => {
+    if (row.prix_unitaire) return row
+    const loyer = parseAmount(row.loyer_annuel)
+    const surf  = parseFloat(String(row.surface_m2 || '').replace(',', '.')) || 0
+    const isPark = (row.categorie || '').toLowerCase().includes('station')
+    // For parking rows without surface: try to derive from total places
+    if (isPark && !surf && loyer !== null) {
+      // Count nb places from parking_nb_places global field if only one parking row
+      return { ...row }
+    }
+    if (loyer !== null && surf > 0) {
+      return { ...row, prix_unitaire: String(Math.round(loyer / surf)) }
+    }
+    return row
+  })
+}
+
+// Compute parking unit price: loyer / nb_places
+function computeParkingUnitPrice(parkingStr, surfaces) {
+  // Extract total loyer from parking rows in surfaces_detail
+  const parkRows = Array.isArray(surfaces) ? surfaces.filter(r => (r.categorie || '').toLowerCase().includes('station')) : []
+  const totalLoyerPark = parkRows.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
+  // Extract nb places from string like "291 places" or "291"
+  const nbMatch = String(parkingStr || '').match(/(\d+)/)
+  const nb = nbMatch ? parseInt(nbMatch[1]) : 0
+  if (nb > 0 && totalLoyerPark > 0) {
+    return Math.round(totalLoyerPark / nb)
+  }
+  return null
+}
+
 function sanitizeExtracted(data) {
   if (!data || typeof data !== 'object') return data
   const d = { ...data }
@@ -830,6 +882,55 @@ function PageLimitWarning() {
   )
 }
 
+// Parse a verbose text into bullet items splitting on ; or \n or " - "
+function parseBullets(text) {
+  if (!text) return []
+  const s = (safeStr(text) || '').trim()
+  // 1. Split on explicit semicolons
+  if (s.includes(';')) {
+    return s.split(/\s*;\s*/).map(p => p.trim()).filter(p => p.length > 2)
+  }
+  // 2. Split on newlines
+  if (s.includes('\n')) {
+    return s.split(/\n+/).map(p => p.trim()).filter(p => p.length > 2)
+  }
+  // 3. Split on ". " followed by capital letter or "À" (French sentence boundary)
+  // but keep abbreviations like "art. 606", "HT.", "CC." intact
+  const abbrevPattern = /\b(art|al|n°|HT|HC|TTC|CC|CGI|m²|cf|etc|ex|vs|p|pp|vol|réf)\b\.?\s*$/i
+  const parts = []
+  let current = ''
+  // Walk char by char detecting sentence ends
+  const sentences = s.split(/(?<=[\w\)\]°%€])\.\s+(?=[A-ZÀÂÄÉÈÊËÎÏÔÙÛÜ"«])/u)
+  if (sentences.length > 1) {
+    return sentences.map(p => p.trim()).filter(p => p.length > 2)
+  }
+  // 4. Fallback: single block
+  return [s]
+}
+
+function BulletField({ label, value, full }) {
+  const s = safeStr(value)
+  if (!s) return null
+  const items = parseBullets(s)
+  return (
+    <div className={`field verbose-field${full ? ' full' : ''}`}>
+      <div className="field-lbl" style={{ marginBottom: '8px' }}>{label}</div>
+      {items.length > 1 ? (
+        <ul style={{ margin: 0, padding: '0 0 0 14px', listStyle: 'none' }}>
+          {items.map((item, i) => (
+            <li key={i} style={{ display: 'flex', gap: '8px', fontSize: '12.5px', color: 'var(--text2)', lineHeight: 1.6, marginBottom: i < items.length - 1 ? '4px' : 0 }}>
+              <span style={{ color: 'var(--border2)', flexShrink: 0, fontWeight: 700, marginTop: '1px' }}>—</span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="field-val verbose">{s}</div>
+      )}
+    </div>
+  )
+}
+
 function Field({ label, value, mono, verbose }) {
   const safe = safeStr(value)
   return (
@@ -864,8 +965,18 @@ function SurfaceTable({ surfaces }) {
   const mainRows = safe.filter(r => !isPark(r))
   const parkRows = safe.filter(r => isPark(r))
   const total = mainRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
-  const parkTotal = parkRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
-  const parkLoyer = parkRows.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
+  const totalLoyer = safe.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
+  const parkTotalLoyer = parkRows.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
+
+  // Compute unit price for a row if missing
+  const unitPrice = r => {
+    if (r.prix_unitaire) return parseAmount(r.prix_unitaire)
+    const loyer = parseAmount(r.loyer_annuel)
+    const surf  = parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0
+    if (loyer !== null && surf > 0) return Math.round(loyer / surf)
+    return null
+  }
+
   return (
     <div>
       {mainRows.length > 0 && (
@@ -875,27 +986,37 @@ function SurfaceTable({ surfaces }) {
               <tr>
                 <th>Catégorie</th><th>Niveau / Localisation</th>
                 <th style={{ textAlign: 'right' }}>Surface (m²)</th>
-                <th style={{ textAlign: 'right' }}>Prix (€/m²)</th>
+                <th style={{ textAlign: 'right' }}>Prix (€/m²/an)</th>
                 <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
               </tr>
             </thead>
             <tbody>
-              {mainRows.map((row, i) => (
-                <tr key={i}>
-                  <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
-                  <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 ? `${row.surface_m2} m²` : '—'}</td>
-                  <td style={{ textAlign: 'right' }}>{row.prix_unitaire ? fmtEur(row.prix_unitaire) : '—'}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
-                </tr>
-              ))}
+              {mainRows.map((row, i) => {
+                const up = unitPrice(row)
+                return (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
+                    <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 ? `${row.surface_m2} m²` : '—'}</td>
+                    <td style={{ textAlign: 'right', color: row.prix_unitaire ? 'var(--text)' : 'var(--text3)', fontStyle: row.prix_unitaire ? 'normal' : 'italic' }}>
+                      {up ? `${up.toLocaleString('fr-FR')} €` : '—'}
+                      {!row.prix_unitaire && up && <span title="Calculé" style={{ fontSize: '10px', marginLeft: '3px' }}>*</span>}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
+                  </tr>
+                )
+              })}
             </tbody>
             {total > 0 && (
               <tfoot>
                 <tr style={{ borderTop: '1px solid var(--border2)' }}>
-                  <td colSpan={2} style={{ fontWeight: 600, padding: '8px 10px' }}>Total</td>
+                  <td colSpan={2} style={{ fontWeight: 600, padding: '8px 10px' }}>Total bureaux / locaux</td>
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{total.toLocaleString('fr-FR')} m²</td>
-                  <td></td><td></td>
+                  <td />
+                  <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>
+                    {mainRows.reduce((a,r) => a + (parseAmount(r.loyer_annuel)||0), 0) > 0
+                      ? fmtEur(mainRows.reduce((a,r) => a + (parseAmount(r.loyer_annuel)||0), 0)) : '—'}
+                  </td>
                 </tr>
               </tfoot>
             )}
@@ -903,20 +1024,58 @@ function SurfaceTable({ surfaces }) {
         </div>
       )}
       {parkRows.length > 0 && (
-        <div style={{ marginTop: mainRows.length > 0 ? '10px' : 0, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Stationnement</span>
-          {parkRows.map((row, i) => (
-            <span key={i} style={{ fontSize: '12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '3px 10px', color: 'var(--text2)' }}>
-              {row.niveau || row.localisation || `Lot ${i+1}`}{row.surface_m2 ? ` · ${row.surface_m2} m²` : ''}{row.loyer_annuel ? ` · ${fmtEur(row.loyer_annuel)}` : ''}
-            </span>
-          ))}
-          {parkTotal > 0 && <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>{parkTotal.toLocaleString('fr-FR')} m²</span>}
-          {parkLoyer > 0 && <span style={{ fontSize: '12px', color: 'var(--text2)' }}>— {fmtEur(parkLoyer)} /an</span>}
+        <div style={{ marginTop: mainRows.length > 0 ? '10px' : 0 }}>
+          <table className="indemnites-table">
+            <thead>
+              <tr>
+                <th>Stationnement</th><th>Localisation</th>
+                <th style={{ textAlign: 'right' }}>Nb places</th>
+                <th style={{ textAlign: 'right' }}>Prix (€/place/an)</th>
+                <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {parkRows.map((row, i) => {
+                const loyer = parseAmount(row.loyer_annuel)
+                const surf  = parseFloat(String(row.surface_m2 || '').replace(/[^0-9.]/g,'')) || 0
+                const up    = (loyer !== null && surf > 0) ? Math.round(loyer / surf) : null
+                return (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 500 }}>{row.categorie || 'Stationnement'}</td>
+                    <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{row.surface_m2 ? `${row.surface_m2} pl.` : '—'}</td>
+                    <td style={{ textAlign: 'right', color: up ? 'var(--text)' : 'var(--text3)', fontStyle: up ? 'normal' : 'italic' }}>
+                      {up ? `${up.toLocaleString('fr-FR')} €` : '—'}
+                      {up && <span title="Calculé" style={{ fontSize: '10px', marginLeft: '3px' }}>*</span>}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{loyer !== null ? fmtEur(loyer) : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            {parkTotalLoyer > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: '1px solid var(--border2)' }}>
+                  <td colSpan={4} style={{ fontWeight: 600, padding: '8px 10px' }}>Total stationnement</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{fmtEur(parkTotalLoyer)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
+      )}
+      {totalLoyer > 0 && (mainRows.length > 0 && parkRows.length > 0) && (
+        <div style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 700, fontSize: '13px', borderTop: '2px solid var(--border2)', marginTop: '2px' }}>
+          Total général : {fmtEur(totalLoyer)}
+        </div>
+      )}
+      {(mainRows.length > 0 || parkRows.length > 0) && (
+        <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px' }}>* Prix unitaire calculé (loyer annuel ÷ surface/places)</div>
       )}
     </div>
   )
 }
+
 
 function FranchiseTable({ periodes }) {
   const safe = Array.isArray(periodes) ? periodes : []
@@ -1061,10 +1220,10 @@ function ResultsView({ item }) {
       {(show('preneur') || show('bailleur')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Parties</div></div>
-          <div className="g2">
+          <div className="gx">
             {show('preneur') && <div className="party-card"><div className="party-role">Preneur</div><div className="party-name">{d.preneur || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
             {show('bailleur') && <div className="party-card"><div className="party-role">Bailleur</div><div className="party-name">{d.bailleur || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
-            {show('garant') && d.garant && <div className="party-card full"><div className="party-role">Garant / Caution</div><div className="party-name">{d.garant}</div></div>}
+            {show('garant') && d.garant && <div className="party-card" style={{gridColumn:'1/-1'}}><div className="party-role">Garant / Caution</div><div className="party-name">{d.garant}</div></div>}
           </div>
         </div>
       )}
@@ -1073,7 +1232,7 @@ function ResultsView({ item }) {
       {(show('type_bail') || show('duree_totale')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Contrat et durée</div></div>
-          <div className="g3">
+          <div className="gx">
             <Field label="Type de contrat" value={d.type_bail} />
             <Field label="Durée totale" value={d.duree_totale} />
             <Field label="Durée ferme" value={d.duree_ferme} />
@@ -1102,19 +1261,18 @@ function ResultsView({ item }) {
           )}
           {/* Rangée secondaire : signature, congé, travaux */}
           {secondaryDates.length > 0 && (
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '8px' }}>
+            <div className="gx" style={{ marginBottom: '8px' }}>
               {secondaryDates.map(f => (
                 <div key={f.key} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 14px', minWidth: '160px' }}>
-                  <div className="date-lbl" style={{ fontSize: '10px', marginBottom: '3px' }}>{f.label}</div>
-                  <div style={{ fontSize: '13px', color: 'var(--text2)', fontWeight: 400 }}>{d[f.key]}</div>
+                  <div className="field-lbl">{f.label}</div>
+                  <div className="field-val">{d[f.key]}</div>
                 </div>
               ))}
             </div>
           )}
           {show('conditions_break') && d.conditions_break && (
-            <div className="field full" style={{ marginTop: '8px' }}>
-              <div className="field-lbl">Détail échéances</div>
-              <div className="field-val verbose">{safeStr(d.conditions_break)}</div>
+            <div style={{ marginTop: '8px' }}>
+              <BulletField label="Détail échéances" value={d.conditions_break} full />
             </div>
           )}
         </div>
@@ -1124,7 +1282,7 @@ function ResultsView({ item }) {
       {d.mise_a_disposition && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Mise à disposition anticipée</div></div>
-          <div className="g3">
+          <div className="gx">
             {d.mise_a_disposition.date_debut && <Field label="Date de début" value={d.mise_a_disposition.date_debut} />}
             {d.mise_a_disposition.date_fin   && <Field label="Date de fin"   value={d.mise_a_disposition.date_fin} />}
             {d.mise_a_disposition.loyer_paye && (
@@ -1149,30 +1307,34 @@ function ResultsView({ item }) {
             )}
           </div>
           {d.mise_a_disposition.conditions && (
-            <Field label="Conditions financières" value={safeStr(d.mise_a_disposition.conditions)} verbose />
+            <Field label="Conditions financières" value={safeStr(d.mise_a_disposition.conditions)} verbose full />
           )}
         </div>
       )}
 
 
-      {(show('surfaces_detail') || show('surface_totale_m2')) && (
+      {(show('surface_totale_m2') || show('parking_nb_places') || show('rie')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Surfaces</div></div>
-          <div className="g3">
+          <div className="gx">
             {show('surface_totale_m2') && (
               <div className="field">
-                <div className="field-lbl">Surface totale</div>
+                <div className="field-lbl">Surface totale louée</div>
                 <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em' }}>{d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}</div>
               </div>
             )}
-            {show('parking_nb_places') && (
-              <div className="field">
-                <div className="field-lbl">Parking — nombre de places</div>
-                <div className={`field-val${!d.parking_nb_places ? ' empty' : ''}`} style={d.parking_nb_places ? { fontWeight: 600 } : {}}>
-                  {parseParkingShort(d.parking_nb_places) || 'Non renseigné'}
+            {show('parking_nb_places') && (() => {
+              const pkUnit = computeParkingUnitPrice(d.parking_nb_places, d.surfaces_detail)
+              return (
+                <div className="field">
+                  <div className="field-lbl">Stationnement</div>
+                  <div className="field-val" style={{ fontWeight: 600 }}>
+                    {parseParkingShort(d.parking_nb_places) || '—'}
+                    {pkUnit && <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text2)', marginLeft: '8px' }}>{pkUnit.toLocaleString('fr-FR')} €/place/an</span>}
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
             {show('rie') && d.rie && <Field label="RIE" value={d.rie} />}
           </div>
           {/* Bloc modification surfaces (avenants uniquement) */}
@@ -1190,18 +1352,13 @@ function ResultsView({ item }) {
             }
             const lbl = labelMap[sct] || { txt: sct, cls: 'pill-blue' }
 
-            // Helper : mini-table surfaces
             function SurfMiniTable({ rows, accentSens }) {
               if (!Array.isArray(rows) || !rows.length) return <span style={{ fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>—</span>
               const isPark = r => { const cat = (r.categorie || r.typologie || '').toLowerCase(); return cat.includes('station') || cat.includes('parking') || cat.includes('place') }
               const mainRows = rows.filter(r => !isPark(r))
               const parkRows = rows.filter(r => isPark(r))
-              const totalM2 = mainRows.reduce((acc, r) => {
-                return acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0)
-              }, 0)
-              const parkCount = parkRows.reduce((acc, r) => {
-                return acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0)
-              }, 0)
+              const totalM2 = mainRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
+              const parkCount = parkRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
               return (
                 <div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
@@ -1265,17 +1422,14 @@ function ResultsView({ item }) {
                   <span className={`pill ${lbl.cls}`} style={{ fontSize: '11px' }}>{lbl.txt}</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', alignItems: 'start' }}>
-                  {/* Colonne 1 : Avant */}
                   <div style={{ background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
                     <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Assiette initiale</div>
                     <SurfMiniTable rows={avant} accentSens={false} />
                   </div>
-                  {/* Colonne 2 : Delta */}
                   <div style={{ background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
                     <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Locaux complémentaires</div>
                     <SurfMiniTable rows={delta} accentSens={true} />
                   </div>
-                  {/* Colonne 3 : Après */}
                   <div style={{ background: 'var(--accent-bg)', border: '1px solid rgba(26,95,168,.15)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
                     <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Assiette post-avenant</div>
                     <SurfMiniTable rows={apres} accentSens={false} />
@@ -1284,19 +1438,21 @@ function ResultsView({ item }) {
               </div>
             )
           })()}
-          {!isAv && d.surfaces_detail?.length > 0 && (
-            <div style={{ marginTop: '8px' }}>
-              <div className="field-lbl" style={{ marginBottom: '6px' }}>Surfaces louées par typologie</div>
-              <SurfaceTable surfaces={d.surfaces_detail} />
-            </div>
-          )}
         </div>
       )}
-
       {/* Loyer */}
-      {show('loyer_signature_montant') && (
+      {(show('loyer_signature_montant') || (!isAv && d.surfaces_detail?.length > 0)) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Loyer, taxes et charges</div></div>
+          {!isAv && d.surfaces_detail?.length > 0 && (() => {
+            const enriched = computeUnitPrices(d.surfaces_detail, d.parking_nb_places, null)
+            return (
+              <div style={{ marginBottom: '16px' }}>
+                <div className="field-lbl" style={{ marginBottom: '6px' }}>Ventilation du loyer par composante</div>
+                <SurfaceTable surfaces={enriched} />
+              </div>
+            )
+          })()}
           {d.loyer_signature_montant && (
             <div className="loyer-hero">
               <div>
@@ -1306,7 +1462,7 @@ function ResultsView({ item }) {
               {pills.length > 0 && <div className="pills">{pills.map((p, i) => <span key={i} className={`pill ${p.cls}`}>{p.label}</span>)}</div>}
             </div>
           )}
-          <div className="g2" style={{ marginBottom: '8px' }}>
+          <div className="gx" style={{ marginBottom: '8px' }}>
             {show('loyer_cours') && d.loyer_cours && (() => {
               const amt = parseAmount(d.loyer_cours)
               const suspicious = amt !== null && amt < 5000
@@ -1320,7 +1476,7 @@ function ResultsView({ item }) {
                 </div>
               )
             })()}
-            {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose />}
+            {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose full />}
           </div>
           {show('loyer_signature') && d.loyer_signature && (
             <div style={{ marginBottom: '8px' }}>
@@ -1338,8 +1494,8 @@ function ResultsView({ item }) {
               {d.franchise && <Field label="Franchise — modalités complètes" value={d.franchise} verbose />}
             </div>
           )}
-          <div className="g2" style={{ marginTop: '8px' }}>
-            {show('charges') && <Field label="Charges / TEOM" value={d.charges} verbose />}
+          <div className="gx" style={{ marginTop: '8px' }}>
+            {show('charges') && <BulletField label="Charges / TEOM" value={d.charges} full />}
           </div>
         </div>
       )}
@@ -1395,7 +1551,7 @@ function ResultsView({ item }) {
               </table>
             </div>
           ) : (
-            <div className="g3" style={{ marginBottom: '8px' }}>
+            <div className="gx" style={{ marginBottom: '8px' }}>
               <div className="field">
                 <div className="field-lbl">Montant</div>
                 <div className={`field-val${!d.travaux_montant ? ' empty' : ''}`} style={d.travaux_montant ? { fontWeight: 600 } : {}}>
@@ -1467,7 +1623,7 @@ function ResultsView({ item }) {
       {d.loyer_variable && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Loyer variable</div></div>
-          <div className="g3" style={{ marginBottom: '8px' }}>
+          <div className="gx" style={{ marginBottom: '8px' }}>
             {d.loyer_variable.type && <Field label="Type" value={safeStr(d.loyer_variable.type)} />}
             {d.loyer_variable.taux && <Field label="Taux" value={safeStr(d.loyer_variable.taux)} />}
             {d.loyer_variable.assiette && <Field label="Assiette de calcul" value={safeStr(d.loyer_variable.assiette)} />}
@@ -1546,7 +1702,7 @@ function ResultsView({ item }) {
       {(show('destination') || show('article_606')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Refacturation et jouissance</div></div>
-          <div className="g2">
+          <div className="gx">
             {show('destination') && <Field label="Destination" value={d.destination} verbose />}
             {show('article_606') && <Field label="Article 606" value={d.article_606} verbose />}
             {show('sous_location') && <Field label="Sous-location" value={d.sous_location} verbose />}
