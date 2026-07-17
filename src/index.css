@@ -118,13 +118,18 @@ button, input { font-family: inherit; cursor: pointer; }
 .av-banner-date { margin-left: auto; font-size: 12px; color: var(--accent); font-weight: 600; white-space: nowrap; }
 
 /* ── Sections ── */
-.sec { margin-bottom: 44px; }
+.sec { margin-bottom: 0; padding: 28px 0; border-top: 1px solid var(--border2); }
+.sec:first-of-type { border-top: none; padding-top: 0; }
 .sec-hd { margin-bottom: 16px; }
 .sec-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .10em; color: var(--text3); }
 
 /* ── Grids ── */
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.gx { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; }
+.field.span2 { grid-column: span 2; }
+.field.span3 { grid-column: span 3; }
+.field.full  { grid-column: 1 / -1; }
 .full { grid-column: 1 / -1; }
 
 /* ── Fields — two clear tiers ── */
