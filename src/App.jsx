@@ -1337,7 +1337,7 @@ function ResultsView({ item }) {
               return (
                 <div className="field">
                   <div className="field-lbl">Stationnement</div>
-                  <div className="field-val" style={{ fontWeight: 600 }}>
+                  <div className="field-val">
                     {parseParkingShort(d.parking_nb_places) || '—'}
                     {pkUnit && <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text2)', marginLeft: '8px' }}>{pkUnit.toLocaleString('fr-FR')} €/place/an</span>}
                   </div>
@@ -1453,15 +1453,6 @@ function ResultsView({ item }) {
       {(show('loyer_signature_montant') || (!isAv && d.surfaces_detail?.length > 0)) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Loyer, taxes et charges</div></div>
-          {!isAv && d.surfaces_detail?.length > 0 && (() => {
-            const enriched = computeUnitPrices(d.surfaces_detail, d.parking_nb_places, null)
-            return (
-              <div style={{ marginBottom: '16px' }}>
-                <div className="field-lbl" style={{ marginBottom: '6px' }}>Ventilation du loyer par composante</div>
-                <SurfaceTable surfaces={enriched} />
-              </div>
-            )
-          })()}
           {d.loyer_signature_montant && (
             <div className="loyer-hero">
               <div>
@@ -1471,6 +1462,15 @@ function ResultsView({ item }) {
               {pills.length > 0 && <div className="pills">{pills.map((p, i) => <span key={i} className={`pill ${p.cls}`}>{p.label}</span>)}</div>}
             </div>
           )}
+          {!isAv && d.surfaces_detail?.length > 0 && (() => {
+            const enriched = computeUnitPrices(d.surfaces_detail, d.parking_nb_places, null)
+            return (
+              <div style={{ marginBottom: '16px' }}>
+                <div className="field-lbl" style={{ marginBottom: '6px' }}>Ventilation du loyer par composante</div>
+                <SurfaceTable surfaces={enriched} />
+              </div>
+            )
+          })()}
           <div className="gx" style={{ marginBottom: '8px' }}>
             {show('loyer_cours') && d.loyer_cours && (() => {
               const amt = parseAmount(d.loyer_cours)
@@ -1504,8 +1504,15 @@ function ResultsView({ item }) {
             </div>
           )}
           <div className="gx" style={{ marginTop: '8px' }}>
-            {show('charges') && <BulletField label="Charges / TEOM" value={d.charges} full />}
           </div>
+        </div>
+      )}
+
+      {/* Charges / TEOM */}
+      {show('charges') && d.charges && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Charges / TEOM</div></div>
+          <BulletField label="" value={d.charges} full />
         </div>
       )}
 
