@@ -1153,6 +1153,15 @@ function IndemniteTable({ indemnites }) {
   )
 }
 
+
+// Extract short name: stop at comma, parenthesis, or legal form keywords
+function shortPartyName(s) {
+  if (!s) return s
+  return s
+    .split(/,|\(|(?<=\S)\s+(SAS|SA|SARL|SCI|SASU|SNC|GIE|EURL|SE|société|Société|SOCIÉTÉ|S\.A\.|S\.A\.S\.|S\.C\.I\.)/)[0]
+    .trim()
+}
+
 function ResultsView({ item }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
@@ -1221,9 +1230,9 @@ function ResultsView({ item }) {
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Parties</div></div>
           <div className="gx">
-            {show('preneur') && <div className="party-card"><div className="party-role">Preneur</div><div className="party-name">{d.preneur || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
-            {show('bailleur') && <div className="party-card"><div className="party-role">Bailleur</div><div className="party-name">{d.bailleur || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
-            {show('garant') && d.garant && <div className="party-card" style={{gridColumn:'1/-1'}}><div className="party-role">Garant / Caution</div><div className="party-name">{d.garant}</div></div>}
+            {show('preneur') && <div className="party-card"><div className="party-role">Preneur</div><div className="party-name">{shortPartyName(d.preneur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
+            {show('bailleur') && <div className="party-card"><div className="party-role">Bailleur</div><div className="party-name">{shortPartyName(d.bailleur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
+            {show('garant') && d.garant && <div className="party-card" style={{gridColumn:'1/-1'}}><div className="party-role">Garant / Caution</div><div className="party-name">{shortPartyName(d.garant)}</div></div>}
           </div>
         </div>
       )}
