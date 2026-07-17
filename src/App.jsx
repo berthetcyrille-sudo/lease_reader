@@ -1879,7 +1879,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
           <div className="dash-thead">
             <div className="dash-th" style={{ gridColumn: '1' }}>Actif / Document</div>
             <div className="dash-th" style={{ gridColumn: '2' }}>Type</div>
-            <div className="dash-th" style={{ gridColumn: '3' }}>Bail lié</div>
+            <div className="dash-th" style={{ gridColumn: '3' }}>Preneur</div>
             <div className="dash-th" style={{ gridColumn: '4' }}>Date effet</div>
             <div className="dash-th" style={{ gridColumn: '5' }}>Date fin</div>
             <div className="dash-th" style={{ gridColumn: '6' }}>Break</div>
@@ -1936,7 +1936,15 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
                     )}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
-                    {isAv ? (row._parentName || '') : (d.ville || '')}
+                    {isAv ? (row._parentName || '') : (() => {
+                      const v = d.ville || ''
+                      // Extract postal code if present: "Aix-en-Provence (13290)" or "13290 Aix"
+                      const cpMatch = v.match(/(\d{5})/)
+                      const cp = cpMatch ? cpMatch[1] : (d.adresse?.match(/(\d{5})/)?.[1] || '')
+                      const cityOnly = v.replace(/\d{5}\s*/g, '').replace(/[()]/g, '').trim()
+                      const city = cityOnly.toUpperCase()
+                      return cp ? `${city} (${cp})` : city
+                    })()}
                   </div>
                 </div>
 
