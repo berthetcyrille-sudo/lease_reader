@@ -272,6 +272,7 @@ function buildExcelHeaders() {
     `Indem.break ${i+1} - Date break`, `Indem.break ${i+1} - Motif`, `Indem.break ${i+1} - Montant`, `Indem.break ${i+1} - Formule`,
   ]).flat()
   return [
+    'ID', 'Bail lié (ID)',
     'Type', 'Actif / Immeuble', 'Adresse', 'Ville',
     'Preneur', 'Bailleur',
     'Type de bail', 'Duree totale', 'Duree ferme',
@@ -365,6 +366,8 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   ]).flat()
 
   return [
+    item.id || '',
+    isAv ? (item.parent_id || '') : '',
     isAv ? 'Avenant' : 'Bail',
     v(d.immeuble || raw.bail_reference?.immeuble),
     v(d.adresse  || raw.bail_reference?.adresse),
