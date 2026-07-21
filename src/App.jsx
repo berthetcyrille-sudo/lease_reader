@@ -1418,6 +1418,12 @@ function ResultsView({ item }) {
 
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
   const breaks = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options || [], d.duree_ferme)
+  console.log('computeBreaks debug:', {
+    date_effet: d.date_effet, duree_ferme: d.duree_ferme,
+    conditions_break: d.conditions_break,
+    break_options_in: d.break_options,
+    breaks_out: breaks
+  })
 
   // Clean surfaces at display time too (for data already in DB)
   const cs = rows => cleanSurfaces(normalizeSurfaces(Array.isArray(rows) ? rows : []))
