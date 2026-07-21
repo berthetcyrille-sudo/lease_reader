@@ -92,7 +92,12 @@ REGLES PAR CHAMP:
 - surfaces_detail: [{\"categorie\":\"Bureaux\",\"niveau\":\"5eme etage\",\"surface_m2\":\"2224.98\",\"prix_unitaire\":\"290\",\"loyer_annuel\":\"645244\"}]. categorie JAMAIS null: etage/plateau->Bureaux, sous-sol/emplacement/lot numerote->Stationnement, exterieur->Stationnement, doute->Bureaux.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
-- break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2029","31/08/2030"]. REGLE CRITIQUE: les Conditions Particulières (CP) priment TOUJOURS sur les Conditions Générales (CG). Si les CG preVoient des echeances triennales MAIS que les CP contiennent une renonciation expresse du preneur ("le PRENEUR renonce expressement a sa faculte de resiliation triennale" ou equivalent) → il N'Y A PAS de break triennale, indiquer uniquement les dates expressement stipulees dans les CP. REGLE DE CALCUL quand les breaks sont confirmees par les CP: "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans (si < date_fin). "a l'expiration de la Neme annee" → date_effet + N ans. Inclure TOUTES ces dates calculees meme si non ecrites explicitement. Ne PAS inclure date_fin.
+- break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG. REGLES DE CALCUL:
+  1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
+  2) "renonce a sa faculte de resiliation triennale" SANS restriction → aucune break triennale, uniquement les dates explicites des CP
+  3) "renonce...triennale POUR LA DUREE FERME" ou "aura la faculte de donner conge a l'expiration de la Neme periode triennale pour la premiere fois" → LIRE COMME: premiere break = date_effet + N*3 ans, puis toutes les 3 ans. Exemple: "deuxieme periode triennale pour la premiere fois", date_effet=30/06/2025 → premiere break=30/06/2031 (2*3=6 ans), si date_fin=29/06/2034 → ["30/06/2031"] uniquement
+  4) "a l'expiration de la Neme annee" → date_effet + N ans
+  Ne PAS inclure date_fin.
 - loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
 - indexation_indice: code de l indice parmi: "ILAT","ILC","ICC","IRL","IPC","BT01","AUTRE". null si non renseigne.
@@ -509,14 +514,12 @@ function exportAllToExcel(tree) {
 const BREAK_PROMPT = `Expert baux commerciaux français. Analyse UNIQUEMENT la clause de durée et de résiliation de ce bail. Retourne UNIQUEMENT un JSON minifié sur UNE SEULE LIGNE : {"date_effet":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","break_options":["jj/mm/aaaa",...]}
 
 REGLE ABSOLUE pour break_options : liste COMPLETE et EXHAUSTIVE.
-REGLE CRITIQUE CP PRIMENT SUR CG: si les Conditions Générales preVoient des echeances triennales MAIS que les Conditions Particulières contiennent une renonciation expresse du preneur ("le PRENEUR renonce expressement a sa faculte de resiliation triennale" ou equivalent) → PAS de break triennale, indiquer UNIQUEMENT les dates expressement stipulees dans les CP.
-Si breaks confirmees:
-- "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans (si < date_fin)
-- "a l'expiration de la Neme annee" → date_effet + N ans
-- Inclure TOUTES ces dates calculees meme si non ecrites explicitement
-- Trier chronologiquement. Ne PAS inclure date_fin.
-- Exemple avec triennales + 4eme + 5eme: bail 01/09/2025→31/08/2034 → ["31/08/2028","31/08/2029","31/08/2030","31/08/2031"]
-- Exemple avec renonciation aux triennales: bail 31/12/2023→14/04/2033, CP stipulent "congé possible pour le 31/08/2030 uniquement" → ["31/08/2030"]`
+REGLES DE CALCUL (lire attentivement la clause, ne pas appliquer mecaniquement):
+1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
+2) "renonce expressement a sa faculte de resiliation triennale" SANS restriction → PAS de break triennale, uniquement dates explicites des CP
+3) "renonce...triennale POUR LA DUREE FERME" OU "aura la faculte de donner conge a l'expiration de la Neme periode triennale pour la premiere fois" → premiere break = date_effet + N*3 ans, puis toutes les 3 ans. EXEMPLE: "deuxieme periode triennale pour la premiere fois", date_effet=30/06/2025, date_fin=29/06/2034 → ["30/06/2031"] (2*3=6 ans, prochaine serait 30/06/2034=terme donc exclue)
+4) "a l'expiration de la Neme annee" → date_effet + N ans
+CP priment toujours sur CG. Trier chronologiquement. Ne PAS inclure date_fin.`
 
 const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
 
@@ -629,21 +632,70 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
 
   const candidates = new Set()
 
-  // Detect explicit waiver of triennales ("renonce à sa faculté de résiliation triennale")
-  const hasWaiver = /renonce.{0,80}triennale|pas.{0,20}triennale|supprim.{0,20}triennale|faculté.{0,10}résiliation.{0,10}triennale/i.test(clauseText)
+  // Detect explicit waiver of ALL triennales (not partial "pour la durée ferme")
+  // Partial waiver: "renonce...triennale...pour la durée ferme" → NOT a full waiver
+  const hasWaiver = (() => {
+    const basicWaiver = /renonce.{0,80}triennale|pas.{0,20}triennale|supprim.{0,20}triennale|faculté.{0,10}résiliation.{0,10}triennale/i.test(clauseText)
+    if (!basicWaiver) return false
+    // If the waiver is limited to the firm period, it's not a full waiver
+    const isPartial = /pour la dur[eé]e ferme|pendant la dur[eé]e ferme|pour la p[eé]riode ferme/i.test(clauseText)
+    return !isPartial
+  })()
 
-  // Detect explicit single break dates ("ne pourra donner congé que pour le jj/mm/aaaa")
-  const explicitDates = clauseText.match(/(\d{2})\s*(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s*(\d{4})/gi) || []
+  // Parse duree_ferme into years+months
+  const parseDureeFerme = (str) => {
+    if (!str) return null
+    const ymatch = String(str).match(/(\d+)\s*ans?/)
+    const mmatch = String(str).match(/(\d+)\s*mois/)
+    const years  = ymatch ? parseInt(ymatch[1]) : 0
+    const months = mmatch ? parseInt(mmatch[1]) : 0
+    return (years > 0 || months > 0) ? { years, months } : null
+  }
+  const dureeFerme = parseDureeFerme(duree_ferme_str)
+
+  // Detect explicit single break dates
   const monthMap = { janvier:1,février:2,mars:3,avril:4,mai:5,juin:6,juillet:7,août:8,septembre:9,octobre:10,novembre:11,décembre:12 }
 
+  // Detect "Nème période triennale pour la première fois" → first break at N×3 years
+  const periodeTriennalePattern = /(deuxi[eè]me|troisi[eè]me|quatri[eè]me|2[eè]me|3[eè]me|4[eè]me|2e|3e|4e)\s+p[eé]riode\s+triennale/i
+  const periodeMatch = periodeTriennalePattern.exec(clauseText)
+  if (periodeMatch) {
+    const ordinal = periodeMatch[1].toLowerCase()
+    const n = ordinal.startsWith('deuxi') || ordinal.startsWith('2') ? 2
+            : ordinal.startsWith('troisi') || ordinal.startsWith('3') ? 3
+            : ordinal.startsWith('quatri') || ordinal.startsWith('4') ? 4 : null
+    if (n) {
+      // First break at N×3 years, then every 3 years after
+      for (let i = n; i * 3 < 12; i++) {
+        const d = addYearsExpiry(effet, i * 3)
+        if (d < fin) candidates.add(fmtFR(d))
+      }
+    }
+  }
+
   if (!hasWaiver) {
-    // Detect triennales (only if no waiver)
     const hasTriennale = /triennale|p.riode.{0,10}3\s*ans/i.test(clauseText) ||
                          /chaque.{0,20}(p.riode|terme|fin)/i.test(clauseText)
     if (hasTriennale) {
-      for (let y = 3; y < 9; y += 3) {
-        const d = addYearsExpiry(effet, y)
-        if (d < fin) candidates.add(fmtFR(d))
+      // If duree_ferme > 3 ans, first break starts at duree_ferme (not year 3)
+      // This handles "renonce à la 1ère triennale, ferme 6 ans → break à 6 ans puis tous les 3 ans"
+      let startYear = 3
+      if (dureeFerme && dureeFerme.years > 3) {
+        startYear = dureeFerme.years
+        // First break at duree_ferme
+        const firstBreak = new Date(effet.getFullYear() + dureeFerme.years, effet.getMonth() + (dureeFerme.months || 0), effet.getDate() - 1)
+        if (firstBreak > effet && firstBreak < fin) candidates.add(fmtFR(firstBreak))
+        // Then every 3 years
+        for (let y = startYear + 3; y < startYear + 9; y += 3) {
+          const d = addYearsExpiry(effet, y)
+          if (d < fin) candidates.add(fmtFR(d))
+        }
+      } else {
+        // Standard: every 3 years from year 3
+        for (let y = 3; y < 9; y += 3) {
+          const d = addYearsExpiry(effet, y)
+          if (d < fin) candidates.add(fmtFR(d))
+        }
       }
     }
 
@@ -652,14 +704,14 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
     let match
     while ((match = yearPattern.exec(clauseText)) !== null) {
       const n = parseInt(match[1])
-      if (n > 0 && n < 9) {
+      if (n > 0 && n < 12) {
         const d = addYearsExpiry(effet, n)
         if (d < fin) candidates.add(fmtFR(d))
       }
     }
   }
 
-  // Always detect explicit "ne pourra donner congé que pour le DD mois YYYY" patterns
+  // Always detect explicit dates in clause text
   const explicitPattern = /(\d{1,2})\s+(janvier|f[eé]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[eé]cembre)\s+(\d{4})/gi
   let exMatch
   while ((exMatch = explicitPattern.exec(clauseText)) !== null) {
@@ -683,20 +735,10 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
 
   // If nothing computed and no waiver, try duree_ferme as first break
   if (!candidates.size && !hasWaiver) {
-    // Parse duree_ferme: "6 ans", "6 ans et 8 mois", etc.
-    if (duree_ferme_str) {
-      const ymatch = String(duree_ferme_str).match(/(\d+)\s*ans?/)
-      const mmatch = String(duree_ferme_str).match(/(\d+)\s*mois/)
-      const years  = ymatch ? parseInt(ymatch[1]) : 0
-      const months = mmatch ? parseInt(mmatch[1]) : 0
-      if (years > 0 || months > 0) {
-        const breakDate = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
-        if (breakDate > effet && breakDate < fin) {
-          candidates.add(fmtFR(breakDate))
-        }
-      }
+    if (dureeFerme) {
+      const breakDate = new Date(effet.getFullYear() + dureeFerme.years, effet.getMonth() + (dureeFerme.months || 0), effet.getDate() - 1)
+      if (breakDate > effet && breakDate < fin) candidates.add(fmtFR(breakDate))
     }
-    // Still nothing: fall back to Claude's extracted breaks
     if (!candidates.size) return existing || []
   }
 
