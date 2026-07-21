@@ -85,7 +85,7 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent.
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[]}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[]}
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: si break_options, intervalle date_effet->premiere break option; sinon=duree_totale; si mentionne explicitement, utiliser cette valeur.
@@ -95,6 +95,9 @@ REGLES PAR CHAMP:
 - break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2029","31/08/2030"]. REGLE CRITIQUE: les Conditions Particulières (CP) priment TOUJOURS sur les Conditions Générales (CG). Si les CG preVoient des echeances triennales MAIS que les CP contiennent une renonciation expresse du preneur ("le PRENEUR renonce expressement a sa faculte de resiliation triennale" ou equivalent) → il N'Y A PAS de break triennale, indiquer uniquement les dates expressement stipulees dans les CP. REGLE DE CALCUL quand les breaks sont confirmees par les CP: "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans (si < date_fin). "a l'expiration de la Neme annee" → date_effet + N ans. Inclure TOUTES ces dates calculees meme si non ecrites explicitement. Ne PAS inclure date_fin.
 - loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
+- indexation_indice: code de l indice parmi: "ILAT","ILC","ICC","IRL","IPC","BT01","AUTRE". null si non renseigne.
+- indexation_trimestre_base: trimestre de reference si EXPLICITEMENT indique dans le bail (ex: "3T2025"). null si le bail dit "dernier indice publie a la date de signature" sans preciser lequel.
+- indexation_valeur_base: valeur numerique de l indice si EXPLICITEMENT mentionnee (ex: "120.5"). null si non mentionnee.
 - franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon.
 - participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null}]. libelle OBLIGATOIRE.
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
@@ -735,6 +738,56 @@ function computeParkingUnitPrice(parkingStr, surfaces) {
   return null
 }
 
+// INSEE BDM series IDs for real estate indices
+const INSEE_SERIES = {
+  ILAT: '001769193',
+  ILC:  '001629154',
+  ICC:  '001771006',
+  IRL:  '001671963',
+  IPC:  '001759970',
+}
+
+// Convert dd/mm/yyyy to quarter string like "2025-Q3"
+function dateToQuarter(dateStr) {
+  const m = String(dateStr || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) return null
+  const month = parseInt(m[2])
+  const year  = parseInt(m[3])
+  const q = Math.ceil(month / 3)
+  return `${year}-Q${q}`
+}
+
+// Fetch last published INSEE index at or before a given quarter
+async function fetchInseeIndex(indice, dateStr) {
+  const series = INSEE_SERIES[indice?.toUpperCase()]
+  if (!series) return null
+  const q = dateToQuarter(dateStr)
+  if (!q) return null
+  // Get last 4 quarters to find the most recent published one
+  const [year, qNum] = q.split('-Q')
+  const startYear = parseInt(year) - 1
+  try {
+    const url = `https://api.insee.fr/series/BDM/V1/data/SERIES_BDM/${series}?startPeriod=${startYear}-Q1&endPeriod=${q}&format=json`
+    const res = await fetch(url, { headers: { Accept: 'application/json' } })
+    if (!res.ok) return null
+    const data = await res.json()
+    const obs = data?.GenericData?.DataSet?.Series?.Obs
+    if (!Array.isArray(obs) || !obs.length) return null
+    // Last observation = most recent
+    const last = obs[obs.length - 1]
+    const period = last?.SeriesKey?.Value?.find?.(v => v['@id'] === 'TIME_PERIOD')?.['@value']
+               || last?.['@TIME_PERIOD']
+    const value  = last?.ObsValue?.['@value'] || last?.['@OBS_VALUE']
+    if (!value) return null
+    // Format quarter: "2025-Q3" → "3T2025"
+    const pMatch = String(period || '').match(/(\d{4})-Q(\d)/)
+    const label  = pMatch ? `${pMatch[2]}T${pMatch[1]}` : period
+    return { value: parseFloat(value), label, source: 'INSEE' }
+  } catch {
+    return null
+  }
+}
+
 function sanitizeExtracted(data) {
   if (!data || typeof data !== 'object') return data
   const d = { ...data }
@@ -1176,6 +1229,23 @@ function ResultsView({ item }) {
   if (!Array.isArray(d.surfaces_detail)) d.surfaces_detail = []
   const meta = item.data || {}
 
+  const [inseeIndex, setInseeIndex] = React.useState(null)
+  const [inseeLoading, setInseeLoading] = React.useState(false)
+  React.useEffect(() => {
+    setInseeIndex(null)
+    const indice = d.indexation_indice
+    if (!indice || !INSEE_SERIES[indice]) return
+    if (d.indexation_valeur_base) {
+      setInseeIndex({ value: parseFloat(d.indexation_valeur_base), label: d.indexation_trimestre_base || '', source: 'bail' })
+      return
+    }
+    setInseeLoading(true)
+    fetchInseeIndex(indice, d.date_signature || d.date_effet).then(res => {
+      setInseeIndex(res)
+      setInseeLoading(false)
+    })
+  }, [item.id, d.indexation_indice, d.indexation_valeur_base, d.date_signature])
+
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
   const breaks = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options || [])
 
@@ -1461,7 +1531,24 @@ function ResultsView({ item }) {
             <div className="loyer-hero">
               <div>
                 <div className="loyer-lbl">Loyer HT/HC annuel à la signature</div>
-                <div className="loyer-amount">{fmtEur(d.loyer_signature_montant) || d.loyer_signature_montant}</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
+                  <div className="loyer-amount">{fmtEur(d.loyer_signature_montant) || d.loyer_signature_montant}</div>
+                  {d.indexation_indice && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="pill pill-blue" style={{ fontSize: '11px' }}>{d.indexation_indice}</span>
+                      {inseeLoading && <span style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic' }}>chargement INSEE…</span>}
+                      {inseeIndex && !inseeLoading && (
+                        <span style={{ fontSize: '12px', color: 'var(--text2)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', padding: '2px 8px' }}>
+                          {inseeIndex.label && <span style={{ fontWeight: 600, marginRight: '4px' }}>{inseeIndex.label}</span>}
+                          <span>{inseeIndex.value?.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}</span>
+                          <span style={{ marginLeft: '4px', fontSize: '10px', color: inseeIndex.source === 'bail' ? 'var(--success)' : 'var(--text3)', fontStyle: 'italic' }}>
+                            ({inseeIndex.source === 'bail' ? 'bail' : 'INSEE'})
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               {pills.length > 0 && <div className="pills">{pills.map((p, i) => <span key={i} className={`pill ${p.cls}`}>{p.label}</span>)}</div>}
             </div>
