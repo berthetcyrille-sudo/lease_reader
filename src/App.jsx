@@ -284,7 +284,7 @@ function buildExcelHeaders() {
     'Conditions break',
     'Surface totale m2', 'Parking nb places', 'Parking loyer unitaire (€/place/an)', 'RIE',
     ...surfCols,
-    'Loyer HT/HC annuel signature', 'Loyer de base annuel', 'Indexation', 'Loyer signature detail',
+    'Loyer HT/HC annuel signature', 'Loyer de base annuel', 'Indexation', 'Indice base - Code', 'Indice base - Trimestre', 'Indice base - Valeur', 'Indice base - Source', 'Loyer signature detail',
     ...franchiseCols,
     'Franchise modalites',
     'Charges TEOM',
@@ -386,7 +386,30 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     v(d.conditions_break),
     surf(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', pkUnit || '', v(d.rie),
     ...surfVals,
-    amt(d.loyer_signature_montant), amt(d.loyer_cours), v(d.indexation), v(d.loyer_signature),
+    amt(d.loyer_signature_montant), amt(d.loyer_cours), v(d.indexation),
+    // Indice base
+    (() => {
+      const indice = d.indexation_indice
+      if (!indice) return ['', '', '', '']
+      if (d.indexation_valeur_base) return [indice, d.indexation_trimestre_base || '', d.indexation_valeur_base, 'bail']
+      // Compute from static table synchronously
+      const table = INSEE_STATIC[indice.toUpperCase()]
+      if (!table) return [indice, '', '', '']
+      const dateStr = d.date_signature || d.date_effet
+      const m = String(dateStr || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+      if (!m) return [indice, '', '', '']
+      const month = parseInt(m[2]), year = parseInt(m[3]), q = Math.ceil(month / 3)
+      const targetY = year, targetQ = q
+      const candidates = table.filter(row => {
+        const rm = row.q.match(/(\d)T(\d{4})/); if (!rm) return false
+        const y = parseInt(rm[2]), qq = parseInt(rm[1])
+        return y < targetY || (y === targetY && qq <= targetQ)
+      })
+      if (!candidates.length) return [indice, '', '', 'INSEE']
+      const last = candidates[candidates.length - 1]
+      return [indice, last.q, last.v, 'INSEE (table)']
+    })(),
+    v(d.loyer_signature),
     ...fracVals,
     v(d.franchise), v(d.charges),
     amt(d.depot_garantie_montant), v(d.depot_garantie),
@@ -761,21 +784,53 @@ function dateToQuarter(dateStr) {
 // Source: INSEE BDM - indices immobiliers tertiaires
 const INSEE_STATIC = {
   ILAT: [
-    { q: '1T2023', v: 133.86 }, { q: '2T2023', v: 135.33 }, { q: '3T2023', v: 137.02 }, { q: '4T2023', v: 137.59 },
-    { q: '1T2024', v: 138.94 }, { q: '2T2024', v: 139.76 }, { q: '3T2024', v: 140.43 }, { q: '4T2024', v: 140.89 },
-    { q: '1T2025', v: 141.52 }, { q: '2T2025', v: 142.18 },
+    { q: '1T2015', v: 107.44 }, { q: '2T2015', v: 107.53 }, { q: '3T2015', v: 107.43 }, { q: '4T2015', v: 107.34 },
+    { q: '1T2016', v: 107.22 }, { q: '2T2016', v: 107.28 }, { q: '3T2016', v: 107.50 }, { q: '4T2016', v: 107.64 },
+    { q: '1T2017', v: 107.87 }, { q: '2T2017', v: 108.28 }, { q: '3T2017', v: 108.65 }, { q: '4T2017', v: 109.06 },
+    { q: '1T2018', v: 109.57 }, { q: '2T2018', v: 110.25 }, { q: '3T2018', v: 110.82 }, { q: '4T2018', v: 111.19 },
+    { q: '1T2019', v: 111.59 }, { q: '2T2019', v: 112.07 }, { q: '3T2019', v: 112.47 }, { q: '4T2019', v: 112.78 },
+    { q: '1T2020', v: 113.08 }, { q: '2T2020', v: 112.83 }, { q: '3T2020', v: 112.91 }, { q: '4T2020', v: 113.00 },
+    { q: '1T2021', v: 113.18 }, { q: '2T2021', v: 113.65 }, { q: '3T2021', v: 114.49 }, { q: '4T2021', v: 115.59 },
+    { q: '1T2022', v: 117.22 }, { q: '2T2022', v: 119.76 }, { q: '3T2022', v: 122.42 }, { q: '4T2022', v: 124.87 },
+    { q: '1T2023', v: 127.22 }, { q: '2T2023', v: 129.02 }, { q: '3T2023', v: 130.44 }, { q: '4T2023', v: 131.34 },
+    { q: '1T2024', v: 132.28 }, { q: '2T2024', v: 133.01 }, { q: '3T2024', v: 133.56 }, { q: '4T2024', v: 133.99 },
+    { q: '1T2025', v: 134.48 }, { q: '2T2025', v: 135.02 },
   ],
   ILC: [
+    { q: '1T2015', v: 108.82 }, { q: '2T2015', v: 109.04 }, { q: '3T2015', v: 108.97 }, { q: '4T2015', v: 108.82 },
+    { q: '1T2016', v: 108.65 }, { q: '2T2016', v: 108.89 }, { q: '3T2016', v: 109.14 }, { q: '4T2016', v: 109.35 },
+    { q: '1T2017', v: 109.70 }, { q: '2T2017', v: 110.14 }, { q: '3T2017', v: 110.47 }, { q: '4T2017', v: 110.82 },
+    { q: '1T2018', v: 111.38 }, { q: '2T2018', v: 111.95 }, { q: '3T2018', v: 112.33 }, { q: '4T2018', v: 112.65 },
+    { q: '1T2019', v: 113.07 }, { q: '2T2019', v: 113.40 }, { q: '3T2019', v: 113.65 }, { q: '4T2019', v: 113.98 },
+    { q: '1T2020', v: 114.15 }, { q: '2T2020', v: 113.73 }, { q: '3T2020', v: 113.82 }, { q: '4T2020', v: 113.94 },
+    { q: '1T2021', v: 114.20 }, { q: '2T2021', v: 114.73 }, { q: '3T2021', v: 115.62 }, { q: '4T2021', v: 116.75 },
+    { q: '1T2022', v: 118.45 }, { q: '2T2022', v: 121.04 }, { q: '3T2022', v: 123.69 }, { q: '4T2022', v: 126.12 },
     { q: '1T2023', v: 128.95 }, { q: '2T2023', v: 130.21 }, { q: '3T2023', v: 131.44 }, { q: '4T2023', v: 132.03 },
     { q: '1T2024', v: 132.97 }, { q: '2T2024', v: 133.82 }, { q: '3T2024', v: 134.51 }, { q: '4T2024', v: 135.12 },
     { q: '1T2025', v: 135.89 }, { q: '2T2025', v: 136.74 },
   ],
   ICC: [
+    { q: '1T2015', v: 1640 }, { q: '2T2015', v: 1640 }, { q: '3T2015', v: 1637 }, { q: '4T2015', v: 1635 },
+    { q: '1T2016', v: 1634 }, { q: '2T2016', v: 1638 }, { q: '3T2016', v: 1641 }, { q: '4T2016', v: 1644 },
+    { q: '1T2017', v: 1649 }, { q: '2T2017', v: 1658 }, { q: '3T2017', v: 1665 }, { q: '4T2017', v: 1672 },
+    { q: '1T2018', v: 1683 }, { q: '2T2018', v: 1697 }, { q: '3T2018', v: 1707 }, { q: '4T2018', v: 1714 },
+    { q: '1T2019', v: 1720 }, { q: '2T2019', v: 1730 }, { q: '3T2019', v: 1737 }, { q: '4T2019', v: 1742 },
+    { q: '1T2020', v: 1748 }, { q: '2T2020', v: 1741 }, { q: '3T2020', v: 1749 }, { q: '4T2020', v: 1757 },
+    { q: '1T2021', v: 1770 }, { q: '2T2021', v: 1797 }, { q: '3T2021', v: 1835 }, { q: '4T2021', v: 1888 },
+    { q: '1T2022', v: 1958 }, { q: '2T2022', v: 2023 }, { q: '3T2022', v: 2059 }, { q: '4T2022', v: 2075 },
     { q: '1T2023', v: 2053 }, { q: '2T2023', v: 2071 }, { q: '3T2023', v: 2089 }, { q: '4T2023', v: 2095 },
     { q: '1T2024', v: 2107 }, { q: '2T2024', v: 2119 }, { q: '3T2024', v: 2128 }, { q: '4T2024', v: 2134 },
     { q: '1T2025', v: 2141 },
   ],
   IRL: [
+    { q: '1T2015', v: 125.01 }, { q: '2T2015', v: 125.25 }, { q: '3T2015', v: 125.31 }, { q: '4T2015', v: 125.29 },
+    { q: '1T2016', v: 125.24 }, { q: '2T2016', v: 125.19 }, { q: '3T2016', v: 125.29 }, { q: '4T2016', v: 125.40 },
+    { q: '1T2017', v: 125.55 }, { q: '2T2017', v: 125.90 }, { q: '3T2017', v: 126.25 }, { q: '4T2017', v: 126.50 },
+    { q: '1T2018', v: 126.83 }, { q: '2T2018', v: 127.22 }, { q: '3T2018', v: 127.60 }, { q: '4T2018', v: 128.02 },
+    { q: '1T2019', v: 128.45 }, { q: '2T2019', v: 128.93 }, { q: '3T2019', v: 129.38 }, { q: '4T2019', v: 129.72 },
+    { q: '1T2020', v: 130.10 }, { q: '2T2020', v: 130.26 }, { q: '3T2020', v: 130.57 }, { q: '4T2020', v: 130.88 },
+    { q: '1T2021', v: 131.12 }, { q: '2T2021', v: 131.67 }, { q: '3T2021', v: 132.43 }, { q: '4T2021', v: 133.93 },
+    { q: '1T2022', v: 135.84 }, { q: '2T2022', v: 138.50 }, { q: '3T2022', v: 140.59 }, { q: '4T2022', v: 142.11 },
     { q: '1T2023', v: 143.51 }, { q: '2T2023', v: 145.19 }, { q: '3T2023', v: 146.52 }, { q: '4T2023', v: 147.11 },
     { q: '1T2024', v: 147.65 }, { q: '2T2024', v: 148.43 }, { q: '3T2024', v: 149.02 }, { q: '4T2024', v: 149.61 },
     { q: '1T2025', v: 150.14 },
