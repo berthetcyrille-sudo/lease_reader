@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import './index.css'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
@@ -1969,6 +1969,70 @@ function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, dange
   )
 }
 
+function ActifPicker({ currentValue, existingGroups, onSave, onClose }) {
+  const [q, setQ] = useState('')
+  const inputRef = useRef()
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  const filtered = existingGroups.filter(g => g.toLowerCase().includes(q.toLowerCase()) && g !== currentValue)
+  const showCreate = q.trim() && !existingGroups.map(g => g.toLowerCase()).includes(q.trim().toLowerCase())
+
+  return (
+    <div style={{ position: 'absolute', zIndex: 100, top: '100%', left: 0, marginTop: '2px',
+      background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
+      boxShadow: '0 4px 16px rgba(0,0,0,.12)', width: '220px', overflow: 'hidden' }}
+      onClick={e => e.stopPropagation()}>
+      <div style={{ padding: '6px' }}>
+        <input
+          ref={inputRef}
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') onClose()
+            if (e.key === 'Enter' && q.trim()) onSave(q.trim())
+          }}
+          placeholder="Rechercher ou créer…"
+          style={{ width: '100%', boxSizing: 'border-box', padding: '5px 8px', fontSize: '12px',
+            border: '1px solid var(--border2)', borderRadius: '5px', outline: 'none',
+            background: 'var(--surface2)', color: 'var(--text)' }}
+        />
+      </div>
+      <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+        {currentValue && (
+          <div onClick={() => onSave('')}
+            style={{ padding: '6px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--danger)',
+              borderTop: '1px solid var(--border)' }}>
+            ✕ Retirer du groupe
+          </div>
+        )}
+        {filtered.map(g => (
+          <div key={g} onClick={() => onSave(g)}
+            style={{ padding: '6px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--text)',
+              borderTop: '1px solid var(--border)' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
+            onMouseLeave={e => e.currentTarget.style.background = ''}>
+            📁 {g}
+          </div>
+        ))}
+        {showCreate && (
+          <div onClick={() => onSave(q.trim())}
+            style={{ padding: '6px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--accent)',
+              fontWeight: 600, borderTop: '1px solid var(--border)' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
+            onMouseLeave={e => e.currentTarget.style.background = ''}>
+            + Créer "{q.trim()}"
+          </div>
+        )}
+        {!filtered.length && !showCreate && !currentValue && (
+          <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>
+            Aucun groupe existant
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif }) {
   const [filter, setFilter] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
@@ -1978,7 +2042,31 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
   const [expanded, setExpanded] = useState({})
   const [search, setSearch] = useState('')
   const [sortDir, setSortDir] = useState('asc')
-  const [editingActif, setEditingActif] = useState(null) // { id, value }
+  const [editingActif, setEditingActif] = useState(null) // bail id
+  const [renamingGroup, setRenamingGroup] = useState(null) // group name
+
+  // Close picker on outside click
+  useEffect(() => {
+    if (!editingActif) return
+    const handler = () => setEditingActif(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [editingActif])
+
+  // Derive all existing actif groups from tree
+  const existingGroups = [...new Set(tree.map(b => b.actif_group).filter(Boolean))].sort()
+
+  async function renameGroup(oldName, newName) {
+    const v = newName.trim()
+    if (!v || v === oldName) { setRenamingGroup(null); return }
+    const ids = tree.filter(b => b.actif_group === oldName).map(b => b.id)
+    for (const id of ids) {
+      await supabase.from('extractions').update({ actif_group: v }).eq('id', id)
+      await supabase.from('extractions').update({ actif_group: v }).eq('parent_id', id)
+      onUpdateActif?.(id, v)
+    }
+    setRenamingGroup(null)
+  }
 
   const savingRef = useRef(false)
 
@@ -1987,16 +2075,9 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
     savingRef.current = true
     const v = (value || '').trim()
     setEditingActif(null)
-    // Update locally immediately
     onUpdateActif?.(id, v)
-    // Persist to Supabase
-    const { error } = await supabase
-      .from('extractions')
-      .update({ actif_group: v || null })
-      .eq('id', id)
-    if (!error) {
-      await supabase.from('extractions').update({ actif_group: v || null }).eq('parent_id', id)
-    }
+    const { error } = await supabase.from('extractions').update({ actif_group: v || null }).eq('id', id)
+    if (!error) await supabase.from('extractions').update({ actif_group: v || null }).eq('parent_id', id)
     savingRef.current = false
   }
 
@@ -2197,11 +2278,32 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                 display: 'grid', gridTemplateColumns: '1fr auto',
                 alignItems: 'center', padding: '10px 16px 6px',
                 background: 'var(--surface2)', borderBottom: '1px solid var(--border2)',
-                marginTop: rowIdx > 0 ? '4px' : 0,
+                marginTop: rowIdx > 0 ? '4px' : 0, position: 'relative',
               }}>
-                <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--accent)' }}>
-                  📁 {row._groupName}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--accent)' }}>
+                    📁 {renamingGroup === row._groupName ? (
+                      <input
+                        autoFocus
+                        defaultValue={row._groupName}
+                        onBlur={e => renameGroup(row._groupName, e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') renameGroup(row._groupName, e.target.value)
+                          if (e.key === 'Escape') setRenamingGroup(null)
+                        }}
+                        onClick={e => e.stopPropagation()}
+                        style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.08em', color: 'var(--accent)',
+                          background: 'transparent', border: 'none', borderBottom: '1px solid var(--accent)',
+                          outline: 'none', width: '160px', padding: '0' }}
+                      />
+                    ) : row._groupName}
+                  </span>
+                  {renamingGroup !== row._groupName && (
+                    <span title="Renommer ce groupe"
+                      onClick={e => { e.stopPropagation(); setRenamingGroup(row._groupName) }}
+                      style={{ fontSize: '11px', cursor: 'pointer', color: 'var(--text3)', opacity: 0.6 }}>✏️</span>
+                  )}
+                </div>
                 <span style={{ fontSize: '11px', color: 'var(--text3)' }}>{row._groupCount} bail{row._groupCount > 1 ? 's' : ''}</span>
               </div>
             )
@@ -2266,33 +2368,25 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                     })()}
                   </div>
                   {!isAv && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                      {editingActif?.id === row.id ? (
-                        <input
-                          autoFocus
-                          defaultValue={editingActif.value}
-                          placeholder="Nom de l'actif groupant…"
-                          onClick={e => e.stopPropagation()}
-                          onKeyDown={e => {
-                            e.stopPropagation()
-                            if (e.key === 'Enter') { e.preventDefault(); saveActifGroup(row.id, e.target.value) }
-                            if (e.key === 'Escape') { e.preventDefault(); setEditingActif(null) }
-                          }}
-                          onBlur={e => saveActifGroup(row.id, e.target.value)}
-                          style={{ fontSize: '10px', padding: '1px 5px', border: '1px solid var(--accent)', borderRadius: '4px', outline: 'none', width: '140px', background: 'var(--surface)', color: 'var(--text)' }}
+                    <div style={{ position: 'relative', marginTop: '2px' }}>
+                      <span
+                        onClick={e => { e.stopPropagation(); setEditingActif(editingActif === row.id ? null : row.id) }}
+                        title="Définir l'actif groupant"
+                        style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', cursor: 'pointer',
+                          background: row.actif_group ? 'var(--accent-bg)' : 'var(--surface2)',
+                          color: row.actif_group ? 'var(--accent)' : 'var(--text3)',
+                          border: `1px solid ${row.actif_group ? 'rgba(26,95,168,.2)' : 'var(--border)'}`,
+                          fontWeight: row.actif_group ? 600 : 400, display: 'inline-block',
+                        }}>
+                        {row.actif_group || '+ Actif'}
+                      </span>
+                      {editingActif === row.id && (
+                        <ActifPicker
+                          currentValue={row.actif_group || ''}
+                          existingGroups={existingGroups}
+                          onSave={v => saveActifGroup(row.id, v)}
+                          onClose={() => setEditingActif(null)}
                         />
-                      ) : (
-                        <span
-                          onClick={e => { e.stopPropagation(); setEditingActif({ id: row.id, value: row.actif_group || '' }) }}
-                          title="Cliquer pour définir l'actif groupant"
-                          style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', cursor: 'pointer',
-                            background: row.actif_group ? 'var(--accent-bg)' : 'var(--surface2)',
-                            color: row.actif_group ? 'var(--accent)' : 'var(--text3)',
-                            border: `1px solid ${row.actif_group ? 'rgba(26,95,168,.2)' : 'var(--border)'}`,
-                            fontWeight: row.actif_group ? 600 : 400,
-                          }}>
-                          {row.actif_group || '+ Actif'}
-                        </span>
                       )}
                     </div>
                   )}
