@@ -1972,7 +1972,8 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
 
   // Flatten all items for table
-  const [expanded, setExpanded] = useState({}) // bailId -> bool
+  const [expanded, setExpanded] = useState({})
+  const [search, setSearch] = useState('')
 
   function toggleExpand(id) {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
@@ -2017,7 +2018,17 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
       displayRows.push({ ...av, _level: 0, _parentName: null, _bailData: null })
     })
   }
-  const filtered = displayRows
+
+  // Apply search filter
+  const q = search.trim().toLowerCase()
+  const filtered = q ? displayRows.filter(row => {
+    const d = row.data || {}
+    const searchIn = [
+      d.immeuble, d.adresse, d.ville, d.preneur, d.bailleur,
+      d.objet_avenant, row.file_name, row._parentName,
+    ].filter(Boolean).join(' ').toLowerCase()
+    return searchIn.includes(q)
+  }) : displayRows
 
   return (
     <div className="dashboard">
@@ -2046,6 +2057,28 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
         <div className="dash-stats">
           <span className="dash-stat">{tree.length} {tree.length !== 1 ? 'baux' : 'bail'}</span>
           <span className="dash-stat">{tree.reduce((a,b) => a + (b.avenants?.length||0), 0)} avenant{tree.reduce((a,b) => a + (b.avenants?.length||0), 0) !== 1 ? 's' : ''}</span>
+        </div>
+        <div style={{ flex: 1, maxWidth: '320px', position: 'relative' }}>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Rechercher actif, preneur, ville…"
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              padding: '6px 30px 6px 10px',
+              fontSize: '13px', border: '1px solid var(--border2)',
+              borderRadius: '6px', background: 'var(--surface)',
+              color: 'var(--text)', outline: 'none',
+            }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} style={{
+              position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--text3)', fontSize: '14px', padding: '0', lineHeight: 1,
+            }}>✕</button>
+          )}
         </div>
         <div className="dash-filters">
           {['all','bail','avenant'].map(f => (
