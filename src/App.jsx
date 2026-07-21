@@ -1980,14 +1980,25 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
   const [sortDir, setSortDir] = useState('asc')
   const [editingActif, setEditingActif] = useState(null) // { id, value }
 
+  const savingRef = useRef(false)
+
   async function saveActifGroup(id, value) {
-    const v = value.trim()
-    await supabase.from('extractions').update({ actif_group: v || null }).eq('id', id)
-    // Also update all avenants linked to this bail
-    await supabase.from('extractions').update({ actif_group: v || null }).eq('parent_id', id)
-    // Refresh history
-    onRefresh?.()
+    if (savingRef.current) { console.log('saveActifGroup: skipped (already saving)'); return }
+    savingRef.current = true
+    const v = (value || '').trim()
+    console.log('saveActifGroup: saving', id, JSON.stringify(v))
     setEditingActif(null)
+    const { data, error } = await supabase
+      .from('extractions')
+      .update({ actif_group: v || null })
+      .eq('id', id)
+      .select('id, actif_group')
+    console.log('saveActifGroup: result', { data, error })
+    if (!error) {
+      await supabase.from('extractions').update({ actif_group: v || null }).eq('parent_id', id)
+      onRefresh?.()
+    }
+    savingRef.current = false
   }
 
   function toggleExpand(id) {
@@ -2264,8 +2275,9 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                           placeholder="Nom de l'actif groupant…"
                           onClick={e => e.stopPropagation()}
                           onKeyDown={e => {
-                            if (e.key === 'Enter') saveActifGroup(row.id, e.target.value)
-                            if (e.key === 'Escape') setEditingActif(null)
+                            e.stopPropagation()
+                            if (e.key === 'Enter') { e.preventDefault(); saveActifGroup(row.id, e.target.value) }
+                            if (e.key === 'Escape') { e.preventDefault(); setEditingActif(null) }
                           }}
                           onBlur={e => saveActifGroup(row.id, e.target.value)}
                           style={{ fontSize: '10px', padding: '1px 5px', border: '1px solid var(--accent)', borderRadius: '4px', outline: 'none', width: '140px', background: 'var(--surface)', color: 'var(--text)' }}
