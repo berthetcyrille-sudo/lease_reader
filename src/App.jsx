@@ -88,7 +88,7 @@ CHAMPS:
 {"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[]}
 
 REGLES PAR CHAMP:
-- duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: si break_options, intervalle date_effet->premiere break option; sinon=duree_totale; si mentionne explicitement, utiliser cette valeur.
+- duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
 - surfaces_detail: [{\"categorie\":\"Bureaux\",\"niveau\":\"5eme etage\",\"surface_m2\":\"2224.98\",\"prix_unitaire\":\"290\",\"loyer_annuel\":\"645244\"}]. categorie JAMAIS null: etage/plateau->Bureaux, sous-sol/emplacement/lot numerote->Stationnement, exterieur->Stationnement, doute->Bureaux.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
@@ -620,7 +620,7 @@ function addYearsExpiry(d, n) {
   return result
 }
 
-function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, existing) {
+function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, existing, duree_ferme_str) {
   const effet = parseFR(date_effet_str)
   const fin   = parseFR(date_fin_str)
   if (!effet || !fin) return existing || []
@@ -681,8 +681,24 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
     if (d && d > effet && d < fin) candidates.add(fmtFR(d))
   }
 
-  // If nothing computed and no waiver, fall back to Claude's extracted breaks
-  if (!candidates.size && !hasWaiver) return existing || []
+  // If nothing computed and no waiver, try duree_ferme as first break
+  if (!candidates.size && !hasWaiver) {
+    // Parse duree_ferme: "6 ans", "6 ans et 8 mois", etc.
+    if (duree_ferme_str) {
+      const ymatch = String(duree_ferme_str).match(/(\d+)\s*ans?/)
+      const mmatch = String(duree_ferme_str).match(/(\d+)\s*mois/)
+      const years  = ymatch ? parseInt(ymatch[1]) : 0
+      const months = mmatch ? parseInt(mmatch[1]) : 0
+      if (years > 0 || months > 0) {
+        const breakDate = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
+        if (breakDate > effet && breakDate < fin) {
+          candidates.add(fmtFR(breakDate))
+        }
+      }
+    }
+    // Still nothing: fall back to Claude's extracted breaks
+    if (!candidates.size) return existing || []
+  }
 
   return [...candidates].sort((a, b) => {
     const da = parseFR(a), db = parseFR(b)
@@ -906,7 +922,7 @@ function sanitizeExtracted(data) {
   d.break_options = ensureArray(d.break_options)
   // Enrichir les breaks par calcul côté code — fiable à 100%
   if (d.date_effet || d.date_fin) {
-    d.break_options = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options)
+    d.break_options = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options, d.duree_ferme)
   }
   const cs = rows => cleanSurfaces(normalizeSurfaces(rows))
   d.surfaces_detail    = cs(ensureArray(d.surfaces_detail))
@@ -1359,7 +1375,7 @@ function ResultsView({ item }) {
   }, [item.id, d.indexation_indice, d.indexation_valeur_base, d.date_signature])
 
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
-  const breaks = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options || [])
+  const breaks = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options || [], d.duree_ferme)
 
   // Clean surfaces at display time too (for data already in DB)
   const cs = rows => cleanSurfaces(normalizeSurfaces(Array.isArray(rows) ? rows : []))
