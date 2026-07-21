@@ -1638,7 +1638,7 @@ function ResultsView({ item }) {
       {/* Loyer */}
       {(show('loyer_signature_montant') || (!isAv && d.surfaces_detail?.length > 0)) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Loyer, taxes et charges</div></div>
+          <div className="sec-hd"><div className="sec-label">Loyer</div></div>
           {d.loyer_signature_montant && (
             <div className="loyer-hero">
               <div>
@@ -1676,8 +1676,11 @@ function ResultsView({ item }) {
           })()}
           <div className="gx" style={{ marginBottom: '8px' }}>
             {show('loyer_cours') && d.loyer_cours && (() => {
-              const amt = parseAmount(d.loyer_cours)
-              const suspicious = amt !== null && amt < 5000
+              const amtCours = parseAmount(d.loyer_cours)
+              const amtSig   = parseAmount(d.loyer_signature_montant)
+              // Ne montrer que si différent du loyer à la signature
+              if (amtCours !== null && amtSig !== null && Math.abs(amtCours - amtSig) < 1) return null
+              const suspicious = amtCours !== null && amtCours < 5000
               return (
                 <div className="field">
                   <div className="field-lbl">Loyer de base (annuel)</div>
