@@ -123,8 +123,8 @@ REGLES PAR CHAMP (champs_modifies):
 const DETECT_PROMPT = `Analyse ce document. Le nom du fichier est un indice important. Reponds UNIQUEMENT avec ce JSON sur une ligne:
 {"type":"bail","pertinent":true,"raison":"","preneur":"","bailleur":"","adresse":"","immeuble":""}
 Regles strictes:
-- pertinent: true UNIQUEMENT si le document est un bail commercial original ou un avenant a un bail commercial. false dans TOUS les autres cas: side letter, protocole TVA, courrier, facture, plan, etat des lieux, diagnostic, protocole, acte de cautionnement, garantie, assurance, mandat, proces-verbal, ou tout document qui n'est pas lui-meme un bail ou avenant
-- type: "bail" si bail commercial original, "avenant" si avenant/rectificatif/protocole modificatif d'un bail
+- pertinent: true UNIQUEMENT si le document est un bail commercial original ou un avenant a un bail commercial (y compris s'il est intitule "protocole" ou "accord" mais qu'il modifie les conditions d'un bail: loyer, franchise, duree, surfaces). false dans TOUS les autres cas: side letter TVA, courrier simple, facture, plan, etat des lieux, diagnostic energetique, acte de cautionnement autonome, police d'assurance, mandat de gestion, proces-verbal d'assemblee, ou tout document qui ne modifie pas lui-meme les conditions d'un bail commercial
+- type: "bail" si bail commercial original, "avenant" si avenant/rectificatif/protocole modificatif d'un bail (reduction de loyer, franchise supplementaire, changement de surface, etc.)
 - raison: explication courte si pertinent:false (ex: "side letter TVA", "etat des lieux", "diagnostic energetique")
 - preneur, bailleur, adresse, immeuble: extrais ces valeurs du document pour identifier le bail associe`
 
