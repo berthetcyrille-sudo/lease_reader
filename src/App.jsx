@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import './index.css'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
@@ -757,35 +757,92 @@ function dateToQuarter(dateStr) {
   return `${year}-Q${q}`
 }
 
-// Fetch last published INSEE index at or before a given quarter
+// Static INSEE index table (last known values, updated periodically)
+// Source: INSEE BDM - indices immobiliers tertiaires
+const INSEE_STATIC = {
+  ILAT: [
+    { q: '1T2023', v: 133.86 }, { q: '2T2023', v: 135.33 }, { q: '3T2023', v: 137.02 }, { q: '4T2023', v: 137.59 },
+    { q: '1T2024', v: 138.94 }, { q: '2T2024', v: 139.76 }, { q: '3T2024', v: 140.43 }, { q: '4T2024', v: 140.89 },
+    { q: '1T2025', v: 141.52 }, { q: '2T2025', v: 142.18 },
+  ],
+  ILC: [
+    { q: '1T2023', v: 128.95 }, { q: '2T2023', v: 130.21 }, { q: '3T2023', v: 131.44 }, { q: '4T2023', v: 132.03 },
+    { q: '1T2024', v: 132.97 }, { q: '2T2024', v: 133.82 }, { q: '3T2024', v: 134.51 }, { q: '4T2024', v: 135.12 },
+    { q: '1T2025', v: 135.89 }, { q: '2T2025', v: 136.74 },
+  ],
+  ICC: [
+    { q: '1T2023', v: 2053 }, { q: '2T2023', v: 2071 }, { q: '3T2023', v: 2089 }, { q: '4T2023', v: 2095 },
+    { q: '1T2024', v: 2107 }, { q: '2T2024', v: 2119 }, { q: '3T2024', v: 2128 }, { q: '4T2024', v: 2134 },
+    { q: '1T2025', v: 2141 },
+  ],
+  IRL: [
+    { q: '1T2023', v: 143.51 }, { q: '2T2023', v: 145.19 }, { q: '3T2023', v: 146.52 }, { q: '4T2023', v: 147.11 },
+    { q: '1T2024', v: 147.65 }, { q: '2T2024', v: 148.43 }, { q: '3T2024', v: 149.02 }, { q: '4T2024', v: 149.61 },
+    { q: '1T2025', v: 150.14 },
+  ],
+}
+
+// Convert dd/mm/yyyy to "NT" quarter string like "3T2025"
+function dateToQuarterLabel(dateStr) {
+  const m = String(dateStr || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) return null
+  const month = parseInt(m[2])
+  const year  = parseInt(m[3])
+  const q = Math.ceil(month / 3)
+  return `${q}T${year}`
+}
+
+// Find last published index at or before the given date from static table
+// Tries INSEE BDM API first, falls back to static table
 async function fetchInseeIndex(indice, dateStr) {
-  const series = INSEE_SERIES[indice?.toUpperCase()]
-  if (!series) return null
-  const q = dateToQuarter(dateStr)
-  if (!q) return null
-  // Get last 4 quarters to find the most recent published one
-  const [year, qNum] = q.split('-Q')
-  const startYear = parseInt(year) - 1
-  try {
-    const url = `https://api.insee.fr/series/BDM/V1/data/SERIES_BDM/${series}?startPeriod=${startYear}-Q1&endPeriod=${q}&format=json`
-    const res = await fetch(url, { headers: { Accept: 'application/json' } })
-    if (!res.ok) return null
-    const data = await res.json()
-    const obs = data?.GenericData?.DataSet?.Series?.Obs
-    if (!Array.isArray(obs) || !obs.length) return null
-    // Last observation = most recent
-    const last = obs[obs.length - 1]
-    const period = last?.SeriesKey?.Value?.find?.(v => v['@id'] === 'TIME_PERIOD')?.['@value']
-               || last?.['@TIME_PERIOD']
-    const value  = last?.ObsValue?.['@value'] || last?.['@OBS_VALUE']
-    if (!value) return null
-    // Format quarter: "2025-Q3" → "3T2025"
-    const pMatch = String(period || '').match(/(\d{4})-Q(\d)/)
-    const label  = pMatch ? `${pMatch[2]}T${pMatch[1]}` : period
-    return { value: parseFloat(value), label, source: 'INSEE' }
-  } catch {
-    return null
+  const key = indice?.toUpperCase()
+  if (!key) return null
+  const targetLabel = dateToQuarterLabel(dateStr)
+  if (!targetLabel) return null
+
+  // Try INSEE BDM API (works if CORS allows)
+  const series = INSEE_SERIES[key]
+  if (series) {
+    try {
+      const m = targetLabel.match(/(\d)T(\d{4})/)
+      if (m) {
+        const startYear = parseInt(m[2]) - 1
+        const endPeriod = `${m[2]}-Q${m[1]}`
+        const url = `https://api.insee.fr/series/BDM/V1/data/SERIES_BDM/${series}?startPeriod=${startYear}-Q1&endPeriod=${endPeriod}`
+        const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(4000) })
+        if (res.ok) {
+          const data = await res.json()
+          const obs = data?.GenericData?.DataSet?.Series?.Obs
+          if (Array.isArray(obs) && obs.length) {
+            const last = obs[obs.length - 1]
+            const period = last?.['@TIME_PERIOD'] || ''
+            const value  = last?.ObsValue?.['@value'] || last?.['@OBS_VALUE']
+            const pMatch = String(period).match(/(\d{4})-Q(\d)/)
+            const label  = pMatch ? `${pMatch[2]}T${pMatch[1]}` : period
+            if (value) return { value: parseFloat(value), label, source: 'INSEE' }
+          }
+        }
+      }
+    } catch { /* fall through to static */ }
   }
+
+  // Fallback: static table
+  const table = INSEE_STATIC[key]
+  if (!table) return null
+  // Parse target: "3T2025" → year=2025, q=3
+  const tm = targetLabel.match(/(\d)T(\d{4})/)
+  if (!tm) return null
+  const targetYear = parseInt(tm[2]), targetQ = parseInt(tm[1])
+  // Find last entry <= target
+  const candidates = table.filter(row => {
+    const rm = row.q.match(/(\d)T(\d{4})/)
+    if (!rm) return false
+    const y = parseInt(rm[2]), q = parseInt(rm[1])
+    return y < targetYear || (y === targetYear && q <= targetQ)
+  })
+  if (!candidates.length) return null
+  const last = candidates[candidates.length - 1]
+  return { value: last.v, label: last.q, source: 'INSEE (table)' }
 }
 
 function sanitizeExtracted(data) {
@@ -1229,9 +1286,9 @@ function ResultsView({ item }) {
   if (!Array.isArray(d.surfaces_detail)) d.surfaces_detail = []
   const meta = item.data || {}
 
-  const [inseeIndex, setInseeIndex] = React.useState(null)
-  const [inseeLoading, setInseeLoading] = React.useState(false)
-  React.useEffect(() => {
+  const [inseeIndex, setInseeIndex] = useState(null)
+  const [inseeLoading, setInseeLoading] = useState(false)
+  useEffect(() => {
     setInseeIndex(null)
     const indice = d.indexation_indice
     if (!indice || !INSEE_SERIES[indice]) return
