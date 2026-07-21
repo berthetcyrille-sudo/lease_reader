@@ -1421,10 +1421,29 @@ function ResultsView({ item }) {
 
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
   // N'utiliser computeBreaks que si break_options est vide (fallback uniquement)
-  const breaks = (d.break_options && d.break_options.length > 0)
+  let breaks = (d.break_options && d.break_options.length > 0)
     ? d.break_options
     : computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
-  console.log('breaks debug:', { break_options: d.break_options, breaks })
+
+  // Si duree_ferme est renseignée, supprimer les breaks AVANT date_effet + duree_ferme
+  if (d.duree_ferme && d.date_effet) {
+    const effet = parseFR(d.date_effet)
+    const dfm = String(d.duree_ferme)
+    const ymatch = dfm.match(/(\d+)\s*ans?/), mmatch = dfm.match(/(\d+)\s*mois/)
+    const years = ymatch ? parseInt(ymatch[1]) : 0, months = mmatch ? parseInt(mmatch[1]) : 0
+    if (effet && (years > 0 || months > 0)) {
+      const minBreak = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
+      breaks = breaks.filter(b => {
+        const bd = parseFR(b)
+        return bd && bd >= minBreak
+      })
+      // Dédoublonner (ex: 29/06/2031 et 30/06/2031 = même date à 1 jour près)
+      breaks = [...new Map(breaks.map(b => {
+        const bd = parseFR(b)
+        return [bd ? `${bd.getFullYear()}-${bd.getMonth()}` : b, b]
+      })).values()]
+    }
+  }
 
   // Clean surfaces at display time too (for data already in DB)
   const cs = rows => cleanSurfaces(normalizeSurfaces(Array.isArray(rows) ? rows : []))
