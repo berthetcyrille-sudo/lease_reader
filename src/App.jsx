@@ -1969,7 +1969,7 @@ function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, dange
   )
 }
 
-function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh }) {
+function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif }) {
   const [filter, setFilter] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
@@ -1983,20 +1983,19 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
   const savingRef = useRef(false)
 
   async function saveActifGroup(id, value) {
-    if (savingRef.current) { console.log('saveActifGroup: skipped (already saving)'); return }
+    if (savingRef.current) return
     savingRef.current = true
     const v = (value || '').trim()
-    console.log('saveActifGroup: saving', id, JSON.stringify(v))
     setEditingActif(null)
-    const { data, error } = await supabase
+    // Update locally immediately
+    onUpdateActif?.(id, v)
+    // Persist to Supabase
+    const { error } = await supabase
       .from('extractions')
       .update({ actif_group: v || null })
       .eq('id', id)
-      .select('id, actif_group')
-    console.log('saveActifGroup: result', { data, error })
     if (!error) {
       await supabase.from('extractions').update({ actif_group: v || null }).eq('parent_id', id)
-      onRefresh?.()
     }
     savingRef.current = false
   }
@@ -2710,6 +2709,12 @@ export default function App() {
                 onExportAll={() => exportAllToExcel(history)}
                 newIds={newIds}
                 onRefresh={loadHistory}
+                onUpdateActif={(id, value) => {
+                  setHistory(prev => prev.map(b => {
+                    if (b.id === id) return { ...b, actif_group: value || null }
+                    return { ...b, avenants: (b.avenants || []).map(a => a.id === id ? { ...a, actif_group: value || null } : a) }
+                  }))
+                }}
               />
             ) : (
               <div className="extract-wrap">
