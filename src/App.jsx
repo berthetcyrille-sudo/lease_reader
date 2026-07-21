@@ -964,7 +964,10 @@ function sanitizeExtracted(data) {
   d.break_options = ensureArray(d.break_options)
   // Enrichir les breaks par calcul côté code — fiable à 100%
   if (d.date_effet || d.date_fin) {
-    d.break_options = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options, d.duree_ferme)
+    // N'enrichir les breaks par le code que si Claude n'en a pas trouvé
+  if (!d.break_options || d.break_options.length === 0) {
+    d.break_options = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+  }
   }
   const cs = rows => cleanSurfaces(normalizeSurfaces(rows))
   d.surfaces_detail    = cs(ensureArray(d.surfaces_detail))
@@ -1417,13 +1420,11 @@ function ResultsView({ item }) {
   }, [item.id, d.indexation_indice, d.indexation_valeur_base, d.date_signature])
 
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
-  const breaks = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, d.break_options || [], d.duree_ferme)
-  console.log('computeBreaks debug:', {
-    date_effet: d.date_effet, duree_ferme: d.duree_ferme,
-    conditions_break: d.conditions_break,
-    break_options_in: d.break_options,
-    breaks_out: breaks
-  })
+  // N'utiliser computeBreaks que si break_options est vide (fallback uniquement)
+  const breaks = (d.break_options && d.break_options.length > 0)
+    ? d.break_options
+    : computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+  console.log('breaks debug:', { break_options: d.break_options, breaks })
 
   // Clean surfaces at display time too (for data already in DB)
   const cs = rows => cleanSurfaces(normalizeSurfaces(Array.isArray(rows) ? rows : []))
