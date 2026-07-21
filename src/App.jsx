@@ -2381,7 +2381,7 @@ export default function App() {
   async function loadHistory() {
     if (histLoaded) return
     const { data: rows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
+      .select('id, file_name, created_at, data, document_type, parent_id')
       .order('created_at', { ascending: false }).limit(100)
     setHistory(rows ? buildTree(rows) : [])
     setHistLoaded(true)
@@ -2392,7 +2392,7 @@ export default function App() {
     if (t === 'history') {
       // Forcer rechargement depuis Supabase directement
       const { data: rows } = await supabase.from('extractions')
-        .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
+        .select('id, file_name, created_at, data, document_type, parent_id')
         .order('created_at', { ascending: false }).limit(100)
       setHistory(rows ? buildTree(rows) : [])
       setHistLoaded(true)
@@ -2588,7 +2588,7 @@ export default function App() {
     // Recharger l'historique complet depuis Supabase
     setHistLoaded(false)
     const { data: freshRows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
+      .select('id, file_name, created_at, data, document_type, parent_id')
       .order('created_at', { ascending: false }).limit(100)
     if (freshRows) setHistory(buildTree(freshRows))
     setHistLoaded(true)
