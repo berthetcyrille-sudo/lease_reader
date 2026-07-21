@@ -1691,8 +1691,8 @@ function ResultsView({ item }) {
                 </div>
               )
             })()}
-            {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose full />}
           </div>
+          {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose full />}
           {show('loyer_signature') && d.loyer_signature && (
             <div style={{ marginBottom: '8px' }}>
               <Field label="Loyer à la signature — détail complet" value={d.loyer_signature} verbose />
@@ -1969,7 +1969,7 @@ function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, dange
   )
 }
 
-function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
+function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh }) {
   const [filter, setFilter] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
@@ -1978,6 +1978,17 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
   const [expanded, setExpanded] = useState({})
   const [search, setSearch] = useState('')
   const [sortDir, setSortDir] = useState('asc')
+  const [editingActif, setEditingActif] = useState(null) // { id, value }
+
+  async function saveActifGroup(id, value) {
+    const v = value.trim()
+    await supabase.from('extractions').update({ actif_group: v || null }).eq('id', id)
+    // Also update all avenants linked to this bail
+    await supabase.from('extractions').update({ actif_group: v || null }).eq('parent_id', id)
+    // Refresh history
+    onRefresh?.()
+    setEditingActif(null)
+  }
 
   function toggleExpand(id) {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
@@ -2037,7 +2048,6 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
   // Sort top-level bails by actif name, avenants follow their bail
   const getActifName = row => (row.data?.immeuble || row.data?.adresse || row.file_name || '').toLowerCase()
   const sortedFiltered = (() => {
-    // Group: bails with their avenants, then sort bails
     const bails = filtered.filter(r => r._level === 0)
     const avMap = {}
     filtered.filter(r => r._level > 0).forEach(r => {
@@ -2049,11 +2059,29 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
       const cmp = getActifName(a).localeCompare(getActifName(b), 'fr')
       return sortDir === 'asc' ? cmp : -cmp
     })
-    const result = []
+    // Group by actif_group
+    const groups = {} // actif_group -> [bail rows + avenants]
+    const noGroup = [] // bails without actif_group
     bails.forEach(bail => {
-      result.push(bail)
-      ;(avMap[bail.id] || []).forEach(av => result.push(av))
+      const grp = bail.actif_group
+      const rows = [bail, ...(avMap[bail.id] || [])]
+      if (grp) {
+        if (!groups[grp]) groups[grp] = []
+        groups[grp].push(...rows)
+      } else {
+        noGroup.push(...rows)
+      }
     })
+    // Build final list: group headers + rows
+    const result = []
+    Object.entries(groups).sort(([a], [b]) => {
+      const cmp = a.localeCompare(b, 'fr')
+      return sortDir === 'asc' ? cmp : -cmp
+    }).forEach(([grp, rows]) => {
+      result.push({ _isGroupHeader: true, _groupName: grp, _groupCount: rows.filter(r => r._level === 0).length })
+      rows.forEach(r => result.push(r))
+    })
+    noGroup.forEach(r => result.push(r))
     return result
   })()
 
@@ -2152,7 +2180,22 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
             <div className="dash-th dash-th-right" style={{ gridColumn: '7' }}>Loyer HT/HC</div>
             <div style={{ gridColumn: '8' }}/>
           </div>
-          {sortedFiltered.map(row => {
+          {sortedFiltered.map((row, rowIdx) => {
+            // Group header
+            if (row._isGroupHeader) return (
+              <div key={`grp-${row._groupName}`} style={{
+                display: 'grid', gridTemplateColumns: '1fr auto',
+                alignItems: 'center', padding: '10px 16px 6px',
+                background: 'var(--surface2)', borderBottom: '1px solid var(--border2)',
+                marginTop: rowIdx > 0 ? '4px' : 0,
+              }}>
+                <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--accent)' }}>
+                  📁 {row._groupName}
+                </span>
+                <span style={{ fontSize: '11px', color: 'var(--text3)' }}>{row._groupCount} bail{row._groupCount > 1 ? 's' : ''}</span>
+              </div>
+            )
+
             // Données fusionnées : bail de base + modifications de l'avenant
             const bailBase = row._bailData || {}
             const mods = row.data?.champs_modifies || {}
@@ -2212,6 +2255,36 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
                       return cp ? `${city} (${cp})` : city
                     })()}
                   </div>
+                  {!isAv && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                      {editingActif?.id === row.id ? (
+                        <input
+                          autoFocus
+                          defaultValue={editingActif.value}
+                          placeholder="Nom de l'actif groupant…"
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') saveActifGroup(row.id, e.target.value)
+                            if (e.key === 'Escape') setEditingActif(null)
+                          }}
+                          onBlur={e => saveActifGroup(row.id, e.target.value)}
+                          style={{ fontSize: '10px', padding: '1px 5px', border: '1px solid var(--accent)', borderRadius: '4px', outline: 'none', width: '140px', background: 'var(--surface)', color: 'var(--text)' }}
+                        />
+                      ) : (
+                        <span
+                          onClick={e => { e.stopPropagation(); setEditingActif({ id: row.id, value: row.actif_group || '' }) }}
+                          title="Cliquer pour définir l'actif groupant"
+                          style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', cursor: 'pointer',
+                            background: row.actif_group ? 'var(--accent-bg)' : 'var(--surface2)',
+                            color: row.actif_group ? 'var(--accent)' : 'var(--text3)',
+                            border: `1px solid ${row.actif_group ? 'rgba(26,95,168,.2)' : 'var(--border)'}`,
+                            fontWeight: row.actif_group ? 600 : 400,
+                          }}>
+                          {row.actif_group || '+ Actif'}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Type */}
@@ -2308,7 +2381,7 @@ export default function App() {
   async function loadHistory() {
     if (histLoaded) return
     const { data: rows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id')
+      .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
       .order('created_at', { ascending: false }).limit(100)
     setHistory(rows ? buildTree(rows) : [])
     setHistLoaded(true)
@@ -2319,7 +2392,7 @@ export default function App() {
     if (t === 'history') {
       // Forcer rechargement depuis Supabase directement
       const { data: rows } = await supabase.from('extractions')
-        .select('id, file_name, created_at, data, document_type, parent_id')
+        .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
         .order('created_at', { ascending: false }).limit(100)
       setHistory(rows ? buildTree(rows) : [])
       setHistLoaded(true)
@@ -2515,7 +2588,7 @@ export default function App() {
     // Recharger l'historique complet depuis Supabase
     setHistLoaded(false)
     const { data: freshRows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id')
+      .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
       .order('created_at', { ascending: false }).limit(100)
     if (freshRows) setHistory(buildTree(freshRows))
     setHistLoaded(true)
@@ -2624,6 +2697,7 @@ export default function App() {
                 onClear={handleClearHistory}
                 onExportAll={() => exportAllToExcel(history)}
                 newIds={newIds}
+                onRefresh={loadHistory}
               />
             ) : (
               <div className="extract-wrap">
