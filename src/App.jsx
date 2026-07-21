@@ -1974,6 +1974,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
   // Flatten all items for table
   const [expanded, setExpanded] = useState({})
   const [search, setSearch] = useState('')
+  const [sortDir, setSortDir] = useState('asc')
 
   function toggleExpand(id) {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
@@ -2029,6 +2030,29 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
     ].filter(Boolean).join(' ').toLowerCase()
     return searchIn.includes(q)
   }) : displayRows
+
+  // Sort top-level bails by actif name, avenants follow their bail
+  const getActifName = row => (row.data?.immeuble || row.data?.adresse || row.file_name || '').toLowerCase()
+  const sortedFiltered = (() => {
+    // Group: bails with their avenants, then sort bails
+    const bails = filtered.filter(r => r._level === 0)
+    const avMap = {}
+    filtered.filter(r => r._level > 0).forEach(r => {
+      const pid = r.parent_id || r._parentId
+      if (!avMap[pid]) avMap[pid] = []
+      avMap[pid].push(r)
+    })
+    bails.sort((a, b) => {
+      const cmp = getActifName(a).localeCompare(getActifName(b), 'fr')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    const result = []
+    bails.forEach(bail => {
+      result.push(bail)
+      ;(avMap[bail.id] || []).forEach(av => result.push(av))
+    })
+    return result
+  })()
 
   return (
     <div className="dashboard">
@@ -2112,7 +2136,11 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
       ) : (
         <div className="dash-table">
           <div className="dash-thead">
-            <div className="dash-th" style={{ gridColumn: '1' }}>Actif / Document</div>
+            <div className="dash-th" style={{ gridColumn: '1', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
+              onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}>
+              Actif / Document
+              <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
+            </div>
             <div className="dash-th" style={{ gridColumn: '2' }}>Type</div>
             <div className="dash-th" style={{ gridColumn: '3' }}>Preneur</div>
             <div className="dash-th" style={{ gridColumn: '4' }}>Date effet</div>
@@ -2121,7 +2149,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds }) {
             <div className="dash-th dash-th-right" style={{ gridColumn: '7' }}>Loyer HT/HC</div>
             <div style={{ gridColumn: '8' }}/>
           </div>
-          {filtered.map(row => {
+          {sortedFiltered.map(row => {
             // Données fusionnées : bail de base + modifications de l'avenant
             const bailBase = row._bailData || {}
             const mods = row.data?.champs_modifies || {}
