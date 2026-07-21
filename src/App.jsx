@@ -673,7 +673,7 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
     }
   }
 
-  if (!hasWaiver) {
+  if (!hasWaiver && !periodeMatch) {
     const hasTriennale = /triennale|p.riode.{0,10}3\s*ans/i.test(clauseText) ||
                          /chaque.{0,20}(p.riode|terme|fin)/i.test(clauseText)
     if (hasTriennale) {
