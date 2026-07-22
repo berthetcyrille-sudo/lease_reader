@@ -2388,7 +2388,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                       style={{ fontSize: '11px', cursor: 'pointer', color: 'var(--text3)', opacity: 0.6 }}>✏️</span>
                   )}
                 </div>
-                <span style={{ fontSize: '11px', color: 'var(--text3)' }}>{row._groupCount} bail{row._groupCount > 1 ? 's' : ''}</span>
+                <span style={{ fontSize: '11px', color: 'var(--text3)' }}>{row._groupCount} {row._groupCount > 1 ? 'baux' : 'bail'}</span>
               </div>
             )
 
