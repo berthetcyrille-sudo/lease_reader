@@ -2064,7 +2064,7 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose }) {
   return (
     <div style={{ position: 'absolute', zIndex: 100, top: '100%', left: 0, marginTop: '2px',
       background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
-      boxShadow: '0 4px 16px rgba(0,0,0,.12)', width: '220px', overflow: 'hidden' }}
+      boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '220px', overflow: 'hidden', zIndex: 9999 }}
       onClick={e => e.stopPropagation()}>
       <div style={{ padding: '6px' }}>
         <input
