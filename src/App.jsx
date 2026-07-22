@@ -89,7 +89,7 @@ CHAMPS:
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
-- surfaces_detail: [{\"categorie\":\"Bureaux\",\"niveau\":\"5eme etage\",\"surface_m2\":\"2224.98\",\"prix_unitaire\":\"290\",\"loyer_annuel\":\"645244\"}]. categorie JAMAIS null: etage/plateau->Bureaux, sous-sol/emplacement/lot numerote->Stationnement, exterieur->Stationnement, doute->Bureaux.
+- surfaces_detail: TOUTES les composantes du loyer avec leur surface et loyer annuel. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple: [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. categorie: etage/plateau->Bureaux, sous-sol/emplacement->Stationnement, restaurant/cafeteria->RIE, archives->Archives. La SOMME des loyer_annuel doit etre egale a loyer_signature_montant.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
 - break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG. REGLES DE CALCUL:
@@ -1759,22 +1759,7 @@ function ResultsView({ item }) {
             )
           })()}
           <div className="gx" style={{ marginBottom: '8px' }}>
-            {show('loyer_cours') && d.loyer_cours && (() => {
-              const amtCours = parseAmount(d.loyer_cours)
-              const amtSig   = parseAmount(d.loyer_signature_montant)
-              // Ne montrer que si différent du loyer à la signature
-              if (amtCours !== null && amtSig !== null && Math.abs(amtCours - amtSig) < 1) return null
-              const suspicious = amtCours !== null && amtCours < 5000
-              return (
-                <div className="field">
-                  <div className="field-lbl">Loyer de base (annuel)</div>
-                  <div className="field-val" style={{ color: suspicious ? 'var(--danger)' : undefined }}>
-                    {fmtEur(d.loyer_cours) || d.loyer_cours}
-                    {suspicious && <span style={{ fontSize: '11px', marginLeft: '6px', fontWeight: 400 }}>⚠ Valeur anormalement basse — vérifier (prix/m² au lieu du total ?)</span>}
-                  </div>
-                </div>
-              )
-            })()}
+
           </div>
           {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose full />}
           {show('loyer_signature') && d.loyer_signature && (
