@@ -2794,6 +2794,8 @@ export default function App() {
     setLastError(''); setFileOrder([]); setAvenantLinks({}); setPertinents([]); setRaisons([])
   }
 
+  const d = activeItem?.data || {}
+
   const contentRef = useRef()
   useEffect(() => {
     if (contentRef.current) contentRef.current.scrollTop = 0
