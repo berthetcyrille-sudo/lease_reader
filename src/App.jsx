@@ -2794,7 +2794,10 @@ export default function App() {
     setLastError(''); setFileOrder([]); setAvenantLinks({}); setPertinents([]); setRaisons([])
   }
 
-  const d = activeItem?.data || {}
+  const contentRef = useRef()
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0
+  }, [activeItem?.id])
   const resultTitle = d.immeuble || d.adresse || activeItem?.file_name || ''
   const shortName = s => s?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim()
   const resultSub = [shortName(d.preneur), shortName(d.bailleur), d.date_signature ? `Signé le ${d.date_signature}` : null].filter(Boolean).join(' · ')
@@ -2860,7 +2863,7 @@ export default function App() {
             </div>
           )}
 
-          <div className="content">
+          <div className="content" ref={contentRef}>
             {activeItem ? (
               <ResultsView item={activeItem} />
             ) : tab === 'history' ? (
