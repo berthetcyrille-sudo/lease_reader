@@ -26,7 +26,7 @@ button, input { font-family: inherit; cursor: pointer; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
 /* ── App ── */
-.app { display: flex; min-height: 100vh; }
+.app { display: flex; height: 100vh; overflow: hidden; }
 
 /* ── Sidebar ── */
 .sidebar { width: 220px; flex-shrink: 0; background: #1C1C1A; display: flex; flex-direction: column; }
@@ -54,7 +54,7 @@ button, input { font-family: inherit; cursor: pointer; }
 .btn-clear:hover { background: rgba(255,80,80,0.1); }
 
 /* ── Main ── */
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); height: 100vh; overflow: hidden; }
 
 /* ── Topbar ── */
 .result-topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 18px 32px; flex-shrink: 0; box-shadow: 0 1px 0 var(--border); }
