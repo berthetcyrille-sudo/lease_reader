@@ -2798,7 +2798,9 @@ export default function App() {
 
   const contentRef = useRef()
   useEffect(() => {
-    if (contentRef.current) contentRef.current.scrollTop = 0
+    requestAnimationFrame(() => {
+      if (contentRef.current) contentRef.current.scrollTop = 0
+    })
   }, [activeItem?.id])
   const resultTitle = d.immeuble || d.adresse || activeItem?.file_name || ''
   const shortName = s => s?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim()
