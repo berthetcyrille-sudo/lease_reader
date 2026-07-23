@@ -2800,6 +2800,7 @@ export default function App() {
   useEffect(() => {
     requestAnimationFrame(() => {
       if (contentRef.current) contentRef.current.scrollTop = 0
+      window.scrollTo(0, 0)
     })
   }, [activeItem?.id])
   const resultTitle = d.immeuble || d.adresse || activeItem?.file_name || ''
