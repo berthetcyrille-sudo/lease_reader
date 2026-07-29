@@ -85,12 +85,13 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent.
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[]}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}}
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
-- surfaces_detail: TOUTES les composantes du loyer avec leur surface et loyer annuel. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple: [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. categorie: etage/plateau->Bureaux, sous-sol/emplacement->Stationnement, restaurant/cafeteria->RIE, archives->Archives. La SOMME des loyer_annuel doit etre egale a loyer_signature_montant.
+- surfaces_detail: TOUTES les composantes du loyer avec leur surface et loyer annuel. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple: [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. categorie: etage/plateau->Bureaux, terrasse/rooftop->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. La SOMME des loyer_annuel doit etre egale a loyer_signature_montant.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
+- _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
 - break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG. REGLES DE CALCUL:
   1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
@@ -117,7 +118,7 @@ surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retiree
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie (ex: 2 lignes Bureaux → une seule ligne avec la surface totale). NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[]}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}}}
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
@@ -470,10 +471,15 @@ function exportToExcel(items, fileName) {
 
   // Number format on amount columns
   headers.forEach((h, colIdx) => {
-    if (!h.includes('Montant') && !h.includes('montant') && !h.includes('Loyer') && !h.includes('loyer') && !h.includes('m2') && !h.includes('Prix')) return
+    const isAmount = h.includes('Montant') || h.includes('montant') || h.includes('Loyer') || h.includes('loyer') || h.includes('Prix')
+    const isSurface = h.includes('m2') || h.includes('M2')
+    if (!isAmount && !isSurface) return
     rows.forEach((_, rowIdx) => {
       const cell = ws[XLSX.utils.encode_cell({ r: rowIdx + 1, c: colIdx })]
-      if (cell && typeof cell.v === 'number') { cell.t = 'n'; cell.z = '#,##0' }
+      if (cell && typeof cell.v === 'number') {
+        cell.t = 'n'
+        cell.z = isSurface ? '#,##0.00' : '#,##0.##'
+      }
     })
   })
 
@@ -546,7 +552,7 @@ indemnites_break: Sommes dues par le PRENEUR au BAILLEUR UNIQUEMENT en cas d exe
 1) FORFAIT CHIFFRE PAR DATE DE BREAK: montant ou formule specifique par echéance (ex: "6 mois de loyer si conge au 31/08/2028") -> une ligne par break date.
 2) INDEMNITE DE RESTITUTION/REMISE EN ETAT: si le bail prevoit une indemnite forfaitaire due a la restitution en cas de sortie anticipee (ex: "indemnite forfaitaire de remise en etat de 115 840 € en cas de depart a compter de la 6eme annee") -> inclure avec break_date=date de la premiere break concernee et calcul=formule ou texte.
 3) REMBOURSEMENT DES MESURES D ACCOMPAGNEMENT SI CONGE: clause generale de remboursement des avantages (franchises, MDA, travaux) si le preneur exerce son conge avant terme -> une ligne sans break_date specifique.
-A EXCLURE de indemnites_break: les clauses de remboursement uniquement en cas de CESSION du bail ou du fonds (pas un conge). Ces clauses-la relèvent de la cession et ne sont pas des indemnites de break.
+A EXCLURE de indemnites_break: (1) clauses de remboursement uniquement en cas de CESSION du bail ou du fonds; (2) penalites dues en cas de depart FAUTIF ou de resiliation anticipee HORS option de break (clause resolutoire, indemnite d'immobilisation); (3) indemnites dues entre deux dates de break. Inclure UNIQUEMENT les sommes dues lorsque le preneur EXERCE VALABLEMENT une option de break prevue au bail.
 NE PAS INVENTER de montants. Format: [{"break_date":"31/08/2028 ou null","motif":"texte","montant":"chiffres bruts ou null","calcul":"formule ou texte de la clause"}].`
 
 // ─── JSON cleaning & parsing ──────────────────────────────────────────────────
@@ -1084,7 +1090,7 @@ function DropZone({ onFiles, disabled }) {
       className={`drop-zone${dragging ? ' dragging' : ''}${disabled ? ' disabled' : ''}`}
       onClick={() => !disabled && inputRef.current?.click()}
       onDragOver={e => { e.preventDefault(); setDragging(true) }}
-      onDragLeave={() => setDragging(false)}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false) }}
       onDrop={e => { e.preventDefault(); setDragging(false); handle(e.dataTransfer.files) }}
     >
       <input ref={inputRef} type="file" accept=".pdf,.docx" multiple style={{ display: 'none' }} onChange={e => handle(e.target.files)} />
@@ -1161,11 +1167,15 @@ function BulletField({ label, value, full }) {
   )
 }
 
-function Field({ label, value, mono, verbose }) {
+function Field({ label, value, mono, verbose, full, source }) {
   const safe = safeStr(value)
+  const tooltip = source || (safe && safe !== 'Non renseigné' ? `Extrait : "${safe}"` : null)
   return (
-    <div className="field">
-      <div className="field-lbl">{label}</div>
+    <div className={`field${verbose ? ' verbose-field' : ''}${full ? ' full' : ''}`}>
+      <div className="field-lbl" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        {label}
+        {tooltip && <span className="field-info" title={tooltip}>i</span>}
+      </div>
       <div className={`field-val${!safe ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`}>{safe || 'Non renseigné'}</div>
     </div>
   )
@@ -1198,13 +1208,14 @@ function SurfaceTable({ surfaces }) {
   const totalLoyer = safe.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
   const parkTotalLoyer = parkRows.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
 
-  // Compute unit price for a row if missing
+  // Compute unit price ONLY if both loyer_annuel AND surface_m2 are present
   const unitPrice = r => {
     if (r.prix_unitaire) return parseAmount(r.prix_unitaire)
     const loyer = parseAmount(r.loyer_annuel)
     const surf  = parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0
-    if (loyer !== null && surf > 0) return Math.round(loyer / surf)
-    return null
+    // Only calculate if BOTH are explicitly provided
+    if (loyer !== null && loyer > 0 && surf > 0) return Math.round(loyer / surf)
+    return null // Cannot calculate - don't show
   }
 
   return (
@@ -1420,6 +1431,7 @@ function ResultsView({ item }) {
   }, [item.id, d.indexation_indice, d.indexation_valeur_base, d.date_signature])
 
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
+  const src = d._sources || {}
   // N'utiliser computeBreaks que si break_options est vide (fallback uniquement)
   let breaks = (d.break_options && d.break_options.length > 0)
     ? d.break_options
@@ -1706,7 +1718,7 @@ function ResultsView({ item }) {
                     <SurfMiniTable rows={avant} accentSens={false} />
                   </div>
                   <div style={{ background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Locaux complémentaires</div>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '8px' }}>Modification de surface</div>
                     <SurfMiniTable rows={delta} accentSens={true} />
                   </div>
                   <div style={{ background: 'var(--accent-bg)', border: '1px solid rgba(26,95,168,.15)', borderRadius: 'var(--r)', padding: '10px 12px' }}>
@@ -1726,7 +1738,7 @@ function ResultsView({ item }) {
           {d.loyer_signature_montant && (
             <div className="loyer-hero">
               <div>
-                <div className="loyer-lbl">Loyer HT/HC annuel à la signature</div>
+                <div className="loyer-lbl" style={{ display: "flex", alignItems: "center", gap: "4px" }}>Loyer HT/HC annuel à la signature{src.loyer_signature_montant && <span title={src.loyer_signature_montant} style={{ cursor: "help", fontSize: "10px", color: "var(--text3)", border: "1px solid var(--border2)", borderRadius: "50%", width: "13px", height: "13px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>i</span>}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
                   <div className="loyer-amount">{fmtEur(d.loyer_signature_montant) || d.loyer_signature_montant}</div>
                   {d.indexation_indice && (
@@ -2337,7 +2349,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
             <div className="dash-th" style={{ gridColumn: '4' }}>Date effet</div>
             <div className="dash-th" style={{ gridColumn: '5' }}>Date fin</div>
             <div className="dash-th" style={{ gridColumn: '6' }}>Break</div>
-            <div className="dash-th dash-th-right" style={{ gridColumn: '7' }}>Loyer HT/HC</div>
+            <div className="dash-th dash-th-right" style={{ gridColumn: '7' }}>Loyer HT/HC à la signature</div>
             <div style={{ gridColumn: '8' }}/>
           </div>
           {sortedFiltered.map((row, rowIdx) => {
@@ -2428,12 +2440,17 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                   <div style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
                     {isAv ? (row._parentName || '') : (() => {
                       const v = d.ville || ''
-                      // Extract postal code if present: "Aix-en-Provence (13290)" or "13290 Aix"
                       const cpMatch = v.match(/(\d{5})/)
                       const cp = cpMatch ? cpMatch[1] : (d.adresse?.match(/(\d{5})/)?.[1] || '')
                       const cityOnly = v.replace(/\d{5}\s*/g, '').replace(/[()]/g, '').trim()
                       const city = cityOnly.toUpperCase()
-                      return cp ? `${city} (${cp})` : city
+                      // Add étage if found in surfaces_detail
+                      const niveaux = (d.surfaces_detail || [])
+                        .filter(r => r.niveau && !( (r.categorie||'').toLowerCase().includes('station') ))
+                        .map(r => r.niveau).filter(Boolean)
+                      const etage = niveaux.length === 1 ? niveaux[0] : niveaux.length > 1 ? `${niveaux[0]} +${niveaux.length-1}` : ''
+                      const loc = cp ? `${city} (${cp})` : city
+                      return etage ? `${loc} · ${etage}` : loc
                     })()}
                   </div>
                   {!isAv && (
@@ -2582,12 +2599,12 @@ export default function App() {
   }
 
   // Détection automatique déclenchée au drop
-  async function detectFiles(newFiles) {
+  async function detectFiles(newFiles, offset = 0) {
     setDetecting(true)
     const types      = new Array(newFiles.length).fill('')
     const pertinents = new Array(newFiles.length).fill(null)
     const raisons    = new Array(newFiles.length).fill('')
-    const detectData = new Array(newFiles.length).fill(null) // bail_reference data
+    const detectData = new Array(newFiles.length).fill(null)
     const chunks = []
     for (let i = 0; i < newFiles.length; i += 3) chunks.push(newFiles.slice(i, i+3).map((_, j) => i+j))
     for (const chunk of chunks) {
@@ -2602,51 +2619,57 @@ export default function App() {
           raisons[i]    = data?.raison || ''
           detectData[i] = { preneur: data?.preneur, bailleur: data?.bailleur, adresse: data?.adresse, immeuble: data?.immeuble }
         } catch (_) { types[i] = 'bail'; pertinents[i] = true }
-        setDocTypes([...types])
-        setPertinents([...pertinents])
-        setRaisons([...raisons])
+        // Update global state at offset position
+        setDocTypes(prev => { const n = [...prev]; n[offset + i] = types[i]; return n })
+        setPertinents(prev => { const n = [...prev]; n[offset + i] = pertinents[i]; return n })
+        setRaisons(prev => { const n = [...prev]; n[offset + i] = raisons[i]; return n })
       }))
     }
-    const bailIdx    = types.map((t,i) => t === 'bail'    ? i : -1).filter(i => i >= 0)
-    const avenantIdx = types.map((t,i) => t === 'avenant' ? i : -1).filter(i => i >= 0)
-    setDocTypes([...types])
-    setFileOrder([...bailIdx, ...avenantIdx])
-    // Pré-remplir bail lié : baux en base + baux du batch (id virtuel batch-N)
+    const bailIdx    = types.map((t,i) => t === 'bail'    ? i : -1).filter(i => i >= 0).map(i => i + offset)
+    const avenantIdx = types.map((t,i) => t === 'avenant' ? i : -1).filter(i => i >= 0).map(i => i + offset)
+    setFileOrder(prev => {
+      const bails = prev.filter(i => i < offset || types[i - offset] === 'bail')
+      const avs   = prev.filter(i => i >= offset && types[i - offset] === 'avenant')
+      return [...bails, ...avs]
+    })
     const existingBails = history.filter(h => h.document_type === 'bail')
     const batchBails = bailIdx
-      .filter(i => pertinents[i] !== false) // exclure non pertinents
+      .filter(i => pertinents[i - offset] !== false)
       .map(i => ({
         id: `batch-${i}`,
-        file_name: newFiles[i].name,
-        data: { preneur: detectData[i]?.preneur, bailleur: detectData[i]?.bailleur, adresse: detectData[i]?.adresse, immeuble: detectData[i]?.immeuble }
+        file_name: newFiles[i - offset].name,
+        data: { preneur: detectData[i - offset]?.preneur, bailleur: detectData[i - offset]?.bailleur, adresse: detectData[i - offset]?.adresse, immeuble: detectData[i - offset]?.immeuble }
       }))
     const allBailsForMatch = [...existingBails, ...batchBails]
     const autoLinks = {}
     avenantIdx
-      .filter(i => pertinents[i] !== false) // exclure non pertinents
+      .filter(i => pertinents[i - offset] !== false)
       .forEach(i => {
         if (allBailsForMatch.length === 1) {
           autoLinks[i] = allBailsForMatch[0].id
-        } else if (allBailsForMatch.length > 1 && detectData[i]) {
-          const match = findBestMatch(detectData[i], allBailsForMatch)
+        } else if (allBailsForMatch.length > 1 && detectData[i - offset]) {
+          const match = findBestMatch(detectData[i - offset], allBailsForMatch)
           if (match) autoLinks[i] = match.item.id
         }
       })
-    setAvenantLinks(autoLinks)
+    setAvenantLinks(prev => ({ ...prev, ...autoLinks }))
     setDetecting(false)
   }
 
   function handleFiles(newFiles) {
     const arr = Array.from(newFiles)
-    setFiles(arr)
-    setDocTypes(arr.map(() => ''))
-    setFileOrder(arr.map((_, i) => i))
-    setStatuses(arr.map(() => ({})))
-    setPertinents(arr.map(() => null))
-    setRaisons(arr.map(() => ''))
-    setLastError('')
-    setAvenantLinks({})
-    detectFiles(arr)
+    setFiles(prev => {
+      const combined = [...prev, ...arr]
+      const offset = prev.length
+      setDocTypes(pt => [...pt, ...arr.map(() => '')])
+      setFileOrder(po => [...po, ...arr.map((_, i) => offset + i)])
+      setStatuses(ps => [...ps, ...arr.map(() => ({}))])
+      setPertinents(pp => [...pp, ...arr.map(() => null)])
+      setRaisons(pr => [...pr, ...arr.map(() => '')])
+      setLastError('')
+      detectFiles(arr, offset)
+      return combined
+    })
   }
 
   function moveFile(fromIdx, dir) {
