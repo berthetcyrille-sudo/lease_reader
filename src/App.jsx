@@ -3103,7 +3103,14 @@ export default function App() {
                                   ) : (
                                     <span
                                       title={pertinent ? 'Cliquer pour marquer Non pertinent' : (raison ? `${raison} — Cliquer pour forcer Oui` : 'Cliquer pour forcer Oui')}
-                                      onClick={() => setPertinents(prev => { const n = [...prev]; n[fileIdx] = !pertinent; return n })}
+                                      onClick={() => {
+                                        const newVal = !pertinent
+                                        setPertinents(prev => { const n = [...prev]; n[fileIdx] = newVal; return n })
+                                        // Si on passe à Oui et que le type n'est pas défini, mettre bail par défaut
+                                        if (newVal && !docTypes[fileIdx]) {
+                                          setDocTypes(prev => { const n = [...prev]; n[fileIdx] = 'bail'; return n })
+                                        }
+                                      }}
                                       style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600,
                                         padding: '2px 8px', borderRadius: '999px', cursor: 'pointer',
                                         background: pertinent ? 'var(--success-bg)' : 'var(--danger-bg)',
@@ -3150,6 +3157,16 @@ export default function App() {
                                         style={{ fontSize: '11px', padding: '3px 6px', borderRadius: '6px', border: `1px solid ${avenantLinks[fileIdx]?.startsWith?.('dir-') ? 'var(--success)' : 'var(--border2)'}`, background: 'var(--surface)', color: avenantLinks[fileIdx] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', width: '100%' }}
                                       >
                                         <option value="">— Bail lié —</option>
+                                        {/* Option virtuelle pour les liens dir- (avant extraction) */}
+                                        {avenantLinks[fileIdx]?.startsWith?.('dir-') && (() => {
+                                          const bailIdx = parseInt(avenantLinks[fileIdx].replace('dir-', ''))
+                                          const bailFile = files[bailIdx]
+                                          return bailFile ? (
+                                            <option key={avenantLinks[fileIdx]} value={avenantLinks[fileIdx]}>
+                                              {bailFile.name.replace(/\.[^.]+$/, '')}
+                                            </option>
+                                          ) : null
+                                        })()}
                                         {allBails.map(b => (
                                           <option key={b.id} value={b.id}>
                                             {b.data?.immeuble || b.data?.adresse || b.file_name}
