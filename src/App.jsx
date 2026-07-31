@@ -1055,25 +1055,31 @@ function cleanJson(str) {
 }
 
 // Raw single call — used internally and for detect
-async function callClaude(base64, mediaType, prompt) {
-  const res = await fetch('https://vmtmwsbebzkwxfkdpqky.supabase.co/functions/v1/hyper-action', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6', max_tokens: 4096,
-      messages: [{ role: 'user', content: [
-        { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        { type: 'text', text: prompt }
-      ]}]
+async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch('https://vmtmwsbebzkwxfkdpqky.supabase.co/functions/v1/hyper-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6', max_tokens: 4096,
+        messages: [{ role: 'user', content: [
+          { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text: prompt }
+        ]}]
+      })
     })
-  })
-  if (!res.ok) throw new Error('Erreur API: ' + res.status)
-  const data = await res.json()
-  if (data.type === 'error') {
-    const msg = data.error?.message || 'Erreur Anthropic'
-    if (msg.includes('100 PDF pages')) throw new Error('PDF > 100 pages : retirez les annexes avant de déposer.')
-    throw new Error('Claude API : ' + msg)
-  }
+    clearTimeout(timer)
+    if (!res.ok) throw new Error('Erreur API: ' + res.status)
+    const data = await res.json()
+    if (data.type === 'error') {
+      const msg = data.error?.message || 'Erreur Anthropic'
+      if (msg.includes('100 PDF pages')) throw new Error('PDF > 100 pages : retirez les annexes avant de déposer.')
+      if (msg.includes('too large') || msg.includes('file size') || msg.includes('32 MB')) throw new Error('Fichier trop volumineux (> 32 Mo) : compressez le PDF avant de déposer.')
+      throw new Error('Claude API : ' + msg)
+    }
   let raw = ''
   if (data.content && Array.isArray(data.content)) raw = data.content.map(b => b?.text || '').join('')
   else if (data.text) raw = data.text
@@ -1088,6 +1094,11 @@ async function callClaude(base64, mediaType, prompt) {
   try { return sanitizeExtracted(JSON.parse(cleaned)) } catch (e2) {
     const pos = parseInt(e2.message.match(/position (\d+)/)?.[1] || '0')
     throw new Error('JSON pos ' + pos + ' : ' + cleaned.slice(Math.max(0, pos - 250), pos + 100))
+  }
+  } catch (e) {
+    clearTimeout(timer)
+    if (e.name === 'AbortError') throw new Error('Timeout (> 2 min) : fichier trop lourd ou API indisponible.')
+    throw e
   }
 }
 
@@ -2913,6 +2924,7 @@ export default function App() {
     await runWithConcurrency(bailIndices, 4, async (i) => {
       try {
         setStatus(i, 'loading')
+        if (files[i].size > 30 * 1024 * 1024) throw new Error(`Fichier trop volumineux (${Math.round(files[i].size/1024/1024)} Mo > 30 Mo) — compressez le PDF avant de déposer.`)
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
         const extracted = await callClaude(base64, mediaType, EXTRACTION_PROMPT)
@@ -2959,6 +2971,7 @@ export default function App() {
     await runWithConcurrency(avenantIndices, 3, async (i) => {
       try {
         setStatus(i, 'loading')
+        if (files[i].size > 30 * 1024 * 1024) throw new Error(`Fichier trop volumineux (${Math.round(files[i].size/1024/1024)} Mo > 30 Mo) — compressez le PDF avant de déposer.`)
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
         const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
