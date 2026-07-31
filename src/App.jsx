@@ -441,19 +441,20 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   ]
 }
 function exportToExcel(items, fileName) {
-  // items: array of {item, parentName} OR single item (legacy)
-  let rows
+  let rows, statuts
   if (Array.isArray(items)) {
     rows = items.map(({ item, parentName, parentData }) => buildExcelRow(item, parentName, parentData))
+    statuts = items.map(({ statut }) => statut || 'OK')
   } else {
-    // legacy single call: items is actually a data object
     const fakeItem = { document_type: 'bail', data: items, file_name: fileName }
     rows = [buildExcelRow(fakeItem, '')]
+    statuts = ['OK']
   }
 
-  const headers = buildExcelHeaders()
+  const headers = ['Statut', ...buildExcelHeaders()]
+  const dataRows = rows.map((row, i) => [statuts[i], ...row])
   const wb = XLSX.utils.book_new()
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows])
 
   // Column widths
   // Bold header row
@@ -474,7 +475,7 @@ function exportToExcel(items, fileName) {
     const isAmount = h.includes('Montant') || h.includes('montant') || h.includes('Loyer') || h.includes('loyer') || h.includes('Prix')
     const isSurface = h.includes('m2') || h.includes('M2')
     if (!isAmount && !isSurface) return
-    rows.forEach((_, rowIdx) => {
+    dataRows.forEach((_, rowIdx) => {
       const cell = ws[XLSX.utils.encode_cell({ r: rowIdx + 1, c: colIdx })]
       if (cell && typeof cell.v === 'number') {
         cell.t = 'n'
@@ -501,20 +502,37 @@ function exportToExcel(items, fileName) {
   }
 }
 
-function exportAllToExcel(tree) {
+function exportAllToExcel(tree, onErrors) {
   const rows = []
+  const errors = [] // { name, reason }
+
   tree.forEach(bail => {
     const parentName = bail.data?.immeuble || bail.data?.adresse || bail.file_name
     const parentData = bail.data || {}
-    rows.push({ item: bail, parentName: '', parentData: null })
+    rows.push({ item: bail, parentName: '', parentData: null, statut: 'OK' })
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
       const toS = d => { const m = String(d||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d||'') }
       return toS(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
             .localeCompare(toS(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at))
     })
-    sortedAv.forEach(av => rows.push({ item: av, parentName, parentData }))
+    sortedAv.forEach(av => rows.push({ item: av, parentName, parentData, statut: 'OK' }))
   })
+
+  // Detect orphan avenants (no parent in tree)
+  const bailIds = new Set(tree.map(b => b.id))
+  // Also check history for orphan avenants passed separately
+  // Orphans are avenants in tree with no parent → they appear as top-level with document_type=avenant
+  tree.filter(r => r.document_type === 'avenant').forEach(av => {
+    errors.push({
+      name: av.data?.immeuble || av.data?.adresse || av.file_name,
+      reason: 'Avenant orphelin — bail parent manquant ou en erreur'
+    })
+    // Add to export with warning status
+    rows.push({ item: av, parentName: '', parentData: null, statut: '⚠ Bail parent manquant' })
+  })
+
   exportToExcel(rows, 'lease_abstract_complet')
+  if (errors.length > 0) onErrors?.(errors)
 }
 
 const BREAK_PROMPT = `Expert baux commerciaux français. Analyse UNIQUEMENT la clause de durée et de résiliation de ce bail. Retourne UNIQUEMENT un JSON minifié sur UNE SEULE LIGNE : {"date_effet":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","break_options":["jj/mm/aaaa",...]}
@@ -2204,6 +2222,7 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose }) {
 function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif }) {
   const [filter, setFilter] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
+  const [exportErrors, setExportErrors] = useState(null) // null or array of {name, reason}
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
 
   // Flatten all items for table
@@ -2366,6 +2385,33 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
           onCancel={() => setConfirmDelete(null)}
         />
       )}
+      {/* Export errors modal */}
+      {exportErrors && exportErrors.length > 0 && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '28px', maxWidth: '520px', width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <span style={{ fontSize: '20px' }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '15px' }}>{exportErrors.length} document{exportErrors.length > 1 ? 's' : ''} non exporté{exportErrors.length > 1 ? 's' : ''}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text3)' }}>Ces documents ont été inclus dans l'export avec le statut ⚠</div>
+              </div>
+            </div>
+            <div style={{ maxHeight: '280px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '20px' }}>
+              {exportErrors.map((err, i) => (
+                <div key={i} style={{ background: 'var(--danger-bg)', border: '1px solid rgba(176,42,42,.15)', borderRadius: '6px', padding: '8px 12px' }}>
+                  <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--danger)' }}>{err.name}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text2)', marginTop: '2px' }}>{err.reason}</div>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setExportErrors(null)}
+              style={{ width: '100%', padding: '10px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '13px' }}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
       {/* Toolbar */}
       <div className="dash-toolbar">
         <div className="dash-stats">
@@ -2495,11 +2541,12 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
               : (row.data || {})
             const isNew = newIds?.includes(row.id)
             const isAv = row.document_type === 'avenant'
+            const isOrphan = isAv && !row.parent_id && row._level === 0
             const breaks = Array.isArray(d.break_options) ? d.break_options : []
             return (
               <div
                 key={row.id}
-                className={`dash-row${isNew ? ' dash-row-new' : ''}${row._level ? ' dash-row-av' : ''}`}
+                className={`dash-row${isNew ? ' dash-row-new' : ''}${row._level ? ' dash-row-av' : ''}${isOrphan ? ' dash-row-orphan' : ''}`}
                 onClick={() => row._level === 0 && row._avCount > 0 ? toggleExpand(row.id) : onSelect(row)}
               >
                 {/* Actif / Document */}
@@ -2570,6 +2617,11 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                   <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`}>
                     {isAv ? 'Avenant' : 'Bail'}
                   </span>
+                  {isOrphan && (
+                    <span title="Bail parent manquant ou en erreur" style={{ fontSize: '10px', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '4px', padding: '1px 5px', fontWeight: 600, marginTop: '2px', display: 'block' }}>
+                      ⚠ Bail manquant
+                    </span>
+                  )}
                 </div>
 
                 {/* Preneur */}
@@ -3025,7 +3077,7 @@ export default function App() {
                 onSelect={item => setActiveItem(item)}
                 onDelete={handleDeleteItem}
                 onClear={handleClearHistory}
-                onExportAll={() => exportAllToExcel(history)}
+                onExportAll={() => exportAllToExcel(history, setExportErrors)}
                 newIds={newIds}
                 onRefresh={loadHistory}
                 onUpdateActif={(id, value) => {
