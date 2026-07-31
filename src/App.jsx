@@ -1077,21 +1077,68 @@ async function callClaude(base64, mediaType, prompt) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+// Traverse a FileSystemEntry recursively and collect all PDF/DOCX files
+async function collectFiles(entry) {
+  return new Promise(resolve => {
+    if (entry.isFile) {
+      entry.file(file => {
+        const ext = file.name.split('.').pop().toLowerCase()
+        resolve(['pdf', 'docx'].includes(ext) ? [file] : [])
+      }, () => resolve([]))
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader()
+      const results = []
+      const readAll = () => {
+        reader.readEntries(async entries => {
+          if (!entries.length) {
+            const nested = await Promise.all(results.map(collectFiles))
+            resolve(nested.flat())
+          } else {
+            results.push(...entries)
+            readAll() // readEntries may return partial results, must call again
+          }
+        }, () => resolve([]))
+      }
+      readAll()
+    } else {
+      resolve([])
+    }
+  })
+}
+
 function DropZone({ onFiles, disabled }) {
   const [dragging, setDragging] = useState(false)
+  const [scanning, setScanning] = useState(false)
   const inputRef = useRef()
+
   const handle = useCallback(files => {
     const valid = Array.from(files).filter(f => ['pdf', 'docx'].includes(f.name.split('.').pop().toLowerCase()))
     if (valid.length) onFiles(valid)
     else alert('Format non supporté. PDF ou DOCX uniquement.')
   }, [onFiles])
+
+  const handleDrop = useCallback(async e => {
+    e.preventDefault()
+    setDragging(false)
+    const items = Array.from(e.dataTransfer.items || [])
+    const hasEntries = items.some(i => i.webkitGetAsEntry)
+    if (!hasEntries) { handle(e.dataTransfer.files); return }
+
+    setScanning(true)
+    const entries = items.map(i => i.webkitGetAsEntry()).filter(Boolean)
+    const allFiles = (await Promise.all(entries.map(collectFiles))).flat()
+    setScanning(false)
+    if (allFiles.length) onFiles(allFiles)
+    else alert('Aucun fichier PDF ou DOCX trouvé dans le répertoire.')
+  }, [handle, onFiles])
+
   return (
     <div
       className={`drop-zone${dragging ? ' dragging' : ''}${disabled ? ' disabled' : ''}`}
       onClick={() => !disabled && inputRef.current?.click()}
       onDragOver={e => { e.preventDefault(); setDragging(true) }}
       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false) }}
-      onDrop={e => { e.preventDefault(); setDragging(false); handle(e.dataTransfer.files) }}
+      onDrop={disabled ? undefined : handleDrop}
     >
       <input ref={inputRef} type="file" accept=".pdf,.docx" multiple style={{ display: 'none' }} onChange={e => handle(e.target.files)} />
       <div className="drop-icon">
@@ -1100,8 +1147,10 @@ function DropZone({ onFiles, disabled }) {
           <polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
         </svg>
       </div>
-      <div className="drop-title">Déposez un ou plusieurs fichiers ici</div>
-      <div className="drop-sub">PDF ou DOCX · baux et avenants acceptés</div>
+      <div className="drop-title">
+        {scanning ? '⏳ Scan du répertoire en cours…' : 'Déposez fichiers ou répertoires ici'}
+      </div>
+      <div className="drop-sub">PDF ou DOCX · baux et avenants · répertoires et sous-répertoires acceptés</div>
     </div>
   )
 }
