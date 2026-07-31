@@ -1077,25 +1077,30 @@ async function callClaude(base64, mediaType, prompt) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-// Traverse a FileSystemEntry recursively and collect all PDF/DOCX files
-async function collectFiles(entry) {
+// Traverse a FileSystemEntry recursively, returning { file, path }
+async function collectFiles(entry, path = '') {
   return new Promise(resolve => {
     if (entry.isFile) {
       entry.file(file => {
         const ext = file.name.split('.').pop().toLowerCase()
-        resolve(['pdf', 'docx'].includes(ext) ? [file] : [])
+        if (['pdf', 'docx'].includes(ext)) {
+          // Attach path info to file object
+          const fileWithPath = Object.defineProperty(file, '_dirPath', { value: path, writable: true })
+          resolve([fileWithPath])
+        } else resolve([])
       }, () => resolve([]))
     } else if (entry.isDirectory) {
+      const dirPath = path ? `${path}/${entry.name}` : entry.name
       const reader = entry.createReader()
       const results = []
       const readAll = () => {
         reader.readEntries(async entries => {
           if (!entries.length) {
-            const nested = await Promise.all(results.map(collectFiles))
+            const nested = await Promise.all(results.map(e => collectFiles(e, dirPath)))
             resolve(nested.flat())
           } else {
             results.push(...entries)
-            readAll() // readEntries may return partial results, must call again
+            readAll()
           }
         }, () => resolve([]))
       }
@@ -1104,6 +1109,38 @@ async function collectFiles(entry) {
       resolve([])
     }
   })
+}
+
+// Group files by their directory path and infer bail/avenant links + actif groups
+// Returns { autoLinks: { fileIndex -> bailFileIndex }, actifGroups: { fileIndex -> groupName } }
+function inferLinksFromDirectories(allFiles) {
+  const groups = {}
+  allFiles.forEach((f, i) => {
+    const dir = f._dirPath || ''
+    if (!groups[dir]) groups[dir] = []
+    groups[dir].push({ file: f, idx: i })
+  })
+
+  const autoLinks = {}   // avenant file index -> bail file index
+  const actifGroups = {} // file index -> actif group name (top-level dir)
+
+  // Determine top-level dir for each file (first path segment = bâtiment)
+  allFiles.forEach((f, i) => {
+    const parts = (f._dirPath || '').split('/').filter(Boolean)
+    if (parts.length > 0) actifGroups[i] = parts[0].toUpperCase()
+  })
+
+  Object.values(groups).forEach(group => {
+    if (group.length < 2) return
+    const isAvenantName = f => /avenant|aven\b|addendum|protocole|rectif|modificat/i.test(f.file.name)
+    const bails    = group.filter(g => !isAvenantName(g))
+    const avenants = group.filter(g => isAvenantName(g))
+    if (bails.length === 1 && avenants.length > 0) {
+      avenants.forEach(av => { autoLinks[av.idx] = bails[0].idx })
+    }
+  })
+
+  return { autoLinks, actifGroups }
 }
 
 function DropZone({ onFiles, disabled }) {
@@ -1126,9 +1163,10 @@ function DropZone({ onFiles, disabled }) {
 
     setScanning(true)
     const entries = items.map(i => i.webkitGetAsEntry()).filter(Boolean)
-    const allFiles = (await Promise.all(entries.map(collectFiles))).flat()
+    const allFiles = (await Promise.all(entries.map(e => collectFiles(e, '')))).flat()
+    const { autoLinks, actifGroups } = inferLinksFromDirectories(allFiles)
     setScanning(false)
-    if (allFiles.length) onFiles(allFiles)
+    if (allFiles.length) onFiles(allFiles, autoLinks, actifGroups)
     else alert('Aucun fichier PDF ou DOCX trouvé dans le répertoire.')
   }, [handle, onFiles])
 
@@ -2596,6 +2634,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
 
 export default function App() {
   const [files,        setFiles]        = useState([])
+  const dirActifGroupsRef = useRef({})
   const [statuses,     setStatuses]     = useState([])
   const [loading,      setLoading]      = useState(false)
   const [activeItem,   setActiveItem]   = useState(null)
@@ -2640,16 +2679,18 @@ export default function App() {
   }
   function setStatus(i, state, error) { setStatuses(prev => { const n = [...prev]; n[i] = { state, error }; return n }) }
 
-  async function saveExtraction(file, extracted, docType, parentId) {
+  async function saveExtraction(file, extracted, docType, parentId, actifGroup = null) {
     const { data: saved } = await supabase.from('extractions')
-      .insert({ file_name: file.name, data: extracted, document_type: docType, parent_id: parentId || null })
+      .insert({ file_name: file.name, data: extracted, document_type: docType, parent_id: parentId || null, actif_group: actifGroup || null })
       .select().single()
     return saved
   }
 
   // Détection automatique déclenchée au drop
-  async function detectFiles(newFiles, offset = 0) {
+  async function detectFiles(newFiles, offset = 0, dirAutoLinks = {}, dirActifGroups = {}) {
     setDetecting(true)
+    // Store dir-based actif groups (absolute indices)
+    Object.entries(dirActifGroups).forEach(([k, v]) => { dirActifGroupsRef.current[parseInt(k) + offset] = v })
     const types      = new Array(newFiles.length).fill('')
     const pertinents = new Array(newFiles.length).fill(null)
     const raisons    = new Array(newFiles.length).fill('')
@@ -2691,8 +2732,19 @@ export default function App() {
       }))
     const allBailsForMatch = [...existingBails, ...batchBails]
     const autoLinks = {}
+
+    // First: apply directory-based links (most reliable)
+    Object.entries(dirAutoLinks).forEach(([avRelIdx, bailRelIdx]) => {
+      const avAbsIdx = offset + parseInt(avRelIdx)
+      // Find the batch bail that corresponds to bailRelIdx
+      const bailFile = newFiles[parseInt(bailRelIdx)]
+      const bailBatch = batchBails.find(b => b.file_name === bailFile?.name)
+      if (bailBatch) autoLinks[avAbsIdx] = bailBatch.id
+    })
+
+    // Then: AI-based matching for avenants not already linked by directory
     avenantIdx
-      .filter(i => pertinents[i - offset] !== false)
+      .filter(i => pertinents[i - offset] !== false && !autoLinks[i])
       .forEach(i => {
         if (allBailsForMatch.length === 1) {
           autoLinks[i] = allBailsForMatch[0].id
@@ -2705,7 +2757,7 @@ export default function App() {
     setDetecting(false)
   }
 
-  function handleFiles(newFiles) {
+  function handleFiles(newFiles, dirAutoLinks = {}, dirActifGroups = {}) {
     const arr = Array.from(newFiles)
     setFiles(prev => {
       const combined = [...prev, ...arr]
@@ -2716,7 +2768,15 @@ export default function App() {
       setPertinents(pp => [...pp, ...arr.map(() => null)])
       setRaisons(pr => [...pr, ...arr.map(() => '')])
       setLastError('')
-      detectFiles(arr, offset)
+      // Apply directory-based auto-links (relative indices → absolute)
+      if (Object.keys(dirAutoLinks).length > 0) {
+        const absLinks = {}
+        Object.entries(dirAutoLinks).forEach(([avRelIdx, bailRelIdx]) => {
+          absLinks[offset + parseInt(avRelIdx)] = `dir-${offset + parseInt(bailRelIdx)}`
+        })
+        setAvenantLinks(prev => ({ ...prev, ...absLinks }))
+      }
+      detectFiles(arr, offset, dirAutoLinks, dirActifGroups)
       return combined
     })
   }
@@ -2738,6 +2798,18 @@ export default function App() {
     setFileOrder([...bail2, ...avenant2])
   }
 
+  // Concurrency queue: run tasks with max N concurrent
+  async function runWithConcurrency(items, maxConcurrent, taskFn) {
+    const queue = [...items]
+    const workers = Array(Math.min(maxConcurrent, items.length)).fill(null).map(async () => {
+      while (queue.length > 0) {
+        const item = queue.shift()
+        if (item !== undefined) await taskFn(item)
+      }
+    })
+    await Promise.all(workers)
+  }
+
   async function handleExtract() {
     if (!files.length || loading) return
     setLoading(true)
@@ -2750,8 +2822,8 @@ export default function App() {
     const avenantIndices = order.filter(i => docTypes[i] === 'avenant' && pertinent(i))
     const availableBails = [...history.filter(h => h.document_type === 'bail')]
 
-    // 1. Extraire les baux d'abord
-    for (const i of bailIndices) {
+    // 1. Extraire les baux d'abord (max 4 en parallèle)
+    await runWithConcurrency(bailIndices, 4, async (i) => {
       try {
         setStatus(i, 'loading')
         const base64 = await toBase64(files[i])
@@ -2777,7 +2849,7 @@ export default function App() {
             if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
           }
         } catch (_) { /* non bloquant */ }
-        const saved = await saveExtraction(files[i], extracted, 'bail', null)
+        const saved = await saveExtraction(files[i], extracted, 'bail', null, dirActifGroupsRef.current[i] || null)
         if (saved) {
           const bwa = { ...saved, avenants: [] }
           availableBails.push(bwa)
@@ -2786,11 +2858,11 @@ export default function App() {
         }
         setStatus(i, 'done')
       } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
-    }
+    })
 
     // 2. Extraire les avenants et sauvegarder directement avec le bail lié choisi
     let lastSaved = null
-    for (const i of avenantIndices) {
+    await runWithConcurrency(avenantIndices, 3, async (i) => {
       try {
         setStatus(i, 'loading')
         const base64 = await toBase64(files[i])
@@ -2813,14 +2885,18 @@ export default function App() {
             extracted.champs_modifies = mods
           }
         } catch (_) { /* non bloquant */ }
-        // Résoudre batch- id en vrai id
+        // Résoudre batch- et dir- id en vrai id
         let parentId = avenantLinks[i] || null
         if (parentId && parentId.startsWith('batch-')) {
           const batchIdx = parseInt(parentId.replace('batch-', ''))
           const realBail = availableBails.find(b => b.file_name === files[batchIdx]?.name)
           parentId = realBail?.id || null
+        } else if (parentId && parentId.startsWith('dir-')) {
+          const dirIdx = parseInt(parentId.replace('dir-', ''))
+          const realBail = availableBails.find(b => b.file_name === files[dirIdx]?.name)
+          parentId = realBail?.id || null
         }
-        const saved = await saveExtraction(files[i], extracted, 'avenant', parentId)
+        const saved = await saveExtraction(files[i], extracted, 'avenant', parentId, dirActifGroupsRef.current[i] || null)
         if (saved) {
           lastSaved = saved
           setNewIds(prev => [...prev, saved.id])
@@ -2828,7 +2904,7 @@ export default function App() {
         }
         setStatus(i, 'done')
       } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
-    }
+    })
 
     setLoading(false)
     // Recharger l'historique complet depuis Supabase
@@ -3056,18 +3132,25 @@ export default function App() {
                                 {/* Bail lié */}
                                 <div>
                                   {isAvenant && pertinent !== false ? (
-                                    <select
-                                      value={avenantLinks[fileIdx] || ''}
-                                      onChange={e => setAvenantLinks(prev => ({ ...prev, [fileIdx]: e.target.value || null }))}
-                                      style={{ fontSize: '11px', padding: '3px 6px', borderRadius: '6px', border: '1px solid var(--border2)', background: 'var(--surface)', color: avenantLinks[fileIdx] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', width: '100%' }}
-                                    >
-                                      <option value="">— Bail lié —</option>
-                                      {allBails.map(b => (
-                                        <option key={b.id} value={b.id}>
-                                          {b.data?.immeuble || b.data?.adresse || b.file_name}
-                                        </option>
-                                      ))}
-                                    </select>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                      {avenantLinks[fileIdx]?.startsWith?.('dir-') && (
+                                        <span style={{ fontSize: '10px', color: 'var(--success)', fontWeight: 600 }}>
+                                          📁 Lié par répertoire
+                                        </span>
+                                      )}
+                                      <select
+                                        value={avenantLinks[fileIdx] || ''}
+                                        onChange={e => setAvenantLinks(prev => ({ ...prev, [fileIdx]: e.target.value || null }))}
+                                        style={{ fontSize: '11px', padding: '3px 6px', borderRadius: '6px', border: `1px solid ${avenantLinks[fileIdx]?.startsWith?.('dir-') ? 'var(--success)' : 'var(--border2)'}`, background: 'var(--surface)', color: avenantLinks[fileIdx] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', width: '100%' }}
+                                      >
+                                        <option value="">— Bail lié —</option>
+                                        {allBails.map(b => (
+                                          <option key={b.id} value={b.id}>
+                                            {b.data?.immeuble || b.data?.adresse || b.file_name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
                                   ) : <span/>}
                                 </div>
 
