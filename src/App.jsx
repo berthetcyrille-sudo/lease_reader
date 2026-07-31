@@ -2222,7 +2222,8 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose }) {
 function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif }) {
   const [filter, setFilter] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
-  const [exportErrors, setExportErrors] = useState(null) // null or array of {name, reason}
+  const [exportErrors, setExportErrors] = useState(null)
+  const [extractionErrors, setExtractionErrors] = useState(null) // null or array of {name, reason}
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
 
   // Flatten all items for table
@@ -2412,6 +2413,34 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
           </div>
         </div>
       )}
+
+      {/* Extraction errors modal */}
+      {extractionErrors && extractionErrors.length > 0 && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--surface)', borderRadius: '12px', padding: '28px', maxWidth: '560px', width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <span style={{ fontSize: '24px' }}>❌</span>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '16px' }}>{extractionErrors.length} extraction{extractionErrors.length > 1 ? 's' : ''} en erreur</div>
+                <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>Ces documents apparaissent dans le dashboard avec un tag "Erreur". Vous pouvez les supprimer et réessayer.</div>
+              </div>
+            </div>
+            <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '20px' }}>
+              {extractionErrors.map((err, i) => (
+                <div key={i} style={{ background: 'var(--danger-bg)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '8px', padding: '10px 14px' }}>
+                  <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--danger)' }}>📄 {err.name}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text2)', marginTop: '3px', fontFamily: 'monospace' }}>{err.reason}</div>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setExtractionErrors(null)}
+              style={{ width: '100%', padding: '10px', background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '13px' }}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
       {/* Toolbar */}
       <div className="dash-toolbar">
         <div className="dash-stats">
@@ -2542,11 +2571,12 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
             const isNew = newIds?.includes(row.id)
             const isAv = row.document_type === 'avenant'
             const isOrphan = isAv && !row.parent_id && row._level === 0
+            const isExtractionError = d.extraction_error === true
             const breaks = Array.isArray(d.break_options) ? d.break_options : []
             return (
               <div
                 key={row.id}
-                className={`dash-row${isNew ? ' dash-row-new' : ''}${row._level ? ' dash-row-av' : ''}${isOrphan ? ' dash-row-orphan' : ''}`}
+                className={`dash-row${isNew ? ' dash-row-new' : ''}${row._level ? ' dash-row-av' : ''}${isOrphan ? ' dash-row-orphan' : ''}${isExtractionError ? ' dash-row-error' : ''}`}
                 onClick={() => row._level === 0 && row._avCount > 0 ? toggleExpand(row.id) : onSelect(row)}
               >
                 {/* Actif / Document */}
@@ -2617,7 +2647,12 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                   <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`}>
                     {isAv ? 'Avenant' : 'Bail'}
                   </span>
-                  {isOrphan && (
+                  {isExtractionError && (
+                    <span title={d.error_message || 'Erreur lors de l\'extraction'} style={{ fontSize: '10px', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '4px', padding: '1px 5px', fontWeight: 600, marginTop: '2px', display: 'block', cursor: 'help' }}>
+                      ❌ Erreur extraction
+                    </span>
+                  )}
+                  {isOrphan && !isExtractionError && (
                     <span title="Bail parent manquant ou en erreur" style={{ fontSize: '10px', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '4px', padding: '1px 5px', fontWeight: 600, marginTop: '2px', display: 'block' }}>
                       ⚠ Bail manquant
                     </span>
@@ -2909,11 +2944,18 @@ export default function App() {
           // Ne pas setHistory ici — on recharge tout à la fin
         }
         setStatus(i, 'done')
-      } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
+      } catch (e) {
+        setStatus(i, 'error', e.message); setLastError(e.message)
+        extractionErrorsList.push({ name: files[i]?.name || `Fichier ${i+1}`, reason: e.message || 'Erreur inconnue' })
+        try {
+          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'bail', parent_id: null, actif_group: dirActifGroupsRef.current[i] || null })
+        } catch (_) {}
+      }
     })
 
     // 2. Extraire les avenants et sauvegarder directement avec le bail lié choisi
     let lastSaved = null
+    const extractionErrorsList = [] // accumulate errors during extraction
     await runWithConcurrency(avenantIndices, 3, async (i) => {
       try {
         setStatus(i, 'loading')
@@ -2955,7 +2997,13 @@ export default function App() {
           // Ne pas setHistory ici — on recharge tout à la fin
         }
         setStatus(i, 'done')
-      } catch (e) { setStatus(i, 'error', e.message); setLastError(e.message) }
+      } catch (e) {
+        setStatus(i, 'error', e.message); setLastError(e.message)
+        extractionErrorsList.push({ name: files[i]?.name || `Fichier ${i+1}`, reason: e.message || 'Erreur inconnue' })
+        try {
+          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'avenant', parent_id: null, actif_group: dirActifGroupsRef.current[i] || null })
+        } catch (_) {}
+      }
     })
 
     setLoading(false)
@@ -2967,6 +3015,8 @@ export default function App() {
     if (freshRows) setHistory(buildTree(freshRows))
     setHistLoaded(true)
     setTab('history')
+    // Modale erreurs d'extraction
+    if (extractionErrorsList.length > 0) setExtractionErrors(extractionErrorsList)
   }
 
 
