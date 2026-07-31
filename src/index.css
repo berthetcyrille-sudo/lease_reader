@@ -227,3 +227,5 @@ button, input { font-family: inherit; cursor: pointer; }
 .field-info { cursor: help; font-size: 9px; color: var(--text3); border: 1px solid var(--border2); border-radius: 50%; width: 13px; height: 13px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: 700; transition: all .15s; }
 .field-info:hover { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 .dash-row-orphan { border-left: 3px solid var(--danger); }
+.dash-row-error { border-left: 3px solid var(--danger); background: var(--danger-bg) !important; opacity: 0.85; }
+.dash-row-error:hover { background: var(--danger-bg) !important; }
