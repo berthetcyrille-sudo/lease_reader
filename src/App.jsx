@@ -3101,12 +3101,18 @@ export default function App() {
                                   {analyzing || pertinent === null ? (
                                     <span style={{ fontSize: '11px', color: 'var(--text3)' }}>—</span>
                                   ) : (
-                                    <span title={raison} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600,
-                                      padding: '2px 8px', borderRadius: '999px',
-                                      background: pertinent ? 'var(--success-bg)' : 'var(--danger-bg)',
-                                      color: pertinent ? 'var(--success)' : 'var(--danger)',
-                                      cursor: raison ? 'help' : 'default' }}>
+                                    <span
+                                      title={pertinent ? 'Cliquer pour marquer Non pertinent' : (raison ? `${raison} — Cliquer pour forcer Oui` : 'Cliquer pour forcer Oui')}
+                                      onClick={() => setPertinents(prev => { const n = [...prev]; n[fileIdx] = !pertinent; return n })}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600,
+                                        padding: '2px 8px', borderRadius: '999px', cursor: 'pointer',
+                                        background: pertinent ? 'var(--success-bg)' : 'var(--danger-bg)',
+                                        color: pertinent ? 'var(--success)' : 'var(--danger)',
+                                        border: `1px solid ${pertinent ? 'var(--success)' : 'var(--danger)'}`,
+                                        opacity: 0.9,
+                                      }}>
                                       {pertinent ? 'Oui' : 'Non'}
+                                      <span style={{ fontSize: '9px', opacity: 0.7 }}>⇄</span>
                                     </span>
                                   )}
                                 </div>
