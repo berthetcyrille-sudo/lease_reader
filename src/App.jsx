@@ -2678,13 +2678,13 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                 </div>
 
                 {/* Date effet */}
-                <div className="dash-td">
-                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{normalizeDate(d.date_effet) || '—'}</span>
+                <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{normalizeDate(d.date_effet) || '—'}</span>
                 </div>
 
                 {/* Date fin */}
-                <div className="dash-td">
-                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{normalizeDate(d.date_fin) || '—'}</span>
+                <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{normalizeDate(d.date_fin) || '—'}</span>
                 </div>
 
                 {/* Break */}
