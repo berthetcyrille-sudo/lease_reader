@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import './index.css'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
@@ -2292,7 +2293,7 @@ function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, dange
   )
 }
 
-function ActifPicker({ currentValue, existingGroups, onSave, onClose }) {
+function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect }) {
   const [q, setQ] = useState('')
   const inputRef = useRef()
   useEffect(() => { inputRef.current?.focus() }, [])
@@ -2300,8 +2301,14 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose }) {
   const filtered = existingGroups.filter(g => g.toLowerCase().includes(q.toLowerCase()) && g !== currentValue)
   const showCreate = q.trim() && !existingGroups.map(g => g.toLowerCase()).includes(q.trim().toLowerCase())
 
-  return (
-    <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '2px',
+  // Rendu en portail directement sur <body> : les conteneurs du tableau ont un
+  // overflow (scroll) qui tronquerait un dropdown positionné en absolute normal.
+  const style = anchorRect
+    ? { position: 'fixed', top: anchorRect.bottom + 4, left: anchorRect.left }
+    : { position: 'absolute', top: '100%', left: 0, marginTop: '2px' }
+
+  return createPortal(
+    <div style={{ ...style,
       background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
       boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '220px', overflow: 'hidden', zIndex: 9999 }}
       onClick={e => e.stopPropagation()}>
@@ -2352,11 +2359,12 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
-function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant }) {
+function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant }) {
   const [filter, setFilter] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
@@ -2379,6 +2387,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
   const [search, setSearch] = useState('')
   const [sortDir, setSortDir] = useState('asc')
   const [editingActif, setEditingActif] = useState(null) // bail id
+  const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
   const [renamingGroup, setRenamingGroup] = useState(null) // group name
 
   // Close picker on outside click
@@ -2665,16 +2674,18 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
       <div className="dash-toolbar">
         <div className="dash-stats">
           {(() => {
-            const bailItems = tree.filter(t => t.document_type === 'bail')
-            const orphanItems = tree.filter(t => t.document_type === 'avenant')
-            const avenantCount = bailItems.reduce((a, b) => a + (b.avenants?.length || 0), 0) + orphanItems.length
+            // Compteur exact (requête de comptage dédiée), indépendant du nombre
+            // de lignes réellement chargées dans `tree` pour l'affichage.
+            const bailCount = totalCounts?.bailCount ?? 0
+            const avenantCount = totalCounts?.avenantCount ?? 0
+            const orphanCount = totalCounts?.orphanCount ?? 0
             return (
               <>
-                <span className="dash-stat">{bailItems.length} {bailItems.length !== 1 ? 'baux' : 'bail'}</span>
+                <span className="dash-stat">{bailCount} {bailCount !== 1 ? 'baux' : 'bail'}</span>
                 <span className="dash-stat">{avenantCount} avenant{avenantCount !== 1 ? 's' : ''}</span>
-                {orphanItems.length > 0 && (
+                {orphanCount > 0 && (
                   <span className="dash-stat" style={{ color: 'var(--danger)' }} title="Avenants sans bail parent rattaché">
-                    dont {orphanItems.length} orphelin{orphanItems.length !== 1 ? 's' : ''}
+                    dont {orphanCount} orphelin{orphanCount !== 1 ? 's' : ''}
                   </span>
                 )}
               </>
@@ -2854,7 +2865,12 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                   {!isAv && (
                     <div style={{ position: 'relative', marginTop: '2px' }}>
                       <span
-                        onClick={e => { e.stopPropagation(); setEditingActif(editingActif === row.id ? null : row.id) }}
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (editingActif === row.id) { setEditingActif(null); return }
+                          setEditingActifRect(e.currentTarget.getBoundingClientRect())
+                          setEditingActif(row.id)
+                        }}
                         title="Définir l'actif groupant"
                         style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', cursor: 'pointer',
                           background: row.actif_group ? 'var(--accent-bg)' : 'var(--surface2)',
@@ -2870,6 +2886,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                           existingGroups={existingGroups}
                           onSave={v => saveActifGroup(row.id, v)}
                           onClose={() => setEditingActif(null)}
+                          anchorRect={editingActifRect}
                         />
                       )}
                     </div>
@@ -3011,6 +3028,7 @@ export default function App() {
   const [activeItem,   setActiveItem]   = useState(null)
   const [history,      setHistory]      = useState([])
   const [histLoaded,   setHistLoaded]   = useState(false)
+  const [totalCounts,  setTotalCounts]  = useState({ bailCount: 0, avenantCount: 0, orphanCount: 0 })
   const [tab,          setTab]          = useState('extract')
   const [docTypes,     setDocTypes]     = useState([])     // 'bail'|'avenant'|'' per file
   const [fileOrder,    setFileOrder]    = useState([])     // indices ordonnés
@@ -3029,12 +3047,37 @@ export default function App() {
     return [...bails.map(b => ({ ...b, avenants: avenants.filter(a => a.parent_id === b.id) })), ...orphans]
   }
 
-  async function loadHistory() {
-    if (histLoaded) return
+  // Le rendu du tableau charge jusqu'à RENDER_LIMIT lignes (largement au-dessus
+  // du volume actuel). Le COMPTEUR affiché, lui, vient d'une requête de comptage
+  // exact séparée (fetchTotalCounts), donc il reste juste même si RENDER_LIMIT
+  // était un jour dépassé.
+  const RENDER_LIMIT = 2000
+
+  async function fetchAllHistory() {
     const { data: rows } = await supabase.from('extractions')
       .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
-      .order('created_at', { ascending: false }).limit(100)
-    setHistory(rows ? buildTree(rows) : [])
+      .order('created_at', { ascending: false }).limit(RENDER_LIMIT)
+    return rows ? buildTree(rows) : []
+  }
+
+  async function fetchTotalCounts() {
+    const [bailRes, avenantRes, orphanRes] = await Promise.all([
+      supabase.from('extractions').select('*', { count: 'exact', head: true }).eq('document_type', 'bail'),
+      supabase.from('extractions').select('*', { count: 'exact', head: true }).eq('document_type', 'avenant'),
+      supabase.from('extractions').select('*', { count: 'exact', head: true }).eq('document_type', 'avenant').is('parent_id', null),
+    ])
+    return {
+      bailCount: bailRes.count || 0,
+      avenantCount: avenantRes.count || 0,
+      orphanCount: orphanRes.count || 0,
+    }
+  }
+
+  async function loadHistory() {
+    if (histLoaded) return
+    const [tree, counts] = await Promise.all([fetchAllHistory(), fetchTotalCounts()])
+    setHistory(tree)
+    setTotalCounts(counts)
     setHistLoaded(true)
   }
 
@@ -3042,10 +3085,9 @@ export default function App() {
   // ponctuel depuis le dashboard (ex. bouton "+ Avenant"), où loadHistory() seul
   // ne rechargerait rien puisque histLoaded est déjà à true.
   async function refreshHistoryNow() {
-    const { data: rows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
-      .order('created_at', { ascending: false }).limit(100)
-    setHistory(rows ? buildTree(rows) : [])
+    const [tree, counts] = await Promise.all([fetchAllHistory(), fetchTotalCounts()])
+    setHistory(tree)
+    setTotalCounts(counts)
     setHistLoaded(true)
   }
 
@@ -3053,10 +3095,9 @@ export default function App() {
     setTab(t)
     if (t === 'history') {
       // Forcer rechargement depuis Supabase directement
-      const { data: rows } = await supabase.from('extractions')
-        .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
-        .order('created_at', { ascending: false }).limit(100)
-      setHistory(rows ? buildTree(rows) : [])
+      const [tree, counts] = await Promise.all([fetchAllHistory(), fetchTotalCounts()])
+      setHistory(tree)
+      setTotalCounts(counts)
       setHistLoaded(true)
     }
   }
@@ -3324,10 +3365,9 @@ export default function App() {
     setLoading(false)
     // Recharger l'historique complet depuis Supabase
     setHistLoaded(false)
-    const { data: freshRows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
-      .order('created_at', { ascending: false }).limit(100)
-    if (freshRows) setHistory(buildTree(freshRows))
+    const [freshTree, freshCounts] = await Promise.all([fetchAllHistory(), fetchTotalCounts()])
+    setHistory(freshTree)
+    setTotalCounts(freshCounts)
     setHistLoaded(true)
     setTab('history')
     // Modale erreurs d'extraction
@@ -3439,6 +3479,7 @@ export default function App() {
             ) : tab === 'history' ? (
               <Dashboard
                 tree={history}
+                totalCounts={totalCounts}
                 onSelect={item => setActiveItem(item)}
                 onDelete={handleDeleteItem}
                 onClear={handleClearHistory}
