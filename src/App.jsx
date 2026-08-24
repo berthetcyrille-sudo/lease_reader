@@ -149,6 +149,26 @@ function toBase64(file) {
   })
 }
 
+// ─── Stockage du fichier source ─────────────────────────────────────────────
+// Upload non-bloquant : si ça échoue, l'extraction reste valide, on perd juste
+// la possibilité de revoir le fichier d'origine depuis le dashboard.
+async function uploadSourceFile(recordId, file) {
+  try {
+    const path = `${recordId}/${file.name}`
+    const { error: uploadError } = await supabase.storage
+      .from('lease-sources')
+      .upload(path, file, { upsert: true, contentType: file.type || getMediaType(file) })
+    if (uploadError) throw uploadError
+    const { error: updateError } = await supabase.from('extractions')
+      .update({ storage_path: path }).eq('id', recordId)
+    if (updateError) throw updateError
+    return path
+  } catch (e) {
+    console.error('Upload du fichier source échoué pour', file.name, e)
+    return null
+  }
+}
+
 function getMediaType(file) {
   return file.name.toLowerCase().endsWith('.pdf')
     ? 'application/pdf'
@@ -2396,6 +2416,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
         actif_group: bailRow.actif_group || null,
       }).select().single()
       if (error) throw error
+      if (saved?.id) uploadSourceFile(saved.id, prepared) // asynchrone, non-bloquant
 
       setAvenantUpload(prev => { const n = { ...prev }; delete n[bailRow.id]; return n })
       setAvenantTarget(null)
@@ -2408,6 +2429,19 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
       const msg = err.message || 'Erreur inconnue'
       setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'error', error: msg } }))
       showToast('error', `Échec de l'ajout de l'avenant : ${msg}`)
+    }
+  }
+
+  async function viewSourceFile(row) {
+    if (!row.storage_path) return
+    try {
+      const { data, error } = await supabase.storage
+        .from('lease-sources')
+        .createSignedUrl(row.storage_path, 60) // valide 60s, largement suffisant pour l'ouverture
+      if (error) throw error
+      window.open(data.signedUrl, '_blank')
+    } catch (e) {
+      showToast('error', `Impossible d'ouvrir le fichier source : ${e.message || 'erreur inconnue'}`)
     }
   }
 
@@ -2668,8 +2702,8 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
               Actif / Document
               <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
             </div>
-            <div className="dash-th" style={{ gridColumn: '2' }}>Type</div>
-            <div className="dash-th" style={{ gridColumn: '3' }}>Preneur</div>
+            <div className="dash-th" style={{ gridColumn: '2' }}>Preneur</div>
+            <div className="dash-th" style={{ gridColumn: '3' }}>Type</div>
             <div className="dash-th" style={{ gridColumn: '4' }}>Date effet</div>
             <div className="dash-th" style={{ gridColumn: '5' }}>Date fin</div>
             <div className="dash-th" style={{ gridColumn: '6' }}>Break</div>
@@ -2764,7 +2798,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                     )}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
-                    {isAv ? (row._parentName || '') : (() => {
+                    {isAv ? (d.objet_avenant || row._parentName || '') : (() => {
                       const v = d.ville || ''
                       const cpMatch = v.match(/(\d{5})/)
                       const cp = cpMatch ? cpMatch[1] : (d.adresse?.match(/(\d{5})/)?.[1] || '')
@@ -2804,6 +2838,13 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                   )}
                 </div>
 
+                {/* Preneur */}
+                <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text)', fontWeight: 500, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.35, display: 'block' }}>
+                    {d.preneur?.toUpperCase() || '—'}
+                  </span>
+                </div>
+
                 {/* Type */}
                 <div className="dash-td">
                   <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`}>
@@ -2819,13 +2860,6 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                       ⚠ Bail manquant
                     </span>
                   )}
-                </div>
-
-                {/* Preneur */}
-                <div className="dash-td">
-                  <span style={{ fontSize: '12px', color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                    {shortPartyName(d.preneur)?.toUpperCase() || '—'}
-                  </span>
                 </div>
 
                 {/* Date effet */}
@@ -2881,6 +2915,11 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                   {!isAv && (
                     <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); openAvenantPicker(row) }} title="Ajouter un avenant à ce bail">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                  )}
+                  {row.storage_path && (
+                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); viewSourceFile(row) }} title="Voir le fichier source">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     </button>
                   )}
                   <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); onSelect(row) }} title="Voir le détail">
@@ -2955,7 +2994,7 @@ export default function App() {
   async function loadHistory() {
     if (histLoaded) return
     const { data: rows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
+      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
       .order('created_at', { ascending: false }).limit(100)
     setHistory(rows ? buildTree(rows) : [])
     setHistLoaded(true)
@@ -2966,7 +3005,7 @@ export default function App() {
   // ne rechargerait rien puisque histLoaded est déjà à true.
   async function refreshHistoryNow() {
     const { data: rows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
+      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
       .order('created_at', { ascending: false }).limit(100)
     setHistory(rows ? buildTree(rows) : [])
     setHistLoaded(true)
@@ -2977,7 +3016,7 @@ export default function App() {
     if (t === 'history') {
       // Forcer rechargement depuis Supabase directement
       const { data: rows } = await supabase.from('extractions')
-        .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
+        .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
         .order('created_at', { ascending: false }).limit(100)
       setHistory(rows ? buildTree(rows) : [])
       setHistLoaded(true)
@@ -2989,6 +3028,7 @@ export default function App() {
     const { data: saved } = await supabase.from('extractions')
       .insert({ file_name: file.name, data: extracted, document_type: docType, parent_id: parentId || null, actif_group: actifGroup || null })
       .select().single()
+    if (saved?.id) uploadSourceFile(saved.id, file) // asynchrone, non-bloquant
     return saved
   }
 
@@ -3247,7 +3287,7 @@ export default function App() {
     // Recharger l'historique complet depuis Supabase
     setHistLoaded(false)
     const { data: freshRows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
+      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
       .order('created_at', { ascending: false }).limit(100)
     if (freshRows) setHistory(buildTree(freshRows))
     setHistLoaded(true)
