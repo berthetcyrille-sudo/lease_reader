@@ -155,9 +155,15 @@ function toBase64(file) {
 // ─── Stockage du fichier source ─────────────────────────────────────────────
 // Upload non-bloquant : si ça échoue, l'extraction reste valide, on perd juste
 // la possibilité de revoir le fichier d'origine depuis le dashboard.
+function sanitizeStorageKey(name) {
+  return name
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // retire les accents (é -> e)
+    .replace(/[^a-zA-Z0-9._-]+/g, '_') // remplace espaces et caractères spéciaux
+}
+
 async function uploadSourceFile(recordId, file) {
   try {
-    const path = `${recordId}/${file.name}`
+    const path = `${recordId}/${sanitizeStorageKey(file.name)}`
     const { error: uploadError } = await supabase.storage
       .from('lease-sources')
       .upload(path, file, { upsert: true, contentType: file.type || getMediaType(file) })
