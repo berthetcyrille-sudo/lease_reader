@@ -3035,7 +3035,8 @@ export default function App() {
   const [history,      setHistory]      = useState([])
   const [histLoaded,   setHistLoaded]   = useState(false)
   const [totalCounts,  setTotalCounts]  = useState({ bailCount: 0, avenantCount: 0, orphanCount: 0 })
-  const [tab,          setTab]          = useState('extract')
+  const [tab,          setTab]          = useState('history')
+  const [showAddModal, setShowAddModal] = useState(false)
   const [docTypes,     setDocTypes]     = useState([])     // 'bail'|'avenant'|'' per file
   const [fileOrder,    setFileOrder]    = useState([])     // indices ordonnés
   const [detecting,    setDetecting]    = useState(false)  // détection en cours
@@ -3376,6 +3377,8 @@ export default function App() {
     setTotalCounts(freshCounts)
     setHistLoaded(true)
     setTab('history')
+    setShowAddModal(false)
+    handleClear()
     // Modale erreurs d'extraction
     if (extractionErrorsList.length > 0) setExtractionErrors(extractionErrorsList)
   }
@@ -3422,7 +3425,7 @@ export default function App() {
     <>
       <div className="app">
         <aside className="sidebar">
-          <div className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => { handleClear(); setTab('extract') }}>
+          <div className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => { setActiveItem(null); switchTab('history') }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
@@ -3431,12 +3434,6 @@ export default function App() {
             Lease Reader
           </div>
           <nav className="sidebar-nav">
-            <button className={`nav-item${tab === 'extract' ? ' active' : ''}`} onClick={() => { handleClear(); setTab('extract') }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              Extraire
-            </button>
             <button className={`nav-item${tab === 'history' || activeItem ? ' active' : ''}`} onClick={() => { setActiveItem(null); switchTab('history') }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="12 8 12 12 14 14"/>
@@ -3482,30 +3479,73 @@ export default function App() {
           <div className="content" ref={contentRef}>
             {activeItem ? (
               <ResultsView item={activeItem} />
-            ) : tab === 'history' ? (
-              <Dashboard
-                tree={history}
-                totalCounts={totalCounts}
-                onSelect={item => setActiveItem(item)}
-                onDelete={handleDeleteItem}
-                onClear={handleClearHistory}
-                onExportAll={() => exportAllToExcel(history, setExportErrors)}
-                newIds={newIds}
-                onRefresh={refreshHistoryNow}
-                onNewAvenant={id => setNewIds(prev => [...prev, id])}
-                onUpdateActif={(id, value) => {
-                  setHistory(prev => prev.map(b => {
-                    if (b.id === id) return { ...b, actif_group: value || null }
-                    return { ...b, avenants: (b.avenants || []).map(a => a.id === id ? { ...a, actif_group: value || null } : a) }
-                  }))
-                }}
-              />
             ) : (
-              <div className="extract-wrap">
+              <>
+                <Dashboard
+                  tree={history}
+                  totalCounts={totalCounts}
+                  onSelect={item => setActiveItem(item)}
+                  onDelete={handleDeleteItem}
+                  onClear={handleClearHistory}
+                  onExportAll={() => exportAllToExcel(history, setExportErrors)}
+                  newIds={newIds}
+                  onRefresh={refreshHistoryNow}
+                  onNewAvenant={id => setNewIds(prev => [...prev, id])}
+                  onUpdateActif={(id, value) => {
+                    setHistory(prev => prev.map(b => {
+                      if (b.id === id) return { ...b, actif_group: value || null }
+                      return { ...b, avenants: (b.avenants || []).map(a => a.id === id ? { ...a, actif_group: value || null } : a) }
+                    }))
+                  }}
+                />
 
-                {/* ── Queue principale ── */}
-                <>
-                    <DropZone onFiles={handleFiles} disabled={loading || detecting || !!compressing} />
+                {/* Bouton flottant d'ajout */}
+                {!showAddModal && (
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    title="Ajouter un bail ou un avenant"
+                    style={{
+                      position: 'fixed', bottom: '28px', right: '32px', zIndex: 50,
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                      padding: '13px 20px', borderRadius: '999px', border: 'none',
+                      background: 'var(--accent)', color: '#fff', fontSize: '14px', fontWeight: 600,
+                      cursor: 'pointer', boxShadow: '0 6px 20px rgba(26,95,168,.35)',
+                    }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    Ajouter un bail / avenant
+                  </button>
+                )}
+
+                {/* Modale d'ajout — regroupe dépôt, détection et extraction */}
+                {showAddModal && (
+                  <div className="modal-overlay" onClick={() => {
+                    if (loading || detecting || compressing) return // fermeture bloquée pendant traitement
+                    setShowAddModal(false)
+                  }}>
+                    <div className="modal" style={{ width: '640px', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div className="modal-title">Ajouter un bail ou un avenant</div>
+                        <button
+                          onClick={() => { if (!(loading || detecting || compressing)) setShowAddModal(false) }}
+                          disabled={loading || detecting || !!compressing}
+                          title={loading || detecting || compressing ? 'Traitement en cours…' : 'Fermer'}
+                          style={{
+                            background: 'none', border: 'none', fontSize: '20px', lineHeight: 1,
+                            cursor: (loading || detecting || compressing) ? 'not-allowed' : 'pointer',
+                            color: (loading || detecting || compressing) ? 'var(--text3)' : 'var(--text2)',
+                            padding: '4px', opacity: (loading || detecting || compressing) ? 0.4 : 1,
+                          }}>
+                          ✕
+                        </button>
+                      </div>
+                      <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
+                        <div className="extract-wrap">
+
+                          {/* ── Queue principale ── */}
+                          <>
+                              <DropZone onFiles={handleFiles} disabled={loading || detecting || !!compressing} />
                     {compressing && (
                       <div className="warning-box" style={{ background: 'var(--accent-bg)', borderColor: 'rgba(26,95,168,.2)' }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent)' }}>
@@ -3716,6 +3756,11 @@ export default function App() {
                     })()}
                 </>
               </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </main>
