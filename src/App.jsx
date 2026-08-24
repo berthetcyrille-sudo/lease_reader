@@ -2295,6 +2295,9 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
   const [exportErrors, setExportErrors] = useState(null)
   const [extractionErrors, setExtractionErrors] = useState(null) // null or array of {name, reason}
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
+  const [avenantTarget, setAvenantTarget] = useState(null) // bail row en attente d'ajout d'avenant
+  const [avenantUpload, setAvenantUpload] = useState({}) // { [bailId]: { state: 'compressing'|'loading'|'error', error, progress } }
+  const avenantInputRef = useRef(null)
 
   // Flatten all items for table
   const [expanded, setExpanded] = useState({})
@@ -2341,6 +2344,57 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
 
   function toggleExpand(id) {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  // Ajout d'un avenant directement depuis le dashboard, sur un bail déjà extrait
+  function openAvenantPicker(bailRow) {
+    setAvenantTarget(bailRow)
+    // Laisse le state se poser avant de déclencher le picker natif
+    setTimeout(() => avenantInputRef.current?.click(), 0)
+  }
+
+  async function handleAvenantFile(e) {
+    const file = e.target.files?.[0]
+    const bailRow = avenantTarget
+    e.target.value = '' // reset l'input pour permettre de re-choisir le même fichier
+    if (!file || !bailRow) return
+
+    const ext = file.name.split('.').pop().toLowerCase()
+    if (!['pdf', 'docx'].includes(ext)) {
+      alert('Format non supporté. PDF ou DOCX uniquement.')
+      return
+    }
+
+    setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'compressing' } }))
+    try {
+      const prepared = await compressPdfIfNeeded(file, (current, total) => {
+        setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'compressing', current, total } }))
+      })
+
+      if (prepared.size > 30 * 1024 * 1024) {
+        throw new Error(`Fichier trop volumineux (${Math.round(prepared.size / 1024 / 1024)} Mo > 30 Mo) — compressez le PDF avant de déposer.`)
+      }
+
+      setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'loading' } }))
+      const base64 = await toBase64(prepared)
+      const mediaType = getMediaType(prepared)
+      const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
+
+      const { error } = await supabase.from('extractions').insert({
+        file_name: file.name,
+        data: extracted,
+        document_type: 'avenant',
+        parent_id: bailRow.id,
+        actif_group: bailRow.actif_group || null,
+      })
+      if (error) throw error
+
+      setAvenantUpload(prev => { const n = { ...prev }; delete n[bailRow.id]; return n })
+      setAvenantTarget(null)
+      onRefresh?.()
+    } catch (err) {
+      setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'error', error: err.message || 'Erreur inconnue' } }))
+    }
   }
 
   // Build display rows based on filter and expanded state
@@ -2771,6 +2825,26 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
 
                 {/* Actions */}
                 <div className="dash-td dash-td-actions" onClick={e => e.stopPropagation()}>
+                  {!isAv && avenantUpload[row.id] && (
+                    <span
+                      title={avenantUpload[row.id].state === 'error' ? avenantUpload[row.id].error : ''}
+                      style={{
+                        fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
+                        background: avenantUpload[row.id].state === 'error' ? 'var(--danger-bg)' : 'var(--accent-bg)',
+                        color: avenantUpload[row.id].state === 'error' ? 'var(--danger)' : 'var(--accent)',
+                        cursor: avenantUpload[row.id].state === 'error' ? 'help' : 'default',
+                      }}>
+                      {avenantUpload[row.id].state === 'compressing'
+                        ? `Compression${avenantUpload[row.id].total ? ` ${avenantUpload[row.id].current}/${avenantUpload[row.id].total}` : '…'}`
+                        : avenantUpload[row.id].state === 'loading' ? 'Extraction…'
+                        : '❌ Erreur'}
+                    </span>
+                  )}
+                  {!isAv && (
+                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); openAvenantPicker(row) }} title="Ajouter un avenant à ce bail">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                  )}
                   <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); onSelect(row) }} title="Voir le détail">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   </button>
@@ -2783,6 +2857,13 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
           })}
         </div>
       )}
+      <input
+        ref={avenantInputRef}
+        type="file"
+        accept=".pdf,.docx"
+        style={{ display: 'none' }}
+        onChange={handleAvenantFile}
+      />
     </div>
   )
 }
