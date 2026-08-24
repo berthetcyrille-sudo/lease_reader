@@ -3515,7 +3515,7 @@ export default function App() {
                     if (loading || detecting || compressing) return // fermeture bloquée pendant traitement
                     setShowAddModal(false)
                   }}>
-                    <div className="modal" style={{ width: '640px', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+                    <div className="modal" style={{ width: '95vw', height: '95vh', maxWidth: 'none', maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div className="modal-title">Ajouter un bail ou un avenant</div>
                         <button
