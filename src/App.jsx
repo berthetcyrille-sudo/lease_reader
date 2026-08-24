@@ -2478,7 +2478,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
         actif_group: bailRow.actif_group || null,
       }).select().single()
       if (error) throw error
-      if (saved?.id) uploadSourceFile(saved.id, prepared) // asynchrone, non-bloquant
+      if (saved?.id) await uploadSourceFile(saved.id, prepared) // on attend la fin pour éviter un rafraîchissement prématuré du dashboard
 
       setAvenantUpload(prev => { const n = { ...prev }; delete n[bailRow.id]; return n })
       setAvenantTarget(null)
@@ -3118,7 +3118,7 @@ export default function App() {
     const { data: saved } = await supabase.from('extractions')
       .insert({ file_name: file.name, data: extracted, document_type: docType, parent_id: parentId || null, actif_group: actifGroup || null })
       .select().single()
-    if (saved?.id) uploadSourceFile(saved.id, file) // asynchrone, non-bloquant
+    if (saved?.id) await uploadSourceFile(saved.id, file) // on attend la fin pour éviter un rafraîchissement prématuré du dashboard
     return saved
   }
 
