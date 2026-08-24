@@ -26,7 +26,9 @@ button, input { font-family: inherit; cursor: pointer; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
 /* ── App ── */
-.app { display: flex; height: 100vh; overflow: hidden; }
+.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+.topbar { height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 9px; padding: 0 20px; background: #1C1C1A; color: #FFFFFF; font-size: 14px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.08); cursor: pointer; }
 
 /* ── Sidebar ── */
 .sidebar { width: 220px; flex-shrink: 0; background: #1C1C1A; display: flex; flex-direction: column; }
@@ -54,7 +56,7 @@ button, input { font-family: inherit; cursor: pointer; }
 .btn-clear:hover { background: rgba(255,80,80,0.1); }
 
 /* ── Main ── */
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); height: 100vh; overflow: hidden; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); overflow: hidden; }
 
 /* ── Topbar ── */
 .result-topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 18px 32px; flex-shrink: 0; box-shadow: 0 1px 0 var(--border); }
