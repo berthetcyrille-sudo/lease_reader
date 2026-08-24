@@ -2289,7 +2289,7 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose }) {
   )
 }
 
-function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif }) {
+function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant }) {
   const [filter, setFilter] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
@@ -2297,7 +2297,15 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
   const [avenantTarget, setAvenantTarget] = useState(null) // bail row en attente d'ajout d'avenant
   const [avenantUpload, setAvenantUpload] = useState({}) // { [bailId]: { state: 'compressing'|'loading'|'error', error, progress } }
+  const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
   const avenantInputRef = useRef(null)
+  const toastTimerRef = useRef(null)
+
+  function showToast(type, message) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    setToast({ type, message })
+    toastTimerRef.current = setTimeout(() => setToast(null), 4500)
+  }
 
   // Flatten all items for table
   const [expanded, setExpanded] = useState({})
@@ -2380,20 +2388,26 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
       const mediaType = getMediaType(prepared)
       const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
 
-      const { error } = await supabase.from('extractions').insert({
+      const { data: saved, error } = await supabase.from('extractions').insert({
         file_name: file.name,
         data: extracted,
         document_type: 'avenant',
         parent_id: bailRow.id,
         actif_group: bailRow.actif_group || null,
-      })
+      }).select().single()
       if (error) throw error
 
       setAvenantUpload(prev => { const n = { ...prev }; delete n[bailRow.id]; return n })
       setAvenantTarget(null)
+      setExpanded(prev => ({ ...prev, [bailRow.id]: true })) // déplie le bail pour montrer le nouvel avenant
+      const label = bailRow.data?.immeuble || bailRow.data?.adresse || bailRow.file_name
+      showToast('success', `Avenant ajouté à « ${label} »`)
+      if (saved?.id) onNewAvenant?.(saved.id)
       onRefresh?.()
     } catch (err) {
-      setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'error', error: err.message || 'Erreur inconnue' } }))
+      const msg = err.message || 'Erreur inconnue'
+      setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'error', error: msg } }))
+      showToast('error', `Échec de l'ajout de l'avenant : ${msg}`)
     }
   }
 
@@ -2864,6 +2878,24 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
         style={{ display: 'none' }}
         onChange={handleAvenantFile}
       />
+      {toast && (
+        <div
+          onClick={() => setToast(null)}
+          style={{
+            position: 'fixed', bottom: '24px', right: '24px', zIndex: 2000,
+            display: 'flex', alignItems: 'center', gap: '10px',
+            padding: '12px 16px', borderRadius: '8px', cursor: 'pointer',
+            background: toast.type === 'error' ? 'var(--danger-bg)' : 'var(--surface)',
+            border: `1px solid ${toast.type === 'error' ? 'rgba(176,42,42,.25)' : 'var(--border2)'}`,
+            boxShadow: '0 8px 24px rgba(0,0,0,.15)', maxWidth: '360px',
+            animation: 'toastIn .25s ease-out',
+          }}>
+          <span style={{ fontSize: '16px', flexShrink: 0 }}>{toast.type === 'error' ? '❌' : '✅'}</span>
+          <span style={{ fontSize: '13px', color: toast.type === 'error' ? 'var(--danger)' : 'var(--text)', lineHeight: 1.4 }}>
+            {toast.message}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -3300,6 +3332,7 @@ export default function App() {
                 onExportAll={() => exportAllToExcel(history, setExportErrors)}
                 newIds={newIds}
                 onRefresh={loadHistory}
+                onNewAvenant={id => setNewIds(prev => [...prev, id])}
                 onUpdateActif={(id, value) => {
                   setHistory(prev => prev.map(b => {
                     if (b.id === id) return { ...b, actif_group: value || null }
