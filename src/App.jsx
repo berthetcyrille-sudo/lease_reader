@@ -2234,7 +2234,7 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose }) {
   const showCreate = q.trim() && !existingGroups.map(g => g.toLowerCase()).includes(q.trim().toLowerCase())
 
   return (
-    <div style={{ position: 'absolute', zIndex: 100, top: '100%', left: 0, marginTop: '2px',
+    <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '2px',
       background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
       boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '220px', overflow: 'hidden', zIndex: 9999 }}
       onClick={e => e.stopPropagation()}>
