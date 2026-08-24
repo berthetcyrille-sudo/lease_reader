@@ -2309,16 +2309,26 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
 
   // Rendu en portail directement sur <body> : les conteneurs du tableau ont un
   // overflow (scroll) qui tronquerait un dropdown positionné en absolute normal.
+  // Rendu en portail directement sur <body> : les conteneurs du tableau ont un
+  // overflow (scroll) qui tronquerait un dropdown positionné en absolute normal.
+  // Bascule au-dessus du bouton si pas assez de place en dessous (bas d'écran).
+  const ESTIMATED_HEIGHT = 260 // input + liste, approximatif mais suffisant pour décider
+  const spaceBelow = anchorRect ? window.innerHeight - anchorRect.bottom : Infinity
+  const openAbove = anchorRect && spaceBelow < ESTIMATED_HEIGHT
+
   const style = anchorRect
-    ? { position: 'fixed', top: anchorRect.bottom + 4, left: anchorRect.left }
+    ? openAbove
+      ? { position: 'fixed', bottom: window.innerHeight - anchorRect.top + 4, left: anchorRect.left, maxHeight: `${anchorRect.top - 8}px` }
+      : { position: 'fixed', top: anchorRect.bottom + 4, left: anchorRect.left, maxHeight: `${spaceBelow - 8}px` }
     : { position: 'absolute', top: '100%', left: 0, marginTop: '2px' }
 
   return createPortal(
     <div style={{ ...style,
       background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
-      boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '220px', overflow: 'hidden', zIndex: 9999 }}
+      boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '220px', overflow: 'hidden', zIndex: 9999,
+      display: 'flex', flexDirection: 'column' }}
       onClick={e => e.stopPropagation()}>
-      <div style={{ padding: '6px' }}>
+      <div style={{ padding: '6px', flexShrink: 0 }}>
         <input
           ref={inputRef}
           value={q}
@@ -2333,7 +2343,7 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
             background: 'var(--surface2)', color: 'var(--text)' }}
         />
       </div>
-      <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+      <div style={{ overflowY: 'auto', minHeight: 0, flex: '1 1 auto' }}>
         {currentValue && (
           <div onClick={() => onSave('')}
             style={{ padding: '6px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--danger)',
