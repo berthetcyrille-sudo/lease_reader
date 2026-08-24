@@ -2592,8 +2592,22 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
       {/* Toolbar */}
       <div className="dash-toolbar">
         <div className="dash-stats">
-          <span className="dash-stat">{tree.length} {tree.length !== 1 ? 'baux' : 'bail'}</span>
-          <span className="dash-stat">{tree.reduce((a,b) => a + (b.avenants?.length||0), 0)} avenant{tree.reduce((a,b) => a + (b.avenants?.length||0), 0) !== 1 ? 's' : ''}</span>
+          {(() => {
+            const bailItems = tree.filter(t => t.document_type === 'bail')
+            const orphanItems = tree.filter(t => t.document_type === 'avenant')
+            const avenantCount = bailItems.reduce((a, b) => a + (b.avenants?.length || 0), 0) + orphanItems.length
+            return (
+              <>
+                <span className="dash-stat">{bailItems.length} {bailItems.length !== 1 ? 'baux' : 'bail'}</span>
+                <span className="dash-stat">{avenantCount} avenant{avenantCount !== 1 ? 's' : ''}</span>
+                {orphanItems.length > 0 && (
+                  <span className="dash-stat" style={{ color: 'var(--danger)' }} title="Avenants sans bail parent rattaché">
+                    dont {orphanItems.length} orphelin{orphanItems.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </>
+            )
+          })()}
         </div>
         <div style={{ flex: 1, maxWidth: '320px', position: 'relative' }}>
           <input
