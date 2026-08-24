@@ -2454,10 +2454,20 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
   // Apply search filter
   const q = search.trim().toLowerCase()
   const filtered = q ? displayRows.filter(row => {
-    const d = row.data || {}
+    const raw = row.data || {}
+    const bailData = row._bailData || {}
+    const mods = raw.champs_modifies || {}
+    const bailRef = raw.bail_reference || {}
+    // Pour un avenant, les champs pertinents peuvent venir : du bail hérité,
+    // des champs modifiés par l'avenant, ou de la référence bail_reference
+    // renvoyée par l'IA — on cherche dans les trois pour ne rien manquer.
     const searchIn = [
-      d.immeuble, d.adresse, d.ville, d.preneur, d.bailleur,
-      d.objet_avenant, row.file_name, row._parentName,
+      raw.immeuble, raw.adresse, raw.ville, raw.preneur, raw.bailleur,
+      bailData.immeuble, bailData.adresse, bailData.ville, bailData.preneur, bailData.bailleur,
+      mods.immeuble, mods.adresse, mods.ville, mods.preneur, mods.bailleur,
+      bailRef.immeuble, bailRef.adresse, bailRef.preneur, bailRef.bailleur,
+      raw.objet_avenant, raw.sous_location, mods.sous_location,
+      row.file_name, row._parentName, row.actif_group,
     ].filter(Boolean).join(' ').toLowerCase()
     return searchIn.includes(q)
   }) : displayRows
@@ -2937,6 +2947,17 @@ export default function App() {
     setHistLoaded(true)
   }
 
+  // Rafraîchissement forcé (ignore le cache histLoaded) — utilisé après un ajout
+  // ponctuel depuis le dashboard (ex. bouton "+ Avenant"), où loadHistory() seul
+  // ne rechargerait rien puisque histLoaded est déjà à true.
+  async function refreshHistoryNow() {
+    const { data: rows } = await supabase.from('extractions')
+      .select('id, file_name, created_at, data, document_type, parent_id, actif_group')
+      .order('created_at', { ascending: false }).limit(100)
+    setHistory(rows ? buildTree(rows) : [])
+    setHistLoaded(true)
+  }
+
   async function switchTab(t) {
     setTab(t)
     if (t === 'history') {
@@ -3331,7 +3352,7 @@ export default function App() {
                 onClear={handleClearHistory}
                 onExportAll={() => exportAllToExcel(history, setExportErrors)}
                 newIds={newIds}
-                onRefresh={loadHistory}
+                onRefresh={refreshHistoryNow}
                 onNewAvenant={id => setNewIds(prev => [...prev, id])}
                 onUpdateActif={(id, value) => {
                   setHistory(prev => prev.map(b => {
