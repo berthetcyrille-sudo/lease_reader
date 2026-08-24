@@ -2,6 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import './index.css'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
+import * as pdfjsLib from 'pdfjs-dist'
+import { PDFDocument } from 'pdf-lib'
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -149,6 +153,61 @@ function getMediaType(file) {
   return file.name.toLowerCase().endsWith('.pdf')
     ? 'application/pdf'
     : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+}
+
+// ─── Compression PDF automatique ────────────────────────────────────────────
+// Certains PDF (ex. "Print to PDF", scans) sont en réalité des empilements de
+// calques image très lourds sans texte sélectionnable. Recompresser les images
+// une par une casse ces calques (transparence/empilement). La méthode fiable :
+// rasteriser chaque page déjà composée par le moteur de rendu, puis reconstruire
+// un PDF léger à partir de ces images. Ne s'applique qu'aux PDF dépassant le seuil.
+
+const PDF_COMPRESS_THRESHOLD = 8 * 1024 * 1024 // 8 Mo : en-dessous, on ne touche à rien
+const PDF_RENDER_DPI = 150
+const PDF_JPEG_QUALITY = 0.72
+
+async function compressPdfIfNeeded(file, onProgress) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) return file
+  if (file.size <= PDF_COMPRESS_THRESHOLD) return file
+
+  try {
+    const arrayBuffer = await file.arrayBuffer()
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+    const numPages = pdf.numPages
+    const outDoc = await PDFDocument.create()
+    const scale = PDF_RENDER_DPI / 72 // pdf.js viewport de base = 72dpi
+
+    for (let i = 1; i <= numPages; i++) {
+      onProgress?.(i, numPages)
+      const page = await pdf.getPage(i)
+      const viewport = page.getViewport({ scale })
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.ceil(viewport.width)
+      canvas.height = Math.ceil(viewport.height)
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      await page.render({ canvasContext: ctx, viewport }).promise
+
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', PDF_JPEG_QUALITY))
+      const jpegBytes = new Uint8Array(await blob.arrayBuffer())
+      const jpgImage = await outDoc.embedJpg(jpegBytes)
+      const pdfPage = outDoc.addPage([viewport.width, viewport.height])
+      pdfPage.drawImage(jpgImage, { x: 0, y: 0, width: viewport.width, height: viewport.height })
+
+      canvas.width = 0
+      canvas.height = 0
+    }
+
+    const outBytes = await outDoc.save()
+    const compressed = new File([outBytes], file.name, { type: 'application/pdf' })
+    // Garde-fou : si jamais la compression ne suffit pas (cas extrême), on renvoie
+    // quand même le résultat compressé, qui sera toujours plus léger que l'original.
+    return compressed.size < file.size ? compressed : file
+  } catch (e) {
+    console.error('Compression PDF échouée pour', file.name, e)
+    return file // on retombe sur le fichier original ; le contrôle de taille prendra le relais
+  }
 }
 
 function normalizeDate(val) {
@@ -2747,6 +2806,7 @@ export default function App() {
   const [raisons,      setRaisons]      = useState([])     // raison non pertinent
   const [lastError,    setLastError]    = useState('')
   const [newIds,       setNewIds]       = useState([])   // ids extraits dans le batch courant
+  const [compressing,  setCompressing]  = useState(null) // { name, current, total } | null
 
   function buildTree(rows) {
     const bails    = rows.filter(r => r.document_type === 'bail')
@@ -2855,8 +2915,24 @@ export default function App() {
     setDetecting(false)
   }
 
-  function handleFiles(newFiles, dirAutoLinks = {}, dirActifGroups = {}) {
-    const arr = Array.from(newFiles)
+  async function handleFiles(newFiles, dirAutoLinks = {}, dirActifGroups = {}) {
+    let arr = Array.from(newFiles)
+
+    // Compression préventive des PDF volumineux (scans / "Print to PDF")
+    // avant toute détection ou extraction — évite les erreurs de taille en aval.
+    const heavy = arr.filter(f => f.name.toLowerCase().endsWith('.pdf') && f.size > PDF_COMPRESS_THRESHOLD)
+    if (heavy.length > 0) {
+      for (const f of heavy) {
+        const idx = arr.indexOf(f)
+        setCompressing({ name: f.name, current: 0, total: 0 })
+        const compressed = await compressPdfIfNeeded(f, (current, total) => {
+          setCompressing({ name: f.name, current, total })
+        })
+        arr[idx] = compressed
+      }
+      setCompressing(null)
+    }
+
     setFiles(prev => {
       const combined = [...prev, ...arr]
       const offset = prev.length
@@ -3155,7 +3231,18 @@ export default function App() {
 
                 {/* ── Queue principale ── */}
                 <>
-                    <DropZone onFiles={handleFiles} disabled={loading || detecting} />
+                    <DropZone onFiles={handleFiles} disabled={loading || detecting || !!compressing} />
+                    {compressing && (
+                      <div className="warning-box" style={{ background: 'var(--accent-bg)', borderColor: 'rgba(26,95,168,.2)' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent)' }}>
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                        </svg>
+                        <span>
+                          Compression de <strong>{compressing.name}</strong> (fichier volumineux)
+                          {compressing.total > 0 ? ` — page ${compressing.current}/${compressing.total}` : '…'}
+                        </span>
+                      </div>
+                    )}
                     <PageLimitWarning />
 
                     {files.length > 0 && (
