@@ -89,13 +89,14 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent.
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
 - surfaces_detail: TOUTES les composantes du loyer avec leur surface et loyer annuel. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple: [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. categorie: etage/plateau->Bureaux, terrasse/rooftop->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. La SOMME des loyer_annuel doit etre egale a loyer_signature_montant.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
+- _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes, meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null.
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
 - break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG. REGLES DE CALCUL:
   1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
@@ -122,13 +123,14 @@ surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retiree
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie (ex: 2 lignes Bureaux → une seule ligne avec la surface totale). NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
 - franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null}]. null si non concerne.
-- surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).`
+- surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
+- _pages: objet AU MEME NIVEAU que champs_modifies (pas dedans) avec le numero de PAGE du PDF ou se trouve chaque champ RENSEIGNE (non-null) de champs_modifies, plus objet_avenant, date_effet_avenant et date_signature_avenant si applicable. Format: {"loyer_signature_montant":2,"date_effet_avenant":1,"objet_avenant":1}. Ne pas inclure les champs restes null.`
 
 const DETECT_PROMPT = `Analyse ce document. Le nom du fichier est un indice important. Reponds UNIQUEMENT avec ce JSON sur une ligne:
 {"type":"bail","pertinent":true,"raison":"","preneur":"","bailleur":"","adresse":"","immeuble":""}
@@ -167,6 +169,41 @@ async function uploadSourceFile(recordId, file) {
     console.error('Upload du fichier source échoué pour', file.name, e)
     return null
   }
+}
+
+// ─── Ouverture du fichier source à une page précise ─────────────────────────
+// Beaucoup de navigateurs (Chrome, Firefox, Edge) honorent le fragment
+// #page=N sur une URL PDF ouverte directement — pas besoin de lecteur maison.
+async function openSourceAtPage(item, page) {
+  if (!item?.storage_path) return
+  try {
+    const { data, error } = await supabase.storage
+      .from('lease-sources')
+      .createSignedUrl(item.storage_path, 60)
+    if (error) throw error
+    window.open(`${data.signedUrl}#page=${page || 1}`, '_blank')
+  } catch (e) {
+    console.error('Impossible d\'ouvrir le fichier source', e)
+  }
+}
+
+// Petite icône cliquable renvoyant à la page source d'un champ, si connue.
+function PageJumpIcon({ item, pages, field, title }) {
+  const page = pages?.[field]
+  if (!page || !item?.storage_path) return null
+  return (
+    <span
+      onClick={e => { e.stopPropagation(); openSourceAtPage(item, page) }}
+      title={title || `Voir la page ${page} du document source`}
+      style={{
+        cursor: 'pointer', fontSize: '10px', fontWeight: 700, color: 'var(--accent)',
+        border: '1px solid rgba(26,95,168,.3)', borderRadius: '4px', padding: '0px 4px',
+        display: 'inline-flex', alignItems: 'center', gap: '2px', whiteSpace: 'nowrap',
+        background: 'var(--accent-bg)', lineHeight: '15px',
+      }}>
+      p.{page}
+    </span>
+  )
 }
 
 function getMediaType(file) {
@@ -1627,6 +1664,7 @@ function ResultsView({ item }) {
 
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
   const src = d._sources || {}
+  const pages = item.data?._pages || {}
   // N'utiliser computeBreaks que si break_options est vide (fallback uniquement)
   let breaks = (d.break_options && d.break_options.length > 0)
     ? d.break_options
@@ -1707,8 +1745,8 @@ function ResultsView({ item }) {
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Parties</div></div>
           <div className="gx">
-            {show('preneur') && <div className="party-card"><div className="party-role">Preneur</div><div className="party-name">{shortPartyName(d.preneur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
-            {show('bailleur') && <div className="party-card"><div className="party-role">Bailleur</div><div className="party-name">{shortPartyName(d.bailleur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}</div></div>}
+            {show('preneur') && <div className="party-card"><div className="party-role">Preneur</div><div className="party-name" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>{shortPartyName(d.preneur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}<PageJumpIcon item={item} pages={pages} field="preneur" /></div></div>}
+            {show('bailleur') && <div className="party-card"><div className="party-role">Bailleur</div><div className="party-name" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>{shortPartyName(d.bailleur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}<PageJumpIcon item={item} pages={pages} field="bailleur" /></div></div>}
             {show('garant') && d.garant && <div className="party-card" style={{gridColumn:'1/-1'}}><div className="party-role">Garant / Caution</div><div className="party-name">{shortPartyName(d.garant)}</div></div>}
           </div>
         </div>
@@ -1733,16 +1771,21 @@ function ResultsView({ item }) {
           {/* Rangée principale : effet — breaks — expiration */}
           {primaryDates.length > 0 && (
             <div className="date-strip" style={{ gridTemplateColumns: `repeat(${Math.min(primaryDates.length, 5)}, 1fr)`, marginBottom: '12px' }}>
-              {primaryDates.map(f => (
+              {primaryDates.map(f => {
+                const pageField = f.type === 'break' ? 'break_options' : f.key
+                return (
                 <div key={f.key} className={`date-card${f.type === 'break' ? ' date-card-break' : ''}`}>
                   <div className="date-lbl">
                     {f.type === 'break' && <span className="break-tag">B{breaks.length > 1 ? f.key.split('_')[1]*1+1 : ''}</span>}
                     {' '}{f.label}
                   </div>
-                  <div className={`date-val${f.type === 'break' ? ' break' : ''}`}>{f.val || d[f.key]}</div>
+                  <div className={`date-val${f.type === 'break' ? ' break' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    {f.val || d[f.key]}
+                    <PageJumpIcon item={item} pages={pages} field={pageField} />
+                  </div>
                   {f.type === 'break' && d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
                 </div>
-              ))}
+              )})}
             </div>
           )}
           {/* Rangée secondaire : signature, congé, travaux */}
@@ -1806,7 +1849,10 @@ function ResultsView({ item }) {
             {show('surface_totale_m2') && (
               <div className="field">
                 <div className="field-lbl">Surface totale louée</div>
-                <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em' }}>{d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}</div>
+                <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
+                  <PageJumpIcon item={item} pages={pages} field="surface_totale_m2" />
+                </div>
               </div>
             )}
             {show('parking_nb_places') && (() => {
@@ -1936,6 +1982,7 @@ function ResultsView({ item }) {
                 <div className="loyer-lbl" style={{ display: "flex", alignItems: "center", gap: "4px" }}>Loyer HT/HC annuel à la signature{src.loyer_signature_montant && <span title={src.loyer_signature_montant} style={{ cursor: "help", fontSize: "10px", color: "var(--text3)", border: "1px solid var(--border2)", borderRadius: "50%", width: "13px", height: "13px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>i</span>}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
                   <div className="loyer-amount">{fmtEur(d.loyer_signature_montant) || d.loyer_signature_montant}</div>
+                  <PageJumpIcon item={item} pages={pages} field="loyer_signature_montant" />
                   {d.indexation_indice && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span className="pill pill-blue" style={{ fontSize: '11px' }}>{d.indexation_indice}</span>
@@ -2432,17 +2479,8 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
     }
   }
 
-  async function viewSourceFile(row) {
-    if (!row.storage_path) return
-    try {
-      const { data, error } = await supabase.storage
-        .from('lease-sources')
-        .createSignedUrl(row.storage_path, 60) // valide 60s, largement suffisant pour l'ouverture
-      if (error) throw error
-      window.open(data.signedUrl, '_blank')
-    } catch (e) {
-      showToast('error', `Impossible d'ouvrir le fichier source : ${e.message || 'erreur inconnue'}`)
-    }
+  function viewSourceFile(row) {
+    openSourceAtPage(row, 1)
   }
 
   // Build display rows based on filter and expanded state
@@ -2841,7 +2879,7 @@ function Dashboard({ tree, onSelect, onDelete, onClear, onExportAll, newIds, onR
                 {/* Preneur */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text)', fontWeight: 500, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.35, display: 'block' }}>
-                    {d.preneur?.toUpperCase() || '—'}
+                    {shortPartyName(d.preneur)?.toUpperCase() || '—'}
                   </span>
                 </div>
 
