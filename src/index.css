@@ -199,11 +199,11 @@ button, input { font-family: inherit; cursor: pointer; }
 
 .dash-table { flex: 1; overflow-y: auto; }
 
-.dash-thead { display: grid; grid-template-columns: 2fr 80px 1.2fr 100px 100px 120px 140px 64px; gap: 0; padding: 0; border-bottom: 1px solid var(--border2); background: var(--surface2); position: sticky; top: -28px; z-index: 2; }
+.dash-thead { display: grid; grid-template-columns: 1.8fr 70px 1fr 130px 150px 110px 130px 56px; gap: 10px; padding: 0; border-bottom: 1px solid var(--border2); background: var(--surface2); position: sticky; top: -28px; z-index: 2; }
 .dash-th { padding: 9px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); white-space: nowrap; }
 .dash-th-right { text-align: right; }
 
-.dash-row { display: grid; grid-template-columns: 2fr 80px 1.2fr 100px 100px 120px 140px 64px; gap: 0; padding: 0; border-bottom: 1px solid var(--border); cursor: pointer; transition: all .18s; position: relative; background: var(--surface); overflow: visible; }
+.dash-row { display: grid; grid-template-columns: 1.8fr 70px 1fr 130px 150px 110px 130px 56px; gap: 10px; padding: 0; border-bottom: 1px solid var(--border); cursor: pointer; transition: all .18s; position: relative; background: var(--surface); overflow: visible; }
 .dash-row:hover { background: var(--accent-bg); box-shadow: -2px 0 0 var(--accent); }
 .dash-row-av { background: var(--surface2); }
 .dash-row-av:hover { background: var(--accent-bg); }
@@ -211,7 +211,7 @@ button, input { font-family: inherit; cursor: pointer; }
 .dash-row-new { animation: rowFlash 2.5s ease-out forwards; }
 @keyframes rowFlash { 0%,40% { background: var(--accent-bg); box-shadow: -2px 0 0 var(--accent); } 100% { background: var(--surface); box-shadow: none; } }
 
-.dash-td { padding: 13px 12px; display: flex; align-items: center; min-width: 0; position: relative; }
+.dash-td { padding: 13px 8px; display: flex; align-items: center; min-width: 0; position: relative; }
 .dash-td-right { justify-content: flex-end; }
 .dash-td-actions { gap: 4px; justify-content: flex-end; }
 
