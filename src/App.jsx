@@ -3088,6 +3088,10 @@ export default function App() {
     setHistLoaded(true)
   }
 
+  // Le Dashboard est désormais la seule page (plus d'onglet "Extraire" séparé
+  // à cliquer en premier) — il faut donc charger l'historique dès le montage.
+  useEffect(() => { loadHistory() }, [])
+
   // Rafraîchissement forcé (ignore le cache histLoaded) — utilisé après un ajout
   // ponctuel depuis le dashboard (ex. bouton "+ Avenant"), où loadHistory() seul
   // ne rechargerait rien puisque histLoaded est déjà à true.
@@ -3424,27 +3428,14 @@ export default function App() {
   return (
     <>
       <div className="app">
-        <aside className="sidebar">
-          <div className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => { setActiveItem(null); switchTab('history') }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
-            Lease Reader
-          </div>
-          <nav className="sidebar-nav">
-            <button className={`nav-item${tab === 'history' || activeItem ? ' active' : ''}`} onClick={() => { setActiveItem(null); switchTab('history') }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="12 8 12 12 14 14"/>
-                <path d="M3.05 11a9 9 0 1 0 .5-4"/><polyline points="3 3 3 7 7 7"/>
-              </svg>
-              Dashboard
-              {history.length > 0 && <span className="badge">{history.reduce((a,b) => a + 1 + (b.avenants?.length||0), 0)}</span>}
-            </button>
-          </nav>
-
-        </aside>
+        <header className="topbar" onClick={() => { setActiveItem(null); switchTab('history') }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          Lease Reader
+        </header>
 
         <main className="main">
           {activeItem && (
