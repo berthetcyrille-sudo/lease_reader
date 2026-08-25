@@ -1890,12 +1890,13 @@ function EtatLocatifModal({ building, bails, onClose }) {
                           </div>
                         )
                       })}
-                      <div style={{ position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: '-2px', bottom: 0, width: '2px', background: 'var(--accent)', zIndex: 2 }}>
-                        <div style={{ position: 'absolute', top: '-5px', left: '-4px', width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid var(--accent)' }} />
-                      </div>
+                      <div title={`Aujourd'hui : ${fmt(today)}`} style={{
+                        position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: 0, bottom: 0,
+                        width: 0, borderLeft: '1.5px dashed var(--accent)', opacity: 0.55, zIndex: 2,
+                      }} />
                     </div>
                   </div>
-                )
+              )
               })}
             </div>
           )}
