@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import './index.css'
 import { createClient } from '@supabase/supabase-js'
@@ -1652,6 +1652,45 @@ function shortPartyName(s) {
     .trim()
 }
 
+// ─── État locatif : helpers de calcul ───────────────────────────────────────
+function parseFrDate(s) {
+  if (!s || typeof s !== 'string') return null
+  const m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+  if (!m) return null
+  const d = new Date(+m[3], +m[2] - 1, +m[1])
+  return isNaN(d.getTime()) ? null : d
+}
+
+function extractFloorInfo(adresse) {
+  if (!adresse) return null
+  const s = adresse.toLowerCase()
+  if (/rez[\s-]*de[\s-]*chauss[ée]e|\brdc\b/.test(s)) return { key: 0, label: 'RDC' }
+  let m = s.match(/(\d+)\s*(?:er|ère|e|ème|eme)\s*[ée]tage/)
+  if (m) { const n = parseInt(m[1]); return { key: n, label: `${n}${n === 1 ? 'er' : 'e'} étage` } }
+  m = s.match(/r\s*\+\s*(\d+)/)
+  if (m) { const n = parseInt(m[1]); return { key: n, label: `R+${n}` } }
+  return null
+}
+
+function monthsBetweenDates(a, b) { return (b - a) / (1000 * 60 * 60 * 24 * 30.44) }
+
+function nextCriticalDate(t, today) {
+  if (t.vacant) return null
+  const candidates = [...(t.breaks || []), t.end].filter(d => d && d > today)
+  if (!candidates.length) return null
+  return candidates.sort((a, b) => a - b)[0]
+}
+
+function tenantStatus(t, today) {
+  if (t.vacant) return 'vacant'
+  const nc = nextCriticalDate(t, today)
+  if (nc && monthsBetweenDates(today, nc) <= 18) return 'risk'
+  return 'stable'
+}
+
+const ETAT_LOCATIF_COLORS = { stable: '#1D9E75', risk: '#EF9F27', vacant: '#B4B2A9' }
+const ETAT_LOCATIF_BG     = { stable: '#EAF3DE', risk: '#FAEEDA', vacant: '#F1EFE8' }
+
 function ResultsView({ item }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
@@ -2387,6 +2426,169 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
       </div>
     </div>,
     document.body
+  )
+}
+
+// ─── État locatif : plan d'empilement + Gantt hybride ───────────────────────
+function EtatLocatifModal({ building, bails, onClose }) {
+  const [view, setView] = useState('stack') // 'stack' | 'gantt'
+  const [tooltip, setTooltip] = useState(null) // { x, y, tenant }
+  const today = new Date()
+
+  const floors = useMemo(() => {
+    const groups = {}
+    bails.forEach(row => {
+      const d = row.data || {}
+      const info = extractFloorInfo(d.adresse) || { key: 9999, label: 'Étage non précisé' }
+      const surface = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
+      const tenant = {
+        name: shortPartyName(d.preneur) || row.file_name,
+        surface,
+        start: parseFrDate(d.date_effet),
+        end: parseFrDate(d.date_fin),
+        breaks: (d.break_options || []).map(parseFrDate).filter(Boolean),
+        row,
+      }
+      if (!groups[info.key]) groups[info.key] = { key: info.key, label: info.label, tenants: [] }
+      groups[info.key].tenants.push(tenant)
+    })
+    const arr = Object.values(groups)
+    const unresolved = arr.filter(f => f.key === 9999)
+    const resolved = arr.filter(f => f.key !== 9999).sort((a, b) => b.key - a.key)
+    // Répartir la surface au sein de chaque étage (proportionnelle si connue, égale sinon)
+    resolved.concat(unresolved).forEach(f => {
+      const total = f.tenants.reduce((a, t) => a + t.surface, 0)
+      f.tenants.forEach(t => { t.pct = total > 0 ? (t.surface / total) * 100 : 100 / f.tenants.length })
+    })
+    return [...resolved, ...unresolved]
+  }, [bails])
+
+  const allTenants = useMemo(() => floors.flatMap(f => f.tenants.map(t => ({ ...t, floor: f.label }))), [floors])
+  const withDates = allTenants.filter(t => t.start && t.end)
+  const domainStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
+  const domainEnd = withDates.length ? new Date(Math.max(...withDates.map(t => t.end)) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
+  const domainMs = domainEnd - domainStart
+  const years = []
+  for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) years.push(y)
+
+  function fmt(d) { return d ? d.toLocaleDateString('fr-FR') : '—' }
+
+  function tenantTitle(t) {
+    if (!t.start || !t.end) return `${t.name} — dates non renseignées`
+    const nc = nextCriticalDate(t, today)
+    const lines = [t.name, `Prise d'effet : ${fmt(t.start)}`, `Échéance : ${fmt(t.end)}`]
+    if (t.breaks.length) lines.push(`Breaks : ${t.breaks.map(fmt).join(', ')}`)
+    if (nc) lines.push(`Prochaine échéance dans ${Math.round(monthsBetweenDates(today, nc))} mois`)
+    return lines.join('\n')
+  }
+
+  function miniTimeline(t) {
+    if (!t.start || !t.end) {
+      return <div style={{ height: '4px', borderRadius: '2px', background: 'var(--border2)' }} />
+    }
+    const total = t.end - t.start
+    const elapsedPct = Math.max(0, Math.min(100, ((today - t.start) / total) * 100))
+    const status = tenantStatus(t, today)
+    return (
+      <div style={{ position: 'relative', height: '10px' }}>
+        <div style={{ width: '100%', height: '4px', borderRadius: '2px', background: 'var(--border2)', position: 'relative' }}>
+          <div style={{ width: `${elapsedPct}%`, height: '100%', borderRadius: '2px', background: ETAT_LOCATIF_COLORS[status] }} />
+          {t.breaks.map((b, i) => (
+            <div key={i} style={{ position: 'absolute', left: `${((b - t.start) / total) * 100}%`, top: '-3px', width: '2px', height: '10px', background: 'var(--text3)', opacity: 0.6 }} />
+          ))}
+          <div style={{ position: 'absolute', left: `${elapsedPct}%`, top: '-4px', width: '2px', height: '12px', background: 'var(--text)' }} />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ width: '95vw', height: '95vh', maxWidth: 'none', maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="modal-title">État locatif — {building}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--text3)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '9px', height: '9px', borderRadius: '2px', background: ETAT_LOCATIF_COLORS.stable, display: 'inline-block' }} />Stable</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '9px', height: '9px', borderRadius: '2px', background: ETAT_LOCATIF_COLORS.risk, display: 'inline-block' }} />Échéance &lt;18 mois</span>
+            </div>
+            <button className="btn" onClick={() => setView(v => v === 'stack' ? 'gantt' : 'stack')}>
+              {view === 'stack' ? 'Vue Gantt' : 'Vue empilement'}
+            </button>
+            <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
+          </div>
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
+          {floors.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+              Aucun bail rattaché à cet actif groupant pour le moment.
+            </div>
+          ) : view === 'stack' ? (
+            <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+              {floors.map(f => (
+                <div key={f.key} style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ width: '90px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px' }}>
+                    {f.label}
+                  </div>
+                  {f.tenants.map((t, i) => {
+                    const status = tenantStatus(t, today)
+                    return (
+                      <div key={i} title={tenantTitle(t)} onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                        style={{ flex: t.pct, padding: '10px 12px', background: ETAT_LOCATIF_BG[status], cursor: t.row ? 'pointer' : 'default', borderLeft: i > 0 ? '1px solid var(--surface)' : 'none', minWidth: 0 }}>
+                        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '6px' }}>{t.surface > 0 ? `${Math.round(t.surface)} m²` : ''}</div>
+                        {miniTimeline(t)}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', position: 'relative', height: '26px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                <div style={{ width: '90px', flexShrink: 0, borderRight: '1px solid var(--border)' }} />
+                <div style={{ position: 'relative', flex: 1 }}>
+                  {years.map(y => {
+                    const yd = new Date(y, 0, 1)
+                    const pct = ((yd - domainStart) / domainMs) * 100
+                    return (
+                      <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
+                        <span style={{ position: 'absolute', top: '4px', left: '3px', fontSize: '10px', color: 'var(--text3)' }}>{y}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              {floors.map(f => (
+                <div key={f.key} style={{ display: 'flex', borderBottom: '1px solid var(--border)', minHeight: '46px' }}>
+                  <div style={{ width: '90px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px' }}>
+                    {f.label}
+                  </div>
+                  <div style={{ position: 'relative', flex: 1, padding: '6px 0' }}>
+                    {f.tenants.map((t, i) => {
+                      if (!t.start || !t.end) return null
+                      const left = ((t.start - domainStart) / domainMs) * 100
+                      const width = ((t.end - t.start) / domainMs) * 100
+                      const status = tenantStatus(t, today)
+                      return (
+                        <div key={i} title={tenantTitle(t)}
+                          onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                          style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: `${i * 34}px`, height: '26px', background: ETAT_LOCATIF_COLORS[status], borderRadius: '5px', display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: '11px', color: '#fff', overflow: 'hidden', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                          {t.name}
+                        </div>
+                      )
+                    })}
+                    <div style={{ position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: 0, bottom: 0, width: '1.5px', background: 'var(--text)' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -3173,6 +3375,8 @@ export default function App() {
   const [totalCounts,  setTotalCounts]  = useState({ bailCount: 0, avenantCount: 0, orphanCount: 0 })
   const [tab,          setTab]          = useState('history')
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showEtatLocatifMenu, setShowEtatLocatifMenu] = useState(false)
+  const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
   const [docTypes,     setDocTypes]     = useState([])     // 'bail'|'avenant'|'' per file
   const [fileOrder,    setFileOrder]    = useState([])     // indices ordonnés
   const [detecting,    setDetecting]    = useState(false)  // détection en cours
@@ -3227,6 +3431,33 @@ export default function App() {
   // Le Dashboard est désormais la seule page (plus d'onglet "Extraire" séparé
   // à cliquer en premier) — il faut donc charger l'historique dès le montage.
   useEffect(() => { loadHistory() }, [])
+
+  // Clic sur un lot dans l'état locatif → ouvre le détail du bail, ferme la modale
+  useEffect(() => {
+    function handler(e) {
+      setEtatLocatifBuilding(null)
+      setActiveItem(e.detail)
+    }
+    window.addEventListener('etatlocatif-select', handler)
+    return () => window.removeEventListener('etatlocatif-select', handler)
+  }, [])
+
+  // Fermeture du menu "État locatif" au clic extérieur
+  useEffect(() => {
+    if (!showEtatLocatifMenu) return
+    const handler = () => setShowEtatLocatifMenu(false)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [showEtatLocatifMenu])
+
+  const buildingGroups = useMemo(() => {
+    const map = {}
+    history.forEach(row => {
+      if (row.document_type !== 'bail' || !row.actif_group) return
+      map[row.actif_group] = (map[row.actif_group] || 0) + 1
+    })
+    return Object.entries(map).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [history])
 
   // Rafraîchissement forcé (ignore le cache histLoaded) — utilisé après un ajout
   // ponctuel depuis le dashboard (ex. bouton "+ Avenant"), où loadHistory() seul
@@ -3564,14 +3795,62 @@ export default function App() {
   return (
     <>
       <div className="app">
-        <header className="topbar" onClick={() => { setActiveItem(null); switchTab('history') }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-            <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
-          </svg>
-          Lease Reader
+        <header className="topbar">
+          <div onClick={() => { setActiveItem(null); switchTab('history') }} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+            Lease Reader
+          </div>
+
+          <div style={{ position: 'relative', marginLeft: '24px' }} onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setShowEtatLocatifMenu(v => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '13px', fontWeight: 600,
+                padding: '6px 12px', borderRadius: '6px', cursor: 'pointer',
+              }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/>
+              </svg>
+              État locatif
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            {showEtatLocatifMenu && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, marginTop: '6px', background: 'var(--surface)',
+                border: '1px solid var(--border2)', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+                width: '260px', maxHeight: '320px', overflowY: 'auto', zIndex: 500,
+              }}>
+                {buildingGroups.length === 0 ? (
+                  <div style={{ padding: '14px 12px', fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>
+                    Aucun actif groupant défini pour l'instant
+                  </div>
+                ) : buildingGroups.map(g => (
+                  <div
+                    key={g.name}
+                    onClick={() => { setEtatLocatifBuilding(g.name); setShowEtatLocatifMenu(false) }}
+                    style={{ padding: '9px 12px', fontSize: '13px', cursor: 'pointer', borderBottom: '1px solid var(--border)', color: 'var(--text)' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    {g.name} <span style={{ color: 'var(--text3)', fontSize: '11px' }}>({g.count} bail{g.count !== 1 ? 'x' : ''})</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </header>
+
+        {etatLocatifBuilding && (
+          <EtatLocatifModal
+            building={etatLocatifBuilding}
+            bails={history.filter(row => row.document_type === 'bail' && row.actif_group === etatLocatifBuilding)}
+            onClose={() => setEtatLocatifBuilding(null)}
+          />
+        )}
 
         <main className="main">
           {activeItem && (
