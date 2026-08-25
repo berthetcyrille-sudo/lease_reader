@@ -1688,8 +1688,223 @@ function tenantStatus(t, today) {
   return 'stable'
 }
 
-const ETAT_LOCATIF_COLORS = { stable: '#1D9E75', risk: '#EF9F27', vacant: '#B4B2A9' }
-const ETAT_LOCATIF_BG     = { stable: '#EAF3DE', risk: '#FAEEDA', vacant: '#F1EFE8' }
+const SEGMENT_PALETTE = ['#14B8A6', '#6366F1', '#F59E0B', '#EC4899', '#0EA5E9', '#8B5CF6', '#F97316', '#10B981']
+
+function EtatLocatifModal({ building, bails, onClose }) {
+  const [tooltip, setTooltip] = useState(null) // { x, y, tenant }
+  const today = new Date()
+
+  const floors = useMemo(() => {
+    const groups = {}
+    let unresolvedIdx = 0
+    bails.forEach(row => {
+      const d = row.data || {}
+      const commonTenant = {
+        name: shortPartyName(d.preneur) || row.file_name,
+        start: parseFrDate(d.date_effet),
+        end: parseFrDate(d.date_fin),
+        breaks: (d.break_options || []).map(parseFrDate).filter(Boolean),
+        loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
+        row,
+      }
+      // Source principale : surfaces_detail, qui donne le niveau réel par lot
+      // (un même bail peut occuper plusieurs étages avec des surfaces distinctes).
+      const detailRows = (d.surfaces_detail || []).filter(r =>
+        (r.niveau || r.localisation) && !(r.categorie || '').toLowerCase().includes('station')
+      )
+      if (detailRows.length > 0) {
+        detailRows.forEach(r => {
+          const label = r.niveau || r.localisation
+          const surface = parseFloat(String(r.surface_m2 || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
+          if (!groups[label]) groups[label] = { key: label, label, tenants: [], sortKey: extractFloorInfo(label)?.key ?? 9999 }
+          groups[label].tenants.push({ ...commonTenant, surface })
+        })
+      } else {
+        // Repli : ni surfaces_detail, ni étage identifiable dans l'adresse —
+        // chaque bail garde sa propre ligne plutôt que d'être entassé avec d'autres.
+        const info = extractFloorInfo(d.adresse)
+        const key = info ? info.label : `u-${unresolvedIdx++}`
+        const rawLabel = d.immeuble || d.adresse || 'Lot non localisé'
+        const label = info ? info.label : (rawLabel.length > 28 ? rawLabel.slice(0, 26) + '…' : rawLabel)
+        const surface = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
+        if (!groups[key]) groups[key] = { key, label, tenants: [], sortKey: info ? info.key : 9999 }
+        groups[key].tenants.push({ ...commonTenant, surface })
+      }
+    })
+    const arr = Object.values(groups)
+    const resolved = arr.filter(f => f.sortKey !== 9999).sort((a, b) => b.sortKey - a.sortKey)
+    const unresolved = arr.filter(f => f.sortKey === 9999)
+    return [...resolved, ...unresolved]
+  }, [bails])
+
+  const allTenants = useMemo(() => floors.flatMap(f => f.tenants), [floors])
+  const withDates = allTenants.filter(t => t.start && t.end)
+  const domainStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
+  const domainEnd = withDates.length ? new Date(Math.max(...withDates.map(t => t.end)) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
+  const domainMs = domainEnd - domainStart
+  const years = []
+  for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) years.push(y)
+
+  function fmt(d) { return d ? d.toLocaleDateString('fr-FR') : '—' }
+
+  // Découpe un bail en segments entre chaque break (= périodes contractuelles
+  // successives), chacun coloré différemment via une palette cyclique.
+  function tenantSegments(t) {
+    if (!t.start || !t.end) return []
+    const points = [t.start, ...t.breaks.filter(b => b > t.start && b < t.end).sort((a, b) => a - b), t.end]
+    return points.slice(0, -1).map((p, i) => ({ start: p, end: points[i + 1], color: SEGMENT_PALETTE[i % SEGMENT_PALETTE.length] }))
+  }
+
+  function TenantTooltip({ x, y, tenant: t }) {
+    const status = tenantStatus(t, today)
+    const nc = nextCriticalDate(t, today)
+    return (
+      <div style={{
+        position: 'fixed', left: x + 16, top: y - 12, zIndex: 3000, pointerEvents: 'none',
+        background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '10px',
+        boxShadow: '0 10px 28px rgba(0,0,0,.22)', padding: '12px 14px', minWidth: '220px', maxWidth: '280px',
+      }}>
+        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)', marginBottom: '8px' }}>{t.name}</div>
+        {!t.start || !t.end ? (
+          <div style={{ fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>Dates non renseignées</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            {t.surface > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text3)' }}>Surface</span>
+                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{Math.round(t.surface)} m²</span>
+              </div>
+            )}
+            {t.loyer > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text3)' }}>Loyer HT/HC</span>
+                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmtEur(t.loyer)}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <span style={{ color: 'var(--text3)' }}>Prise d'effet</span>
+              <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.start)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <span style={{ color: 'var(--text3)' }}>Échéance</span>
+              <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.end)}</span>
+            </div>
+            {t.breaks.length > 0 && (
+              <div style={{ paddingTop: '5px', marginTop: '2px', borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>Options de sortie</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                  {t.breaks.map((b, i) => (
+                    <span key={i} style={{ fontSize: '11px', fontWeight: 600, padding: '2px 7px', borderRadius: '999px', background: SEGMENT_PALETTE[(i + 1) % SEGMENT_PALETTE.length] + '22', color: SEGMENT_PALETTE[(i + 1) % SEGMENT_PALETTE.length] }}>{fmt(b)}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {nc && (
+              <div style={{
+                marginTop: '4px', padding: '6px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                background: status === 'risk' ? ETAT_LOCATIF_BG.risk : 'var(--surface2)', color: status === 'risk' ? ETAT_LOCATIF_COLORS.risk : 'var(--text3)',
+              }}>
+                {status === 'risk' ? '⚠ ' : ''}Prochaine échéance dans {Math.round(monthsBetweenDates(today, nc))} mois
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ width: '95vw', height: '95vh', maxWidth: 'none', maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="modal-title">État locatif — {building}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', color: 'var(--text3)' }}>
+              <span>Segments = périodes entre breaks</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '2px', height: '12px', background: 'var(--accent)', display: 'inline-block' }} />Aujourd'hui
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>⚠ Échéance &lt;18 mois</span>
+            </div>
+            <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
+          </div>
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
+          {floors.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+              Aucun bail rattaché à cet actif groupant pour le moment.
+            </div>
+          ) : (
+            <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', position: 'relative', height: '26px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                <div style={{ width: '130px', flexShrink: 0, borderRight: '1px solid var(--border)' }} />
+                <div style={{ position: 'relative', flex: 1 }}>
+                  {years.map(y => {
+                    const yd = new Date(y, 0, 1)
+                    const pct = ((yd - domainStart) / domainMs) * 100
+                    return (
+                      <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
+                        <span style={{ position: 'absolute', top: '4px', left: '3px', fontSize: '10px', color: 'var(--text3)' }}>{y}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              {floors.map(f => {
+                const ROW_H = 52
+                const rowHeight = Math.max(ROW_H, f.tenants.length * ROW_H)
+                return (
+                  <div key={f.key} style={{ display: 'flex', borderBottom: '1px solid var(--border)', height: `${rowHeight}px` }}>
+                    <div style={{ width: '130px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {f.label}
+                    </div>
+                    <div style={{ position: 'relative', flex: 1, height: `${rowHeight}px` }}>
+                      {f.tenants.map((t, i) => {
+                        if (!t.start || !t.end) return null
+                        const left = ((t.start - domainStart) / domainMs) * 100
+                        const width = ((t.end - t.start) / domainMs) * 100
+                        const status = tenantStatus(t, today)
+                        const segments = tenantSegments(t)
+                        const barSpan = t.end - t.start
+                        const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, t.loyer > 0 ? fmtEur(t.loyer) : null].filter(Boolean).join(' · ')
+                        return (
+                          <div key={i}
+                            onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
+                            onMouseLeave={() => setTooltip(null)}
+                            onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                            style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: `${i * ROW_H + 4}px`, height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              {status === 'risk' && <span title="Échéance dans moins de 18 mois">⚠</span>}
+                              {t.name}
+                              {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)' }}>· {infoLine}</span>}
+                            </div>
+                            <div style={{ position: 'relative', height: '20px', borderRadius: '5px', overflow: 'hidden', display: 'flex' }}>
+                              {segments.map((seg, si) => (
+                                <div key={si} style={{
+                                  position: 'absolute', left: `${((seg.start - t.start) / barSpan) * 100}%`, width: `${((seg.end - seg.start) / barSpan) * 100}%`,
+                                  top: 0, bottom: 0, background: seg.color, borderRight: si < segments.length - 1 ? '1.5px solid var(--surface)' : 'none',
+                                }} />
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                      <div style={{ position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: '-2px', bottom: 0, width: '2px', background: 'var(--accent)', zIndex: 2 }}>
+                        <div style={{ position: 'absolute', top: '-5px', left: '-4px', width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid var(--accent)' }} />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+      {tooltip && <TenantTooltip x={tooltip.x} y={tooltip.y} tenant={tooltip.tenant} />}
+    </div>
+  )
+}
 
 function ResultsView({ item }) {
   const isAv = item.document_type === 'avenant'
@@ -2426,255 +2641,6 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
       </div>
     </div>,
     document.body
-  )
-}
-
-// ─── État locatif : plan d'empilement + Gantt hybride ───────────────────────
-function EtatLocatifModal({ building, bails, onClose }) {
-  const [view, setView] = useState('stack') // 'stack' | 'gantt'
-  const [tooltip, setTooltip] = useState(null) // { x, y, tenant }
-  const today = new Date()
-
-  const floors = useMemo(() => {
-    const groups = {}
-    let unresolvedIdx = 0
-    bails.forEach(row => {
-      const d = row.data || {}
-      const commonTenant = {
-        name: shortPartyName(d.preneur) || row.file_name,
-        start: parseFrDate(d.date_effet),
-        end: parseFrDate(d.date_fin),
-        breaks: (d.break_options || []).map(parseFrDate).filter(Boolean),
-        row,
-      }
-      // Source principale : surfaces_detail, qui donne le niveau réel par lot
-      // (un même bail peut occuper plusieurs étages avec des surfaces distinctes).
-      const detailRows = (d.surfaces_detail || []).filter(r =>
-        (r.niveau || r.localisation) && !(r.categorie || '').toLowerCase().includes('station')
-      )
-      if (detailRows.length > 0) {
-        detailRows.forEach(r => {
-          const label = r.niveau || r.localisation
-          const surface = parseFloat(String(r.surface_m2 || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
-          if (!groups[label]) groups[label] = { key: label, label, tenants: [], sortKey: extractFloorInfo(label)?.key ?? 9999 }
-          groups[label].tenants.push({ ...commonTenant, surface })
-        })
-      } else {
-        // Repli : ni surfaces_detail, ni étage identifiable dans l'adresse —
-        // chaque bail garde sa propre ligne plutôt que d'être entassé avec d'autres.
-        const info = extractFloorInfo(d.adresse)
-        const key = info ? info.label : `u-${unresolvedIdx++}`
-        const rawLabel = d.immeuble || d.adresse || 'Lot non localisé'
-        const label = info ? info.label : (rawLabel.length > 28 ? rawLabel.slice(0, 26) + '…' : rawLabel)
-        const surface = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
-        if (!groups[key]) groups[key] = { key, label, tenants: [], sortKey: info ? info.key : 9999 }
-        groups[key].tenants.push({ ...commonTenant, surface })
-      }
-    })
-    const arr = Object.values(groups)
-    const resolved = arr.filter(f => f.sortKey !== 9999).sort((a, b) => b.sortKey - a.sortKey)
-    const unresolved = arr.filter(f => f.sortKey === 9999)
-    // Répartir la surface au sein de chaque étage (proportionnelle si connue, égale sinon)
-    resolved.concat(unresolved).forEach(f => {
-      const total = f.tenants.reduce((a, t) => a + t.surface, 0)
-      f.tenants.forEach(t => { t.pct = total > 0 ? (t.surface / total) * 100 : 100 / f.tenants.length })
-    })
-    return [...resolved, ...unresolved]
-  }, [bails])
-
-  const allTenants = useMemo(() => floors.flatMap(f => f.tenants.map(t => ({ ...t, floor: f.label }))), [floors])
-  const withDates = allTenants.filter(t => t.start && t.end)
-  const domainStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
-  const domainEnd = withDates.length ? new Date(Math.max(...withDates.map(t => t.end)) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
-  const domainMs = domainEnd - domainStart
-  const years = []
-  for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) years.push(y)
-
-  function fmt(d) { return d ? d.toLocaleDateString('fr-FR') : '—' }
-
-  function TenantTooltip({ x, y, tenant: t }) {
-    const status = tenantStatus(t, today)
-    const nc = nextCriticalDate(t, today)
-    return (
-      <div style={{
-        position: 'fixed', left: x + 16, top: y - 12, zIndex: 3000, pointerEvents: 'none',
-        background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '10px',
-        boxShadow: '0 10px 28px rgba(0,0,0,.22)', padding: '12px 14px', minWidth: '220px', maxWidth: '280px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-          <span style={{ width: '9px', height: '9px', borderRadius: '3px', background: ETAT_LOCATIF_COLORS[status], flexShrink: 0 }} />
-          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>{t.name}</span>
-        </div>
-        {!t.start || !t.end ? (
-          <div style={{ fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>Dates non renseignées</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            {t.surface > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                <span style={{ color: 'var(--text3)' }}>Surface</span>
-                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{Math.round(t.surface)} m²</span>
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-              <span style={{ color: 'var(--text3)' }}>Prise d'effet</span>
-              <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.start)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-              <span style={{ color: 'var(--text3)' }}>Échéance</span>
-              <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.end)}</span>
-            </div>
-            {t.breaks.length > 0 && (
-              <div style={{ paddingTop: '5px', marginTop: '2px', borderTop: '1px solid var(--border)' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>Options de sortie</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                  {t.breaks.map((b, i) => (
-                    <span key={i} style={{ fontSize: '11px', fontWeight: 600, padding: '2px 7px', borderRadius: '999px', background: 'var(--accent-bg)', color: 'var(--accent)' }}>{fmt(b)}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {nc && (
-              <div style={{
-                marginTop: '4px', padding: '6px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
-                background: ETAT_LOCATIF_BG[status], color: ETAT_LOCATIF_COLORS[status],
-              }}>
-                Prochaine échéance dans {Math.round(monthsBetweenDates(today, nc))} mois
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  function miniTimeline(t) {
-    if (!t.start || !t.end) {
-      return <div style={{ height: '4px', borderRadius: '2px', background: 'var(--border2)' }} />
-    }
-    const total = t.end - t.start
-    const elapsedPct = Math.max(0, Math.min(100, ((today - t.start) / total) * 100))
-    const status = tenantStatus(t, today)
-    return (
-      <div style={{ position: 'relative', height: '16px', paddingTop: '6px' }}>
-        <div style={{ width: '100%', height: '5px', borderRadius: '3px', background: 'var(--border2)', position: 'relative' }}>
-          <div style={{ width: `${elapsedPct}%`, height: '100%', borderRadius: '3px', background: ETAT_LOCATIF_COLORS[status] }} />
-          {t.breaks.map((b, i) => (
-            <div key={i} title={`Break : ${fmt(b)}`} style={{ position: 'absolute', left: `${((b - t.start) / total) * 100}%`, top: '-3px', bottom: '-3px', width: '2px', background: 'var(--text2)', opacity: 0.75 }} />
-          ))}
-          <div title={`Aujourd'hui : ${fmt(today)}`} style={{ position: 'absolute', left: `${elapsedPct}%`, top: '-7px', bottom: '-3px', width: '2px', background: 'var(--accent)' }}>
-            <div style={{ position: 'absolute', top: '-4px', left: '-4px', width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid var(--accent)' }} />
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ width: '95vw', height: '95vh', maxWidth: 'none', maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="modal-title">État locatif — {building}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--text3)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '9px', height: '9px', borderRadius: '2px', background: ETAT_LOCATIF_COLORS.stable, display: 'inline-block' }} />Stable</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '9px', height: '9px', borderRadius: '2px', background: ETAT_LOCATIF_COLORS.risk, display: 'inline-block' }} />Échéance &lt;18 mois</span>
-            </div>
-            <button className="btn" onClick={() => setView(v => v === 'stack' ? 'gantt' : 'stack')}>
-              {view === 'stack' ? 'Vue Gantt' : 'Vue empilement'}
-            </button>
-            <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
-          </div>
-        </div>
-
-        <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
-          {floors.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
-              Aucun bail rattaché à cet actif groupant pour le moment.
-            </div>
-          ) : view === 'stack' ? (
-            <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-              {floors.map(f => (
-                <div key={f.key} style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ width: '130px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px' }}>
-                    {f.label}
-                  </div>
-                  {f.tenants.map((t, i) => {
-                    const status = tenantStatus(t, today)
-                    return (
-                      <div key={i}
-                        onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
-                        onMouseLeave={() => setTooltip(null)}
-                        onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                        style={{ flex: t.pct, padding: '10px 12px', background: ETAT_LOCATIF_BG[status], cursor: t.row ? 'pointer' : 'default', borderLeft: i > 0 ? '1px solid var(--surface)' : 'none', minWidth: 0 }}>
-                        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</div>
-                        <div style={{ fontSize: '11px', color: 'var(--text3)', display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                          {t.surface > 0 && <span>{Math.round(t.surface)} m²</span>}
-                          {t.start && t.end && (
-                            <span style={{ whiteSpace: 'nowrap' }}>{t.start.toLocaleDateString('fr-FR')} → {t.end.toLocaleDateString('fr-FR')}</span>
-                          )}
-                        </div>
-                        {miniTimeline(t)}
-                      </div>
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', position: 'relative', height: '26px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
-                <div style={{ width: '130px', flexShrink: 0, borderRight: '1px solid var(--border)' }} />
-                <div style={{ position: 'relative', flex: 1 }}>
-                  {years.map(y => {
-                    const yd = new Date(y, 0, 1)
-                    const pct = ((yd - domainStart) / domainMs) * 100
-                    return (
-                      <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
-                        <span style={{ position: 'absolute', top: '4px', left: '3px', fontSize: '10px', color: 'var(--text3)' }}>{y}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-              {floors.map(f => {
-                const rowHeight = Math.max(46, f.tenants.length * 34 + 12)
-                return (
-                <div key={f.key} style={{ display: 'flex', borderBottom: '1px solid var(--border)', height: `${rowHeight}px` }}>
-                  <div style={{ width: '130px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {f.label}
-                  </div>
-                  <div style={{ position: 'relative', flex: 1, padding: '6px 0', height: `${rowHeight}px` }}>
-                    {f.tenants.map((t, i) => {
-                      if (!t.start || !t.end) return null
-                      const left = ((t.start - domainStart) / domainMs) * 100
-                      const width = ((t.end - t.start) / domainMs) * 100
-                      const status = tenantStatus(t, today)
-                      const barSpan = t.end - t.start
-                      return (
-                        <div key={i}
-                          onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
-                          onMouseLeave={() => setTooltip(null)}
-                          onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                          style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: `${i * 34}px`, height: '26px', background: ETAT_LOCATIF_COLORS[status], borderRadius: '5px', display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: '11px', color: '#fff', overflow: 'hidden', whiteSpace: 'nowrap', cursor: 'pointer' }}>
-                          <span style={{ position: 'relative', zIndex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
-                          {t.breaks.map((b, bi) => (
-                            <div key={bi} title={`Break : ${fmt(b)}`} style={{ position: 'absolute', left: `${((b - t.start) / barSpan) * 100}%`, top: '-2px', bottom: '-2px', width: '2px', background: 'rgba(255,255,255,0.85)' }} />
-                          ))}
-                        </div>
-                      )
-                    })}
-                    <div style={{ position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: '-6px', bottom: 0, width: '2px', background: 'var(--accent)', zIndex: 2 }}>
-                      <div style={{ position: 'absolute', top: '-5px', left: '-4px', width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid var(--accent)' }} />
-                    </div>
-                  </div>
-                </div>
-              )})}
-            </div>
-          )}
-        </div>
-      </div>
-      {tooltip && <TenantTooltip x={tooltip.x} y={tooltip.y} tenant={tooltip.tenant} />}
-    </div>
   )
 }
 
