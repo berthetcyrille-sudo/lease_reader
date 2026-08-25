@@ -115,6 +115,16 @@ REGLES PAR CHAMP:
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
 - indemnites: UNIQUEMENT indemnites liees a une option (break, renouvellement, fin de bail). EXCLURE: honoraires, cautionnements, penalites. [{\"motif\":\"...\",\"due_par\":\"Preneur ou Bailleur\",\"montant\":\"chiffres bruts\",\"date_limite\":\"...\"}]`
 
+// Prompt léger pour rattraper les documents déjà extraits avant l'ajout du
+// stockage : on NE redemande PAS d'extraire les données (déjà en base, potentiellement
+// déjà vérifiées manuellement), seulement de localiser leur page dans le PDF.
+function buildLocatePagesPrompt(values) {
+  return `Voici des valeurs déjà extraites d'un document (bail ou avenant commercial français). Pour CHAQUE valeur ci-dessous qui apparaît clairement dans ce document, indique le numéro de PAGE du PDF (1 = première page) où elle se trouve. N'invente rien : si tu ne retrouves pas une valeur avec confiance, omets-la simplement. Réponds UNIQUEMENT avec un JSON minifié sur une seule ligne, sans markdown, format : {"champ1":page,"champ2":page}.
+
+Valeurs à localiser :
+${JSON.stringify(values)}`
+}
+
 const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON minifié UNE SEULE LIGNE, sans markdown.
 
 REGLES: Guillemets droits ASCII. Champs _montant=chiffres bruts. Dans champs_modifies: null pour les champs NON modifies par l'avenant.
@@ -2388,8 +2398,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
   const [avenantTarget, setAvenantTarget] = useState(null) // bail row en attente d'ajout d'avenant
   const [avenantUpload, setAvenantUpload] = useState({}) // { [bailId]: { state: 'compressing'|'loading'|'error', error, progress } }
+  const [attachTarget, setAttachTarget] = useState(null) // document en attente d'attache de fichier source
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
   const avenantInputRef = useRef(null)
+  const attachInputRef = useRef(null)
   const toastTimerRef = useRef(null)
 
   function showToast(type, message) {
@@ -2506,6 +2518,94 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
 
   function viewSourceFile(row) {
     openSourceAtPage(row, 1)
+  }
+
+  // ─── Rattrapage : attacher le fichier source à un document déjà extrait ────
+  function buildValuesToLocate(row) {
+    const values = {}
+    if (row.document_type === 'avenant') {
+      const mods = row.data?.champs_modifies || {}
+      const candidates = {
+        objet_avenant: row.data?.objet_avenant,
+        date_effet_avenant: row.data?.date_effet_avenant,
+        date_signature_avenant: row.data?.date_signature_avenant,
+        loyer_signature_montant: mods.loyer_signature_montant,
+        duree_ferme: mods.duree_ferme,
+        date_effet: mods.date_effet,
+        date_fin: mods.date_fin,
+        break_options: mods.break_options,
+        surface_totale_m2: mods.surface_totale_m2,
+        depot_garantie_montant: mods.depot_garantie_montant,
+      }
+      Object.entries(candidates).forEach(([k, v]) => { if (v != null && v !== '') values[k] = v })
+    } else {
+      const d = row.data || {}
+      const candidates = {
+        preneur: d.preneur, bailleur: d.bailleur,
+        date_effet: d.date_effet, date_fin: d.date_fin,
+        break_options: d.break_options,
+        surface_totale_m2: d.surface_totale_m2,
+        loyer_signature_montant: d.loyer_signature_montant,
+      }
+      Object.entries(candidates).forEach(([k, v]) => {
+        if (v != null && v !== '' && !(Array.isArray(v) && v.length === 0)) values[k] = v
+      })
+    }
+    return values
+  }
+
+  function openAttachPicker(row) {
+    setAttachTarget(row)
+    setTimeout(() => attachInputRef.current?.click(), 0)
+  }
+
+  async function handleAttachFile(e) {
+    const file = e.target.files?.[0]
+    const row = attachTarget
+    e.target.value = ''
+    if (!file || !row) return
+
+    setAvenantUpload(prev => ({ ...prev, [row.id]: { state: 'compressing' } }))
+    try {
+      const prepared = await compressPdfIfNeeded(file, (current, total) => {
+        setAvenantUpload(prev => ({ ...prev, [row.id]: { state: 'compressing', current, total } }))
+      })
+      if (prepared.size > 30 * 1024 * 1024) {
+        throw new Error(`Fichier trop volumineux (${Math.round(prepared.size / 1024 / 1024)} Mo > 30 Mo)`)
+      }
+
+      setAvenantUpload(prev => ({ ...prev, [row.id]: { state: 'loading' } }))
+      await uploadSourceFile(row.id, prepared)
+
+      // Localisation des pages pour les valeurs déjà extraites — jamais de
+      // ré-extraction, donc aucun risque de modifier des données déjà vérifiées.
+      if (prepared.name.toLowerCase().endsWith('.pdf')) {
+        const values = buildValuesToLocate(row)
+        if (Object.keys(values).length > 0) {
+          const base64 = await toBase64(prepared)
+          const pages = await callClaude(base64, 'application/pdf', buildLocatePagesPrompt(values))
+          // callClaude passe par un nettoyeur générique qui peut injecter des clés
+          // parasites (ex: break_options: []) hors du contexte de cette requête ciblée.
+          // On ne garde que les valeurs numériques = de vrais numéros de page.
+          const cleanPages = pages && typeof pages === 'object'
+            ? Object.fromEntries(Object.entries(pages).filter(([, v]) => typeof v === 'number' && v > 0))
+            : null
+          if (cleanPages && Object.keys(cleanPages).length > 0) {
+            const mergedData = { ...row.data, _pages: { ...(row.data?._pages || {}), ...cleanPages } }
+            await supabase.from('extractions').update({ data: mergedData }).eq('id', row.id)
+          }
+        }
+      }
+
+      setAvenantUpload(prev => { const n = { ...prev }; delete n[row.id]; return n })
+      setAttachTarget(null)
+      showToast('success', 'Fichier source attaché')
+      onRefresh?.()
+    } catch (err) {
+      const msg = err.message || 'Erreur inconnue'
+      setAvenantUpload(prev => ({ ...prev, [row.id]: { state: 'error', error: msg } }))
+      showToast('error', `Échec de l'attache du fichier : ${msg}`)
+    }
   }
 
   // Build display rows based on filter and expanded state
@@ -2979,7 +3079,22 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                       }}>
                       {avenantUpload[row.id].state === 'compressing'
                         ? `Compression${avenantUpload[row.id].total ? ` ${avenantUpload[row.id].current}/${avenantUpload[row.id].total}` : '…'}`
-                        : avenantUpload[row.id].state === 'loading' ? 'Extraction…'
+                        : avenantUpload[row.id].state === 'loading' ? 'Traitement…'
+                        : '❌ Erreur'}
+                    </span>
+                  )}
+                  {isAv && avenantUpload[row.id] && (
+                    <span
+                      title={avenantUpload[row.id].state === 'error' ? avenantUpload[row.id].error : ''}
+                      style={{
+                        fontSize: '10px', fontWeight: 600, padding: '2px 6px', borderRadius: '4px', whiteSpace: 'nowrap',
+                        background: avenantUpload[row.id].state === 'error' ? 'var(--danger-bg)' : 'var(--accent-bg)',
+                        color: avenantUpload[row.id].state === 'error' ? 'var(--danger)' : 'var(--accent)',
+                        cursor: avenantUpload[row.id].state === 'error' ? 'help' : 'default',
+                      }}>
+                      {avenantUpload[row.id].state === 'compressing'
+                        ? `Compression${avenantUpload[row.id].total ? ` ${avenantUpload[row.id].current}/${avenantUpload[row.id].total}` : '…'}`
+                        : avenantUpload[row.id].state === 'loading' ? 'Traitement…'
                         : '❌ Erreur'}
                     </span>
                   )}
@@ -2988,9 +3103,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     </button>
                   )}
-                  {row.storage_path && (
+                  {row.storage_path ? (
                     <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); viewSourceFile(row) }} title="Voir le fichier source">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </button>
+                  ) : (
+                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); openAttachPicker(row) }} title="Attacher le fichier source (rattrapage)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                     </button>
                   )}
                   <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); onSelect(row) }} title="Voir le détail">
@@ -3011,6 +3130,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
         accept=".pdf,.docx"
         style={{ display: 'none' }}
         onChange={handleAvenantFile}
+      />
+      <input
+        ref={attachInputRef}
+        type="file"
+        accept=".pdf,.docx"
+        style={{ display: 'none' }}
+        onChange={handleAttachFile}
       />
       {toast && (
         <div
