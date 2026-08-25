@@ -3836,7 +3836,7 @@ export default function App() {
                     style={{ padding: '9px 12px', fontSize: '13px', cursor: 'pointer', borderBottom: '1px solid var(--border)', color: 'var(--text)' }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
                     onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    {g.name} <span style={{ color: 'var(--text3)', fontSize: '11px' }}>({g.count} bail{g.count !== 1 ? 'x' : ''})</span>
+                    {g.name} <span style={{ color: 'var(--text3)', fontSize: '11px' }}>({g.count} {g.count === 1 ? 'bail' : 'baux'})</span>
                   </div>
                 ))}
               </div>
