@@ -2492,13 +2492,59 @@ function EtatLocatifModal({ building, bails, onClose }) {
 
   function fmt(d) { return d ? d.toLocaleDateString('fr-FR') : '—' }
 
-  function tenantTitle(t) {
-    if (!t.start || !t.end) return `${t.name} — dates non renseignées`
+  function TenantTooltip({ x, y, tenant: t }) {
+    const status = tenantStatus(t, today)
     const nc = nextCriticalDate(t, today)
-    const lines = [t.name, `Prise d'effet : ${fmt(t.start)}`, `Échéance : ${fmt(t.end)}`]
-    if (t.breaks.length) lines.push(`Breaks : ${t.breaks.map(fmt).join(', ')}`)
-    if (nc) lines.push(`Prochaine échéance dans ${Math.round(monthsBetweenDates(today, nc))} mois`)
-    return lines.join('\n')
+    return (
+      <div style={{
+        position: 'fixed', left: x + 16, top: y - 12, zIndex: 3000, pointerEvents: 'none',
+        background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '10px',
+        boxShadow: '0 10px 28px rgba(0,0,0,.22)', padding: '12px 14px', minWidth: '220px', maxWidth: '280px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+          <span style={{ width: '9px', height: '9px', borderRadius: '3px', background: ETAT_LOCATIF_COLORS[status], flexShrink: 0 }} />
+          <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>{t.name}</span>
+        </div>
+        {!t.start || !t.end ? (
+          <div style={{ fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>Dates non renseignées</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            {t.surface > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text3)' }}>Surface</span>
+                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{Math.round(t.surface)} m²</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <span style={{ color: 'var(--text3)' }}>Prise d'effet</span>
+              <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.start)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+              <span style={{ color: 'var(--text3)' }}>Échéance</span>
+              <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.end)}</span>
+            </div>
+            {t.breaks.length > 0 && (
+              <div style={{ paddingTop: '5px', marginTop: '2px', borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>Options de sortie</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                  {t.breaks.map((b, i) => (
+                    <span key={i} style={{ fontSize: '11px', fontWeight: 600, padding: '2px 7px', borderRadius: '999px', background: 'var(--accent-bg)', color: 'var(--accent)' }}>{fmt(b)}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {nc && (
+              <div style={{
+                marginTop: '4px', padding: '6px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                background: ETAT_LOCATIF_BG[status], color: ETAT_LOCATIF_COLORS[status],
+              }}>
+                Prochaine échéance dans {Math.round(monthsBetweenDates(today, nc))} mois
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
   }
 
   function miniTimeline(t) {
@@ -2553,10 +2599,18 @@ function EtatLocatifModal({ building, bails, onClose }) {
                   {f.tenants.map((t, i) => {
                     const status = tenantStatus(t, today)
                     return (
-                      <div key={i} title={tenantTitle(t)} onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                      <div key={i}
+                        onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
+                        onMouseLeave={() => setTooltip(null)}
+                        onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
                         style={{ flex: t.pct, padding: '10px 12px', background: ETAT_LOCATIF_BG[status], cursor: t.row ? 'pointer' : 'default', borderLeft: i > 0 ? '1px solid var(--surface)' : 'none', minWidth: 0 }}>
                         <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</div>
-                        <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '6px' }}>{t.surface > 0 ? `${Math.round(t.surface)} m²` : ''}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--text3)', display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                          {t.surface > 0 && <span>{Math.round(t.surface)} m²</span>}
+                          {t.start && t.end && (
+                            <span style={{ whiteSpace: 'nowrap' }}>{t.start.toLocaleDateString('fr-FR')} → {t.end.toLocaleDateString('fr-FR')}</span>
+                          )}
+                        </div>
                         {miniTimeline(t)}
                       </div>
                     )
@@ -2594,7 +2648,9 @@ function EtatLocatifModal({ building, bails, onClose }) {
                       const width = ((t.end - t.start) / domainMs) * 100
                       const status = tenantStatus(t, today)
                       return (
-                        <div key={i} title={tenantTitle(t)}
+                        <div key={i}
+                          onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
+                          onMouseLeave={() => setTooltip(null)}
                           onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
                           style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: `${i * 34}px`, height: '26px', background: ETAT_LOCATIF_COLORS[status], borderRadius: '5px', display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: '11px', color: '#fff', overflow: 'hidden', whiteSpace: 'nowrap', cursor: 'pointer' }}>
                           {t.name}
@@ -2609,6 +2665,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
           )}
         </div>
       </div>
+      {tooltip && <TenantTooltip x={tooltip.x} y={tooltip.y} tenant={tooltip.tenant} />}
     </div>
   )
 }
