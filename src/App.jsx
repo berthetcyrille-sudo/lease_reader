@@ -2555,13 +2555,15 @@ function EtatLocatifModal({ building, bails, onClose }) {
     const elapsedPct = Math.max(0, Math.min(100, ((today - t.start) / total) * 100))
     const status = tenantStatus(t, today)
     return (
-      <div style={{ position: 'relative', height: '10px' }}>
-        <div style={{ width: '100%', height: '4px', borderRadius: '2px', background: 'var(--border2)', position: 'relative' }}>
-          <div style={{ width: `${elapsedPct}%`, height: '100%', borderRadius: '2px', background: ETAT_LOCATIF_COLORS[status] }} />
+      <div style={{ position: 'relative', height: '16px', paddingTop: '6px' }}>
+        <div style={{ width: '100%', height: '5px', borderRadius: '3px', background: 'var(--border2)', position: 'relative' }}>
+          <div style={{ width: `${elapsedPct}%`, height: '100%', borderRadius: '3px', background: ETAT_LOCATIF_COLORS[status] }} />
           {t.breaks.map((b, i) => (
-            <div key={i} style={{ position: 'absolute', left: `${((b - t.start) / total) * 100}%`, top: '-3px', width: '2px', height: '10px', background: 'var(--text3)', opacity: 0.6 }} />
+            <div key={i} title={`Break : ${fmt(b)}`} style={{ position: 'absolute', left: `${((b - t.start) / total) * 100}%`, top: '-3px', bottom: '-3px', width: '2px', background: 'var(--text2)', opacity: 0.75 }} />
           ))}
-          <div style={{ position: 'absolute', left: `${elapsedPct}%`, top: '-4px', width: '2px', height: '12px', background: 'var(--text)' }} />
+          <div title={`Aujourd'hui : ${fmt(today)}`} style={{ position: 'absolute', left: `${elapsedPct}%`, top: '-7px', bottom: '-3px', width: '2px', background: 'var(--accent)' }}>
+            <div style={{ position: 'absolute', top: '-4px', left: '-4px', width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid var(--accent)' }} />
+          </div>
         </div>
       </div>
     )
@@ -2647,17 +2649,23 @@ function EtatLocatifModal({ building, bails, onClose }) {
                       const left = ((t.start - domainStart) / domainMs) * 100
                       const width = ((t.end - t.start) / domainMs) * 100
                       const status = tenantStatus(t, today)
+                      const barSpan = t.end - t.start
                       return (
                         <div key={i}
                           onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                           onMouseLeave={() => setTooltip(null)}
                           onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
                           style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: `${i * 34}px`, height: '26px', background: ETAT_LOCATIF_COLORS[status], borderRadius: '5px', display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: '11px', color: '#fff', overflow: 'hidden', whiteSpace: 'nowrap', cursor: 'pointer' }}>
-                          {t.name}
+                          <span style={{ position: 'relative', zIndex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
+                          {t.breaks.map((b, bi) => (
+                            <div key={bi} title={`Break : ${fmt(b)}`} style={{ position: 'absolute', left: `${((b - t.start) / barSpan) * 100}%`, top: '-2px', bottom: '-2px', width: '2px', background: 'rgba(255,255,255,0.85)' }} />
+                          ))}
                         </div>
                       )
                     })}
-                    <div style={{ position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: 0, bottom: 0, width: '1.5px', background: 'var(--text)' }} />
+                    <div style={{ position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: '-6px', bottom: 0, width: '2px', background: 'var(--accent)', zIndex: 2 }}>
+                      <div style={{ position: 'absolute', top: '-5px', left: '-4px', width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid var(--accent)' }} />
+                    </div>
                   </div>
                 </div>
               )})}
