@@ -2437,24 +2437,43 @@ function EtatLocatifModal({ building, bails, onClose }) {
 
   const floors = useMemo(() => {
     const groups = {}
+    let unresolvedIdx = 0
     bails.forEach(row => {
       const d = row.data || {}
-      const info = extractFloorInfo(d.adresse) || { key: 9999, label: 'Étage non précisé' }
-      const surface = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
-      const tenant = {
+      const commonTenant = {
         name: shortPartyName(d.preneur) || row.file_name,
-        surface,
         start: parseFrDate(d.date_effet),
         end: parseFrDate(d.date_fin),
         breaks: (d.break_options || []).map(parseFrDate).filter(Boolean),
         row,
       }
-      if (!groups[info.key]) groups[info.key] = { key: info.key, label: info.label, tenants: [] }
-      groups[info.key].tenants.push(tenant)
+      // Source principale : surfaces_detail, qui donne le niveau réel par lot
+      // (un même bail peut occuper plusieurs étages avec des surfaces distinctes).
+      const detailRows = (d.surfaces_detail || []).filter(r =>
+        (r.niveau || r.localisation) && !(r.categorie || '').toLowerCase().includes('station')
+      )
+      if (detailRows.length > 0) {
+        detailRows.forEach(r => {
+          const label = r.niveau || r.localisation
+          const surface = parseFloat(String(r.surface_m2 || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
+          if (!groups[label]) groups[label] = { key: label, label, tenants: [], sortKey: extractFloorInfo(label)?.key ?? 9999 }
+          groups[label].tenants.push({ ...commonTenant, surface })
+        })
+      } else {
+        // Repli : ni surfaces_detail, ni étage identifiable dans l'adresse —
+        // chaque bail garde sa propre ligne plutôt que d'être entassé avec d'autres.
+        const info = extractFloorInfo(d.adresse)
+        const key = info ? info.label : `u-${unresolvedIdx++}`
+        const rawLabel = d.immeuble || d.adresse || 'Lot non localisé'
+        const label = info ? info.label : (rawLabel.length > 28 ? rawLabel.slice(0, 26) + '…' : rawLabel)
+        const surface = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
+        if (!groups[key]) groups[key] = { key, label, tenants: [], sortKey: info ? info.key : 9999 }
+        groups[key].tenants.push({ ...commonTenant, surface })
+      }
     })
     const arr = Object.values(groups)
-    const unresolved = arr.filter(f => f.key === 9999)
-    const resolved = arr.filter(f => f.key !== 9999).sort((a, b) => b.key - a.key)
+    const resolved = arr.filter(f => f.sortKey !== 9999).sort((a, b) => b.sortKey - a.sortKey)
+    const unresolved = arr.filter(f => f.sortKey === 9999)
     // Répartir la surface au sein de chaque étage (proportionnelle si connue, égale sinon)
     resolved.concat(unresolved).forEach(f => {
       const total = f.tenants.reduce((a, t) => a + t.surface, 0)
@@ -2528,7 +2547,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
             <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
               {floors.map(f => (
                 <div key={f.key} style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ width: '90px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px' }}>
+                  <div style={{ width: '130px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px' }}>
                     {f.label}
                   </div>
                   {f.tenants.map((t, i) => {
@@ -2548,7 +2567,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
           ) : (
             <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
               <div style={{ display: 'flex', position: 'relative', height: '26px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
-                <div style={{ width: '90px', flexShrink: 0, borderRight: '1px solid var(--border)' }} />
+                <div style={{ width: '130px', flexShrink: 0, borderRight: '1px solid var(--border)' }} />
                 <div style={{ position: 'relative', flex: 1 }}>
                   {years.map(y => {
                     const yd = new Date(y, 0, 1)
@@ -2561,12 +2580,14 @@ function EtatLocatifModal({ building, bails, onClose }) {
                   })}
                 </div>
               </div>
-              {floors.map(f => (
-                <div key={f.key} style={{ display: 'flex', borderBottom: '1px solid var(--border)', minHeight: '46px' }}>
-                  <div style={{ width: '90px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px' }}>
+              {floors.map(f => {
+                const rowHeight = Math.max(46, f.tenants.length * 34 + 12)
+                return (
+                <div key={f.key} style={{ display: 'flex', borderBottom: '1px solid var(--border)', height: `${rowHeight}px` }}>
+                  <div style={{ width: '130px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {f.label}
                   </div>
-                  <div style={{ position: 'relative', flex: 1, padding: '6px 0' }}>
+                  <div style={{ position: 'relative', flex: 1, padding: '6px 0', height: `${rowHeight}px` }}>
                     {f.tenants.map((t, i) => {
                       if (!t.start || !t.end) return null
                       const left = ((t.start - domainStart) / domainMs) * 100
@@ -2583,7 +2604,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                     <div style={{ position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: 0, bottom: 0, width: '1.5px', background: 'var(--text)' }} />
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>
