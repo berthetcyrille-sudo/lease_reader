@@ -1861,7 +1861,29 @@ function EtatLocatifModal({ building, bails, onClose }) {
                     </div>
                     <div style={{ position: 'relative', flex: 1, height: `${rowHeight}px` }}>
                       {f.tenants.map((t, i) => {
-                        if (!t.start || !t.end) return null
+                        if (!t.start || !t.end) {
+                          // Dates non exploitables (ex. VEFA : "9 ans à compter de la date de livraison")
+                          // — on affiche quand même le bail, ancré au début de la frise, plutôt que de le faire disparaître.
+                          const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, t.loyer > 0 ? fmtEur(t.loyer) : null].filter(Boolean).join(' · ')
+                          return (
+                            <div key={i}
+                              onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
+                              onMouseLeave={() => setTooltip(null)}
+                              onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                              style={{ position: 'absolute', left: '4px', width: '260px', top: `${i * ROW_H + 4}px`, height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
+                              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                {t.name}
+                                {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)' }}>· {infoLine}</span>}
+                              </div>
+                              <div style={{
+                                height: '20px', borderRadius: '5px', display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: '10px', fontWeight: 600,
+                                color: 'var(--text3)', background: 'repeating-linear-gradient(45deg, var(--surface2), var(--surface2) 5px, var(--border) 5px, var(--border) 10px)',
+                              }}>
+                                ⚠ Dates non déterminées (VEFA)
+                              </div>
+                            </div>
+                          )
+                        }
                         const left = ((t.start - domainStart) / domainMs) * 100
                         const width = ((t.end - t.start) / domainMs) * 100
                         const status = tenantStatus(t, today)
