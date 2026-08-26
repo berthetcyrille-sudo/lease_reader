@@ -1734,7 +1734,19 @@ function EtatLocatifModal({ building, bails, onClose }) {
     const arr = Object.values(groups)
     const resolved = arr.filter(f => f.sortKey !== 9999).sort((a, b) => b.sortKey - a.sortKey)
     const unresolved = arr.filter(f => f.sortKey === 9999)
-    return [...resolved, ...unresolved]
+    const ordered = [...resolved, ...unresolved]
+    // Un même bail peut apparaître sur plusieurs étages (surfaces_detail) : on
+    // n'affiche le loyer total qu'une seule fois (première occurrence), pour
+    // éviter de laisser croire qu'il est dû à chaque étage.
+    const seenBailIds = new Set()
+    ordered.forEach(f => {
+      f.tenants.forEach(t => {
+        const id = t.row?.id
+        t.showRent = !id || !seenBailIds.has(id)
+        if (id) seenBailIds.add(id)
+      })
+    })
+    return ordered
   }, [bails])
 
   const allTenants = useMemo(() => floors.flatMap(f => f.tenants), [floors])
@@ -1864,7 +1876,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                         if (!t.start || !t.end) {
                           // Dates non exploitables (ex. VEFA : "9 ans à compter de la date de livraison")
                           // — on affiche quand même le bail, ancré au début de la frise, plutôt que de le faire disparaître.
-                          const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, t.loyer > 0 ? fmtEur(t.loyer) : null].filter(Boolean).join(' · ')
+                          const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.showRent && t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
                           return (
                             <div key={i}
                               onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
@@ -1889,7 +1901,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                         const status = tenantStatus(t, today)
                         const segments = tenantSegments(t)
                         const barSpan = t.end - t.start
-                        const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, t.loyer > 0 ? fmtEur(t.loyer) : null].filter(Boolean).join(' · ')
+                        const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.showRent && t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
                         return (
                           <div key={i}
                             onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
