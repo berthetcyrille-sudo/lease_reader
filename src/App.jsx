@@ -1718,7 +1718,9 @@ function parseYearsFromDureeText(s) {
 function auditBail(row) {
   const d = row.data || {}
   const issues = []
-  const label = d.immeuble || d.adresse || row.file_name
+  const building = d.immeuble || d.adresse || row.file_name
+  const tenant = shortPartyName(d.preneur)
+  const label = tenant ? `${building} — ${tenant}` : building
 
   const effet = parseFrDate(d.date_effet)
   const fin = parseFrDate(d.date_fin)
