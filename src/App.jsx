@@ -3167,7 +3167,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
 
   // Apply search filter
   const q = search.trim().toLowerCase()
-  const filtered = q ? displayRows.filter(row => {
+  function rowMatchesSearch(row, q) {
+    if (!q) return true
     const raw = row.data || {}
     const bailData = row._bailData || {}
     const mods = raw.champs_modifies || {}
@@ -3184,7 +3185,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
       row.file_name, row._parentName, row.actif_group,
     ].filter(Boolean).join(' ').toLowerCase()
     return searchIn.includes(q)
-  }) : displayRows
+  }
+  const filtered = q ? displayRows.filter(row => rowMatchesSearch(row, q)) : displayRows
 
   // Sort top-level bails by actif name, avenants follow their bail
   const getActifName = row => (row.data?.immeuble || row.data?.adresse || row.file_name || '').toLowerCase()
@@ -3307,11 +3309,22 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
       <div className="dash-toolbar">
         <div className="dash-stats">
           {(() => {
-            // Compteur exact (requête de comptage dédiée), indépendant du nombre
-            // de lignes réellement chargées dans `tree` pour l'affichage.
-            const bailCount = totalCounts?.bailCount ?? 0
-            const avenantCount = totalCounts?.avenantCount ?? 0
-            const orphanCount = totalCounts?.orphanCount ?? 0
+            // Réactif à la recherche et au filtre Tous/Baux/Avenants — reflète
+            // ce qui est effectivement affiché, pas le total global de la base.
+            let bailCount = 0, avenantCount = 0, orphanCount = 0
+            tree.forEach(node => {
+              if (node.document_type === 'bail') {
+                if (filter !== 'avenant' && rowMatchesSearch({ data: node.data, file_name: node.file_name, actif_group: node.actif_group }, q)) bailCount++
+                if (filter !== 'bail') {
+                  ;(node.avenants || []).forEach(av => {
+                    if (rowMatchesSearch({ data: av.data, file_name: av.file_name, actif_group: av.actif_group, _bailData: node.data }, q)) avenantCount++
+                  })
+                }
+              } else if (filter !== 'bail') {
+                if (rowMatchesSearch({ data: node.data, file_name: node.file_name, actif_group: node.actif_group }, q)) { avenantCount++; orphanCount++ }
+              }
+            })
+            const isFiltered = !!q || filter !== 'all'
             return (
               <>
                 <span className="dash-stat">{bailCount} {bailCount !== 1 ? 'baux' : 'bail'}</span>
@@ -3319,6 +3332,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                 {orphanCount > 0 && (
                   <span className="dash-stat" style={{ color: 'var(--danger)' }} title="Avenants sans bail parent rattaché">
                     dont {orphanCount} orphelin{orphanCount !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {isFiltered && (
+                  <span className="dash-stat" style={{ color: 'var(--text3)', fontStyle: 'italic' }}>
+                    sur {totalCounts?.bailCount ?? 0} baux / {totalCounts?.avenantCount ?? 0} avenants au total
                   </span>
                 )}
               </>
