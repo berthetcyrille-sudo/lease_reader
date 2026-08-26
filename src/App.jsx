@@ -1699,10 +1699,24 @@ function EtatLocatifModal({ building, bails, onClose }) {
     let unresolvedIdx = 0
     bails.forEach(row => {
       const d = row.data || {}
+      let start = parseFrDate(d.date_effet)
+      let end = parseFrDate(d.date_fin)
+      let estimated = false
+      // Cas VEFA : la date de fin est souvent formulée en relatif
+      // ("9 ans à compter de la Date de Livraison") plutôt qu'en date fixe.
+      // Si on a une date de départ (même prévisionnelle) et une durée totale,
+      // on calcule une échéance estimée plutôt que de renoncer à afficher le bail.
+      if (start && !end) {
+        const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
+        if (m) {
+          end = new Date(start)
+          end.setFullYear(end.getFullYear() + parseInt(m[1]))
+          estimated = true
+        }
+      }
       const commonTenant = {
         name: shortPartyName(d.preneur) || row.file_name,
-        start: parseFrDate(d.date_effet),
-        end: parseFrDate(d.date_fin),
+        start, end, estimated,
         breaks: (d.break_options || []).map(parseFrDate).filter(Boolean),
         loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
         row,
@@ -1798,9 +1812,14 @@ function EtatLocatifModal({ building, bails, onClose }) {
               <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.start)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-              <span style={{ color: 'var(--text3)' }}>Échéance</span>
+              <span style={{ color: 'var(--text3)' }}>Échéance{t.estimated ? ' (estimée)' : ''}</span>
               <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.end)}</span>
             </div>
+            {t.estimated && (
+              <div style={{ fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic' }}>
+                Calculée à partir de la durée totale et de la date de livraison prévisionnelle (VEFA)
+              </div>
+            )}
             {t.breaks.length > 0 && (
               <div style={{ paddingTop: '5px', marginTop: '2px', borderTop: '1px solid var(--border)' }}>
                 <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>Options de sortie</div>
@@ -1882,10 +1901,10 @@ function EtatLocatifModal({ building, bails, onClose }) {
                               onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                               onMouseLeave={() => setTooltip(null)}
                               onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                              style={{ position: 'absolute', left: '4px', width: '260px', top: `${i * ROW_H + 4}px`, height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
+                              style={{ position: 'absolute', left: '4px', width: '380px', top: `${i * ROW_H + 4}px`, height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
                               <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                 {t.name}
-                                {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)' }}>· {infoLine}</span>}
+                                {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis' }}>· {infoLine}</span>}
                               </div>
                               <div style={{
                                 height: '20px', borderRadius: '5px', display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: '10px', fontWeight: 600,
@@ -1912,12 +1931,13 @@ function EtatLocatifModal({ building, bails, onClose }) {
                               {status === 'risk' && <span title="Échéance dans moins de 18 mois">⚠</span>}
                               {t.name}
                               {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)' }}>· {infoLine}</span>}
+                              {t.estimated && <span title="Échéance estimée à partir de la durée totale et de la date de livraison prévisionnelle (VEFA)" style={{ fontWeight: 400, color: 'var(--text3)', fontStyle: 'italic' }}>(estimé)</span>}
                             </div>
-                            <div style={{ position: 'relative', height: '20px', borderRadius: '5px', overflow: 'hidden', display: 'flex' }}>
+                            <div style={{ position: 'relative', height: '20px', borderRadius: '5px', overflow: 'hidden', display: 'flex', border: t.estimated ? '1.5px dashed var(--text3)' : 'none' }}>
                               {segments.map((seg, si) => (
                                 <div key={si} style={{
                                   position: 'absolute', left: `${((seg.start - t.start) / barSpan) * 100}%`, width: `${((seg.end - seg.start) / barSpan) * 100}%`,
-                                  top: 0, bottom: 0, background: seg.color, borderRight: si < segments.length - 1 ? '1.5px solid var(--surface)' : 'none',
+                                  top: 0, bottom: 0, background: seg.color, opacity: t.estimated ? 0.65 : 1, borderRight: si < segments.length - 1 ? '1.5px solid var(--surface)' : 'none',
                                 }} />
                               ))}
                             </div>
