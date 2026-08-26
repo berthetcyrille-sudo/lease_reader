@@ -1135,12 +1135,23 @@ function sanitizeExtracted(data) {
   if (!data || typeof data !== 'object') return data
   const d = { ...data }
   d.break_options = sanitizeBreakDates(ensureArray(d.break_options))
-  // Enrichir les breaks par calcul côté code — fiable à 100%
-  if (d.date_effet || d.date_fin) {
-    // N'enrichir les breaks par le code que si Claude n'en a pas trouvé
-  if (!d.break_options || d.break_options.length === 0) {
-    d.break_options = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
-  }
+  // Enrichir les breaks par calcul côté code — fiable à 100%, contrairement à
+  // l'IA qui peut être incomplète (ex: s'arrêter après la 1ère échéance
+  // triennale au lieu de continuer tous les 3 ans). On calcule TOUJOURS les
+  // dates théoriques et on les FUSIONNE avec ce que l'IA a trouvé (union,
+  // dédupliquée, triée) — plutôt que de ne s'en servir qu'en absence totale
+  // de résultat de l'IA.
+  if (d.date_effet && d.date_fin) {
+    const computed = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+    if (computed.length > 0) {
+      const existing = new Set((d.break_options || []).map(b => b.trim()))
+      const merged = [...(d.break_options || [])]
+      computed.forEach(c => { if (!existing.has(c)) { merged.push(c); existing.add(c) } })
+      merged.sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
+      d.break_options = merged
+    } else if (!d.break_options || d.break_options.length === 0) {
+      d.break_options = []
+    }
   }
   const cs = rows => cleanSurfaces(normalizeSurfaces(rows))
   d.surfaces_detail    = cs(ensureArray(d.surfaces_detail))
