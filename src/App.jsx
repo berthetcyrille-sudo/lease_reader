@@ -1769,14 +1769,9 @@ function auditBail(row) {
     })
   }
 
-  // 3. Reconduction tacite non renseignée sur une durée "ronde" — simple signal à vérifier
-  if (dureeTotaleYears && [9, 10, 12].includes(dureeTotaleYears) && !d.reconduction_tacite) {
-    issues.push({
-      type: 'reconduction_a_verifier',
-      severity: 'low',
-      detail: `Durée totale ${dureeTotaleYears} ans, aucune reconduction tacite renseignée — à vérifier si le bail en prévoit une (champ ajouté après cette extraction)`,
-    })
-  }
+  // Note : la reconduction tacite (art. L145-9 Code de commerce) est le régime
+  // légal par défaut pour la quasi-totalité des baux commerciaux — son absence
+  // du texte n'est pas anormale et ne justifie pas une vérification systématique.
 
   return { row, label, issues }
 }
