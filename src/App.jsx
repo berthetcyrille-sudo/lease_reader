@@ -2768,7 +2768,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   const [extractionErrors, setExtractionErrors] = useState(null) // null or array of {name, reason}
   const [confirmDelete, setConfirmDelete] = useState(null) // item to delete
   const [avenantTarget, setAvenantTarget] = useState(null) // bail row en attente d'ajout d'avenant
-  const [avenantUpload, setAvenantUpload] = useState({}) // { [bailId]: { state: 'compressing'|'loading'|'error', error, progress } }
+  const [avenantUpload, setAvenantUpload] = useState({}) // { [bailId]: { state: 'compressing'|'loading'|'error', error, progress } } — utilisé par l'attache de fichier source uniquement
+  const [avenantBatchProgress, setAvenantBatchProgress] = useState(null) // { bailLabel, current, total, fileName, state } — bloquant, pour l'ajout d'avenant(s)
   const [attachTarget, setAttachTarget] = useState(null) // document en attente d'attache de fichier source
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
   const avenantInputRef = useRef(null)
@@ -2837,54 +2838,66 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   }
 
   async function handleAvenantFile(e) {
-    const file = e.target.files?.[0]
+    const fileList = Array.from(e.target.files || [])
     const bailRow = avenantTarget
-    e.target.value = '' // reset l'input pour permettre de re-choisir le même fichier
-    if (!file || !bailRow) return
+    e.target.value = '' // reset l'input pour permettre de re-choisir les mêmes fichiers
+    if (!fileList.length || !bailRow) return
 
-    const ext = file.name.split('.').pop().toLowerCase()
-    if (!['pdf', 'docx'].includes(ext)) {
+    const validFiles = fileList.filter(f => ['pdf', 'docx'].includes(f.name.split('.').pop().toLowerCase()))
+    if (!validFiles.length) {
       alert('Format non supporté. PDF ou DOCX uniquement.')
       return
     }
 
-    setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'compressing' } }))
-    try {
-      const prepared = await compressPdfIfNeeded(file, (current, total) => {
-        setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'compressing', current, total } }))
-      })
+    const label = bailRow.data?.immeuble || bailRow.data?.adresse || bailRow.file_name
+    let successCount = 0
+    const failedFiles = []
 
-      if (prepared.size > 30 * 1024 * 1024) {
-        throw new Error(`Fichier trop volumineux (${Math.round(prepared.size / 1024 / 1024)} Mo > 30 Mo) — compressez le PDF avant de déposer.`)
+    for (let idx = 0; idx < validFiles.length; idx++) {
+      const file = validFiles[idx]
+      setAvenantBatchProgress({ bailLabel: label, current: idx + 1, total: validFiles.length, fileName: file.name, state: 'compressing' })
+      try {
+        const prepared = await compressPdfIfNeeded(file, (current, total) => {
+          setAvenantBatchProgress(prev => ({ ...prev, state: 'compressing', progCurrent: current, progTotal: total }))
+        })
+
+        if (prepared.size > 30 * 1024 * 1024) {
+          throw new Error(`Fichier trop volumineux (${Math.round(prepared.size / 1024 / 1024)} Mo > 30 Mo) — compressez le PDF avant de déposer.`)
+        }
+
+        setAvenantBatchProgress(prev => ({ ...prev, state: 'loading' }))
+        const base64 = await toBase64(prepared)
+        const mediaType = getMediaType(prepared)
+        const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
+
+        const { data: saved, error } = await supabase.from('extractions').insert({
+          file_name: file.name,
+          data: extracted,
+          document_type: 'avenant',
+          parent_id: bailRow.id,
+          actif_group: bailRow.actif_group || null,
+        }).select().single()
+        if (error) throw error
+        if (saved?.id) await uploadSourceFile(saved.id, prepared) // on attend la fin pour éviter un rafraîchissement prématuré du dashboard
+
+        successCount++
+        if (saved?.id) onNewAvenant?.(saved.id)
+      } catch (err) {
+        failedFiles.push({ name: file.name, msg: err.message || 'Erreur inconnue' })
       }
-
-      setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'loading' } }))
-      const base64 = await toBase64(prepared)
-      const mediaType = getMediaType(prepared)
-      const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
-
-      const { data: saved, error } = await supabase.from('extractions').insert({
-        file_name: file.name,
-        data: extracted,
-        document_type: 'avenant',
-        parent_id: bailRow.id,
-        actif_group: bailRow.actif_group || null,
-      }).select().single()
-      if (error) throw error
-      if (saved?.id) await uploadSourceFile(saved.id, prepared) // on attend la fin pour éviter un rafraîchissement prématuré du dashboard
-
-      setAvenantUpload(prev => { const n = { ...prev }; delete n[bailRow.id]; return n })
-      setAvenantTarget(null)
-      setExpanded(prev => ({ ...prev, [bailRow.id]: true })) // déplie le bail pour montrer le nouvel avenant
-      const label = bailRow.data?.immeuble || bailRow.data?.adresse || bailRow.file_name
-      showToast('success', `Avenant ajouté à « ${label} »`)
-      if (saved?.id) onNewAvenant?.(saved.id)
-      onRefresh?.()
-    } catch (err) {
-      const msg = err.message || 'Erreur inconnue'
-      setAvenantUpload(prev => ({ ...prev, [bailRow.id]: { state: 'error', error: msg } }))
-      showToast('error', `Échec de l'ajout de l'avenant : ${msg}`)
     }
+
+    setAvenantBatchProgress(null)
+    setAvenantTarget(null)
+    setExpanded(prev => ({ ...prev, [bailRow.id]: true })) // déplie le bail pour montrer les nouveaux avenants
+
+    if (successCount > 0) {
+      showToast('success', `${successCount} avenant${successCount > 1 ? 's' : ''} ajouté${successCount > 1 ? 's' : ''} à « ${label} »`)
+    }
+    if (failedFiles.length > 0) {
+      showToast('error', `${failedFiles.length} échec${failedFiles.length > 1 ? 's' : ''} : ${failedFiles.map(f => f.name).join(', ')}`)
+    }
+    onRefresh?.()
   }
 
   function viewSourceFile(row) {
@@ -3499,6 +3512,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
         ref={avenantInputRef}
         type="file"
         accept=".pdf,.docx"
+        multiple
         style={{ display: 'none' }}
         onChange={handleAvenantFile}
       />
@@ -3509,6 +3523,35 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
         style={{ display: 'none' }}
         onChange={handleAttachFile}
       />
+      {avenantBatchProgress && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 5000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'var(--surface)', borderRadius: '14px', padding: '32px 40px',
+            minWidth: '360px', maxWidth: '440px', textAlign: 'center', boxShadow: '0 16px 48px rgba(0,0,0,.35)',
+          }}>
+            <div style={{
+              width: '36px', height: '36px', margin: '0 auto 16px', borderRadius: '50%',
+              border: '3px solid var(--border2)', borderTopColor: 'var(--accent)',
+              animation: 'spin 0.8s linear infinite',
+            }} />
+            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '6px' }}>
+              Ajout d'avenant{avenantBatchProgress.total > 1 ? 's' : ''} à « {avenantBatchProgress.bailLabel} »
+            </div>
+            <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Fichier {avenantBatchProgress.current}/{avenantBatchProgress.total} : {avenantBatchProgress.fileName}
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
+              {avenantBatchProgress.state === 'compressing'
+                ? `Compression${avenantBatchProgress.progTotal ? ` (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : '…'}`
+                : 'Extraction en cours…'}
+            </div>
+            <div className="progress-track" style={{ margin: 0 }}><div className="progress-bar active" /></div>
+          </div>
+        </div>
+      )}
       {toast && (
         <div
           onClick={() => setToast(null)}
