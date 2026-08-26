@@ -1708,6 +1708,66 @@ const SEGMENT_PALETTE = ['#14B8A6', '#6366F1', '#F59E0B', '#EC4899', '#0EA5E9', 
 const ETAT_LOCATIF_COLORS = { stable: '#1D9E75', risk: '#EF9F27', vacant: '#B4B2A9' }
 const ETAT_LOCATIF_BG     = { stable: '#EAF3DE', risk: '#FAEEDA', vacant: '#F1EFE8' }
 
+// ─── Contrôle qualité : audit heuristique des baux déjà extraits ────────────
+// Ne modifie rien — repère juste des cas suspects à vérifier/réextraire manuellement.
+function parseYearsFromDureeText(s) {
+  const m = String(s || '').match(/(\d+)\s*ans?/i)
+  return m ? parseInt(m[1]) : null
+}
+
+function auditBail(row) {
+  const d = row.data || {}
+  const issues = []
+  const label = d.immeuble || d.adresse || row.file_name
+
+  const effet = parseFrDate(d.date_effet)
+  const fin = parseFrDate(d.date_fin)
+  const dureeFermeYears = parseYearsFromDureeText(d.duree_ferme)
+  const dureeTotaleYears = parseYearsFromDureeText(d.duree_totale)
+  const rawBreaks = Array.isArray(d.break_options) ? d.break_options : []
+  const cleanBreaks = rawBreaks.filter(b => typeof b === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(b.trim()))
+
+  // 1. Breaks triennaux potentiellement incomplets (le bug qu'on vient de corriger)
+  if (effet && fin && dureeFermeYears && dureeFermeYears < (dureeTotaleYears || 99)) {
+    const expected = []
+    let y = dureeFermeYears
+    while (true) {
+      const dt = new Date(effet.getFullYear() + y, effet.getMonth(), effet.getDate() - 1)
+      if (dt >= fin) break
+      expected.push(dt)
+      y += 3
+    }
+    if (expected.length > cleanBreaks.length) {
+      issues.push({
+        type: 'breaks_incomplets',
+        severity: 'high',
+        detail: `${cleanBreaks.length} break(s) enregistré(s), ${expected.length} attendu(s) si la périodicité triennale continue jusqu'à l'échéance (${expected.map(fmtFR).join(', ')})`,
+      })
+    }
+  }
+
+  // 2. break_options mal formés (texte descriptif au lieu d'une date pure)
+  const malformed = rawBreaks.filter(b => typeof b === 'string' && !/^\d{2}\/\d{2}\/\d{4}$/.test(b.trim()))
+  if (malformed.length > 0) {
+    issues.push({
+      type: 'break_format',
+      severity: 'medium',
+      detail: `${malformed.length} entrée(s) de break_options mal formatée(s) (texte au lieu d'une date pure) — récupérée(s) à l'affichage si une date y est repérable, mais à vérifier`,
+    })
+  }
+
+  // 3. Reconduction tacite non renseignée sur une durée "ronde" — simple signal à vérifier
+  if (dureeTotaleYears && [9, 10, 12].includes(dureeTotaleYears) && !d.reconduction_tacite) {
+    issues.push({
+      type: 'reconduction_a_verifier',
+      severity: 'low',
+      detail: `Durée totale ${dureeTotaleYears} ans, aucune reconduction tacite renseignée — à vérifier si le bail en prévoit une (champ ajouté après cette extraction)`,
+    })
+  }
+
+  return { row, label, issues }
+}
+
 function EtatLocatifModal({ building, bails, onClose }) {
   const [tooltip, setTooltip] = useState(null) // { x, y, tenant }
   const today = new Date()
@@ -2775,6 +2835,65 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
   )
 }
 
+// ─── Modale de contrôle qualité ──────────────────────────────────────────────
+function QualityCheckModal({ bails, onClose, onSelect }) {
+  const results = useMemo(() => bails.map(auditBail).filter(r => r.issues.length > 0), [bails])
+  const severityColor = { high: 'var(--danger)', medium: 'var(--accent)', low: 'var(--text3)' }
+  const severityBg = { high: 'var(--danger-bg)', medium: 'var(--accent-bg)', low: 'var(--surface2)' }
+  const severityLabel = { high: 'À vérifier en priorité', medium: 'À vérifier', low: 'Info' }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ width: '820px', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div className="modal-title">Contrôle qualité</div>
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
+              Détection heuristique — ne modifie rien, à vérifier/réextraire manuellement au cas par cas
+            </div>
+          </div>
+          <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
+          {results.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+              Aucun cas suspect détecté sur les {bails.length} bail{bails.length !== 1 ? 'x' : ''} analysé{bails.length !== 1 ? 's' : ''}.
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '10px' }}>
+                {results.length} bail{results.length !== 1 ? 'x' : ''} sur {bails.length} présentent au moins un point à vérifier.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {results.map(r => (
+                  <div key={r.row.id} onClick={() => onSelect(r.row)}
+                    style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', cursor: 'pointer' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '6px' }}>{r.label}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                      {r.issues.map((iss, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                          <span style={{
+                            fontSize: '10px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px', flexShrink: 0, marginTop: '1px',
+                            color: severityColor[iss.severity], background: severityBg[iss.severity],
+                          }}>{severityLabel[iss.severity]}</span>
+                          <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{iss.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant }) {
   const [filter, setFilter] = useState('all')
   const [confirmClear, setConfirmClear] = useState(false)
@@ -3603,6 +3722,7 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [showEtatLocatifMenu, setShowEtatLocatifMenu] = useState(false)
   const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
+  const [showQualityCheck, setShowQualityCheck] = useState(false)
   const [docTypes,     setDocTypes]     = useState([])     // 'bail'|'avenant'|'' per file
   const [fileOrder,    setFileOrder]    = useState([])     // indices ordonnés
   const [detecting,    setDetecting]    = useState(false)  // détection en cours
@@ -4068,7 +4188,28 @@ export default function App() {
               </div>
             )}
           </div>
+
+          <button
+            onClick={() => setShowQualityCheck(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '13px', fontWeight: 600,
+              padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', marginLeft: '10px',
+            }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><path d="M22 4L12 14.01l-3-3"/>
+            </svg>
+            Contrôle qualité
+          </button>
         </header>
+
+        {showQualityCheck && (
+          <QualityCheckModal
+            bails={history.filter(row => row.document_type === 'bail')}
+            onClose={() => setShowQualityCheck(false)}
+            onSelect={row => { setShowQualityCheck(false); setActiveItem(row) }}
+          />
+        )}
 
         {etatLocatifBuilding && (
           <EtatLocatifModal
