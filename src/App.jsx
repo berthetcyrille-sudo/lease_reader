@@ -1768,6 +1768,32 @@ function auditBail(row) {
   return { row, label, issues }
 }
 
+// Fusionne les modifications des avenants (triés chronologiquement) sur les
+// données du bail — sans ça, un bail dont la date d'effet n'était pas fixée à
+// la signature (condition suspensive, VEFA...) et fixée ensuite par avenant
+// afficherait des dates vides ou erronées dans l'état locatif.
+function mergedBailData(row) {
+  const base = { ...(row.data || {}) }
+  const toSortable = s => {
+    const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '')
+  }
+  const avs = [...(row.avenants || [])].sort((a, b) => {
+    const ka = toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
+    const kb = toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)
+    return ka.localeCompare(kb)
+  })
+  avs.forEach(av => {
+    const mods = av.data?.champs_modifies || {}
+    Object.entries(mods).forEach(([k, v]) => {
+      if (v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0) && k !== '_sources') {
+        base[k] = v
+      }
+    })
+  })
+  return base
+}
+
 function EtatLocatifModal({ building, bails, onClose }) {
   const [tooltip, setTooltip] = useState(null) // { x, y, tenant }
   const today = new Date()
@@ -1776,7 +1802,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
     const groups = {}
     let unresolvedIdx = 0
     bails.forEach(row => {
-      const d = row.data || {}
+      const d = mergedBailData(row)
       let start = parseFrDate(d.date_effet)
       let end = parseFrDate(d.date_fin)
       let estimated = false
