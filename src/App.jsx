@@ -90,10 +90,11 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent.
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
+- reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle"}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. null si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
 - surfaces_detail: TOUTES les composantes du loyer avec leur surface et loyer annuel. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple: [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. categorie: etage/plateau->Bureaux, terrasse/rooftop->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. La SOMME des loyer_annuel doit etre egale a loyer_signature_montant.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
@@ -134,7 +135,7 @@ surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retiree
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie (ex: 2 lignes Bureaux → une seule ligne avec la surface totale). NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
@@ -1734,6 +1735,10 @@ function EtatLocatifModal({ building, bails, onClose }) {
         start, end, estimated,
         breaks: (d.break_options || []).map(parseFrDate).filter(Boolean),
         loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
+        reconductionTacite: d.reconduction_tacite?.applicable ? {
+          preavis: d.reconduction_tacite.preavis || null,
+          periodicite: d.reconduction_tacite.periodicite || null,
+        } : null,
         row,
       }
       // Source principale : surfaces_detail, qui donne le niveau réel par lot
@@ -1780,8 +1785,12 @@ function EtatLocatifModal({ building, bails, onClose }) {
 
   const allTenants = useMemo(() => floors.flatMap(f => f.tenants), [floors])
   const withDates = allTenants.filter(t => t.start && t.end)
+  // Les baux en reconduction tacite se prolongent visuellement de quelques
+  // années au-delà de leur terme ferme (segment ouvert, non figé dans le temps).
+  const RECONDUCTION_EXTENSION_YEARS = 3
+  const effectiveEnd = t => t.reconductionTacite ? new Date(t.end.getFullYear() + RECONDUCTION_EXTENSION_YEARS, t.end.getMonth(), t.end.getDate()) : t.end
   const domainStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
-  const domainEnd = withDates.length ? new Date(Math.max(...withDates.map(t => t.end)) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
+  const domainEnd = withDates.length ? new Date(Math.max(...withDates.map(t => effectiveEnd(t))) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
   const domainMs = domainEnd - domainStart
   const years = []
   for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) years.push(y)
@@ -1827,12 +1836,18 @@ function EtatLocatifModal({ building, bails, onClose }) {
               <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.start)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-              <span style={{ color: 'var(--text3)' }}>Échéance{t.estimated ? ' (estimée)' : ''}</span>
+              <span style={{ color: 'var(--text3)' }}>{t.reconductionTacite ? 'Fin du terme ferme' : 'Échéance'}{t.estimated ? ' (estimée)' : ''}</span>
               <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.end)}</span>
             </div>
             {t.estimated && (
               <div style={{ fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic' }}>
                 Calculée à partir de la durée totale et de la date de livraison prévisionnelle (VEFA)
+              </div>
+            )}
+            {t.reconductionTacite && (
+              <div style={{ fontSize: '10px', color: 'var(--accent)', fontStyle: 'italic' }}>
+                ↻ Reconduction tacite{t.reconductionTacite.periodicite ? ` ${t.reconductionTacite.periodicite}` : ''} au-delà de cette date
+                {t.reconductionTacite.preavis ? ` (préavis ${t.reconductionTacite.preavis})` : ''}
               </div>
             )}
             {t.breaks.length > 0 && (
@@ -1935,26 +1950,40 @@ function EtatLocatifModal({ building, bails, onClose }) {
                         const status = tenantStatus(t, today)
                         const segments = tenantSegments(t)
                         const barSpan = t.end - t.start
+                        const fullEnd = effectiveEnd(t)
+                        const fullSpan = fullEnd - t.start
+                        const fullWidth = ((fullEnd - domainStart) / domainMs) * 100 - left
+                        const fixedPortionPct = t.reconductionTacite ? (barSpan / fullSpan) * 100 : 100
                         const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.showRent && t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
                         return (
                           <div key={i}
                             onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                             onMouseLeave={() => setTooltip(null)}
                             onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                            style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: `${i * ROW_H + 4}px`, height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
+                            style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: `${i * ROW_H + 4}px`, height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
                             <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                               {status === 'risk' && <span title="Échéance dans moins de 18 mois">⚠</span>}
                               {t.name}
                               {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)' }}>· {infoLine}</span>}
                               {t.estimated && <span title="Échéance estimée à partir de la durée totale et de la date de livraison prévisionnelle (VEFA)" style={{ fontWeight: 400, color: 'var(--text3)', fontStyle: 'italic' }}>(estimé)</span>}
+                              {t.reconductionTacite && <span title={`Reconduction tacite${t.reconductionTacite.periodicite ? ' ' + t.reconductionTacite.periodicite : ''}${t.reconductionTacite.preavis ? ', préavis ' + t.reconductionTacite.preavis : ''}`} style={{ fontWeight: 400, color: 'var(--accent)', fontStyle: 'italic' }}>↻ reconduction tacite</span>}
                             </div>
                             <div style={{ position: 'relative', height: '20px', borderRadius: '5px', overflow: 'hidden', display: 'flex', border: t.estimated ? '1.5px dashed var(--text3)' : 'none' }}>
-                              {segments.map((seg, si) => (
-                                <div key={si} style={{
-                                  position: 'absolute', left: `${((seg.start - t.start) / barSpan) * 100}%`, width: `${((seg.end - seg.start) / barSpan) * 100}%`,
-                                  top: 0, bottom: 0, background: seg.color, opacity: t.estimated ? 0.65 : 1, borderRight: si < segments.length - 1 ? '1.5px solid var(--surface)' : 'none',
+                              <div style={{ position: 'absolute', left: 0, width: `${fixedPortionPct}%`, top: 0, bottom: 0, display: 'flex' }}>
+                                {segments.map((seg, si) => (
+                                  <div key={si} style={{
+                                    position: 'absolute', left: `${((seg.start - t.start) / barSpan) * 100}%`, width: `${((seg.end - seg.start) / barSpan) * 100}%`,
+                                    top: 0, bottom: 0, background: seg.color, opacity: t.estimated ? 0.65 : 1, borderRight: si < segments.length - 1 ? '1.5px solid var(--surface)' : 'none',
+                                  }} />
+                                ))}
+                              </div>
+                              {t.reconductionTacite && (
+                                <div title="Reconduction tacite — durée non figée, se poursuit sauf congé" style={{
+                                  position: 'absolute', left: `${fixedPortionPct}%`, right: 0, top: 0, bottom: 0,
+                                  background: `repeating-linear-gradient(45deg, ${segments[segments.length-1]?.color || 'var(--accent)'}33, ${segments[segments.length-1]?.color || 'var(--accent)'}33 4px, transparent 4px, transparent 8px)`,
+                                  borderLeft: '1.5px dashed var(--accent)',
                                 }} />
-                              ))}
+                              )}
                             </div>
                           </div>
                         )
@@ -2146,6 +2175,21 @@ function ResultsView({ item }) {
           {show('conditions_break') && d.conditions_break && (
             <div style={{ marginTop: '8px' }}>
               <BulletField label="Détail échéances" value={d.conditions_break} full />
+            </div>
+          )}
+          {show('reconduction_tacite') && d.reconduction_tacite?.applicable && (
+            <div style={{
+              marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '9px 12px', borderRadius: 'var(--r)', background: 'var(--accent-bg)', border: '1px solid rgba(26,95,168,.15)',
+            }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+              <span style={{ fontSize: '12.5px', color: 'var(--text2)' }}>
+                <strong style={{ color: 'var(--text)' }}>Reconduction tacite</strong> au-delà du {normalizeDate(d.date_fin) || 'terme ferme'} — le bail se poursuit
+                {d.reconduction_tacite.periodicite ? ` ${d.reconduction_tacite.periodicite}` : ''} sauf congé donné
+                {d.reconduction_tacite.preavis ? ` avec un préavis de ${d.reconduction_tacite.preavis}` : ''}.
+              </span>
             </div>
           )}
         </div>
