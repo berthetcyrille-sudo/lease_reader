@@ -1705,6 +1705,8 @@ function tenantStatus(t, today) {
 }
 
 const SEGMENT_PALETTE = ['#14B8A6', '#6366F1', '#F59E0B', '#EC4899', '#0EA5E9', '#8B5CF6', '#F97316', '#10B981']
+const ETAT_LOCATIF_COLORS = { stable: '#1D9E75', risk: '#EF9F27', vacant: '#B4B2A9' }
+const ETAT_LOCATIF_BG     = { stable: '#EAF3DE', risk: '#FAEEDA', vacant: '#F1EFE8' }
 
 function EtatLocatifModal({ building, bails, onClose }) {
   const [tooltip, setTooltip] = useState(null) // { x, y, tenant }
