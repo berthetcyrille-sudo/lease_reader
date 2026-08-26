@@ -1785,10 +1785,21 @@ function EtatLocatifModal({ building, bails, onClose }) {
 
   const allTenants = useMemo(() => floors.flatMap(f => f.tenants), [floors])
   const withDates = allTenants.filter(t => t.start && t.end)
-  // Les baux en reconduction tacite se prolongent visuellement de quelques
-  // années au-delà de leur terme ferme (segment ouvert, non figé dans le temps).
-  const RECONDUCTION_EXTENSION_YEARS = 3
-  const effectiveEnd = t => t.reconductionTacite ? new Date(t.end.getFullYear() + RECONDUCTION_EXTENSION_YEARS, t.end.getMonth(), t.end.getDate()) : t.end
+  // Segment "reconduction tacite" : la barre se prolonge jusqu'à la première
+  // date de sortie effective possible à partir d'aujourd'hui — c-a-d aujourd'hui
+  // + préavis (souvent 6 mois), puis effet reporté au dernier jour du trimestre
+  // civil en cours à cette date (règle usuelle du congé en tacite reconduction).
+  function reconductionCutoff(t) {
+    if (!t.reconductionTacite) return t.end
+    const m = String(t.reconductionTacite.preavis || '').match(/(\d+)\s*mois/i)
+    const noticeMonths = m ? parseInt(m[1]) : 6
+    const target = new Date(today)
+    target.setMonth(target.getMonth() + noticeMonths)
+    const quarterEndMonth = Math.floor(target.getMonth() / 3) * 3 + 2 // 2=mars,5=juin,8=sept,11=déc
+    const cutoff = new Date(target.getFullYear(), quarterEndMonth + 1, 0) // dernier jour du trimestre
+    return cutoff > t.end ? cutoff : t.end // jamais avant le terme ferme lui-même
+  }
+  const effectiveEnd = t => reconductionCutoff(t)
   const domainStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
   const domainEnd = withDates.length ? new Date(Math.max(...withDates.map(t => effectiveEnd(t))) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
   const domainMs = domainEnd - domainStart
@@ -1848,6 +1859,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
               <div style={{ fontSize: '10px', color: 'var(--accent)', fontStyle: 'italic' }}>
                 ↻ Reconduction tacite{t.reconductionTacite.periodicite ? ` ${t.reconductionTacite.periodicite}` : ''} au-delà de cette date
                 {t.reconductionTacite.preavis ? ` (préavis ${t.reconductionTacite.preavis})` : ''}
+                <br />Prochaine sortie possible : {fmt(reconductionCutoff(t))}
               </div>
             )}
             {t.breaks.length > 0 && (
