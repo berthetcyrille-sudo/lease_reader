@@ -138,6 +138,7 @@ surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: reg
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
+- break_options: UNIQUEMENT si l'avenant modifie/redefinit les dates de sortie anticipee. Format: TABLEAU DE DATES PURES au format "jj/mm/aaaa" UNIQUEMENT, ex: ["31/12/2030","31/12/2033"]. JAMAIS de phrase descriptive (interdit: "Premiere faculte de conge a l'expiration de la 2e periode triennale le 31/12/2030" — mettre uniquement "31/12/2030"). Si l'avenant dit "renonciation a la resiliation triennale pour la duree ferme de N ans" ou "premier conge possible le jj/mm/aaaa", extraire la ou les date(s) exacte(s) mentionnee(s), pas le texte de la clause (le texte de la clause va dans conditions_break et _sources, pas dans break_options). null si non modifie.
 - franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null}]. null si non concerne.
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
@@ -1115,10 +1116,24 @@ async function fetchInseeIndex(indice, dateStr) {
   return { value: last.v, label: last.q, source: 'INSEE (table)' }
 }
 
+// Les break_options doivent être des dates pures "jj/mm/aaaa". Si le modèle
+// a malgré tout renvoyé une phrase descriptive contenant une date, on extrait
+// cette date plutôt que de perdre l'information silencieusement.
+function sanitizeBreakDates(arr) {
+  if (!Array.isArray(arr)) return arr
+  return arr.map(b => {
+    if (typeof b !== 'string') return null
+    const s = b.trim()
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s
+    const m = s.match(/(\d{1,2}\/\d{1,2}\/\d{4})/)
+    return m ? m[1] : null
+  }).filter(Boolean)
+}
+
 function sanitizeExtracted(data) {
   if (!data || typeof data !== 'object') return data
   const d = { ...data }
-  d.break_options = ensureArray(d.break_options)
+  d.break_options = sanitizeBreakDates(ensureArray(d.break_options))
   // Enrichir les breaks par calcul côté code — fiable à 100%
   if (d.date_effet || d.date_fin) {
     // N'enrichir les breaks par le code que si Claude n'en a pas trouvé
@@ -1146,7 +1161,7 @@ function sanitizeExtracted(data) {
   d.surfaces_apres  = cs(mergeSurfacesByCategory(ensureArray(d.surfaces_apres)))
   if (d.champs_modifies) {
     d.champs_modifies = { ...d.champs_modifies }
-    d.champs_modifies.break_options      = ensureArray(d.champs_modifies.break_options)
+    d.champs_modifies.break_options      = sanitizeBreakDates(ensureArray(d.champs_modifies.break_options))
     d.champs_modifies.surfaces_detail    = cs(ensureArray(d.champs_modifies.surfaces_detail))
     d.champs_modifies.franchise_periodes = ensureArray(d.champs_modifies.franchise_periodes)
     d.champs_modifies.indemnites         = ensureArray(d.champs_modifies.indemnites)
@@ -1992,9 +2007,12 @@ function ResultsView({ item }) {
   const src = d._sources || {}
   const pages = item.data?._pages || {}
   // N'utiliser computeBreaks que si break_options est vide (fallback uniquement)
-  let breaks = (d.break_options && d.break_options.length > 0)
+  // sanitizeBreakDates : filet de sécurité pour les données déjà en base où
+  // break_options contiendrait une phrase descriptive au lieu d'une date pure
+  // (corrigé à la source dans le prompt, mais on ne re-extrait pas l'existant).
+  let breaks = sanitizeBreakDates(d.break_options && d.break_options.length > 0
     ? d.break_options
-    : computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+    : computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme))
 
   // Si duree_ferme est renseignée, supprimer les breaks AVANT date_effet + duree_ferme
   if (d.duree_ferme && d.date_effet) {
