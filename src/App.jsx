@@ -1806,6 +1806,12 @@ function mergedBailData(row) {
         base[k] = v
       }
     })
+    // surfaces_apres (champ séparé, hors champs_modifies) reflète l'assiette
+    // EXACTE post-avenant — prioritaire sur champs_modifies.surfaces_detail,
+    // qui lui n'est presque jamais renseigné pour une simple extension.
+    if (Array.isArray(av.data?.surfaces_apres) && av.data.surfaces_apres.length > 0) {
+      base.surfaces_detail = av.data.surfaces_apres
+    }
   })
   return base
 }
