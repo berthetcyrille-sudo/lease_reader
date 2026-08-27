@@ -105,6 +105,7 @@ REGLES PAR CHAMP:
   1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
   2) "renonce a sa faculte de resiliation triennale" SANS restriction → aucune break triennale, uniquement les dates explicites des CP
   3) "renonce...triennale POUR LA DUREE FERME" ou "aura la faculte de donner conge a l'expiration de la Neme periode triennale pour la premiere fois" → premiere break = date_effet + N*3 ans. PUIS CONTINUER a intervalles de 3 ans supplementaires (N+1, N+2...) TANT QUE la date obtenue reste STRICTEMENT ANTERIEURE a date_fin — ne JAMAIS s'arreter apres la premiere date par defaut. Exemple A (plusieurs breaks): "deuxieme periode triennale pour la premiere fois", date_effet=01/01/2021, date_fin=31/12/2030 → premiere break=31/12/2026 (2*3=6 ans) ; echeance suivante=31/12/2029 (3*3=9 ans), qui est < date_fin donc AJOUTEE aussi → ["31/12/2026","31/12/2029"]. Exemple B (un seul break, car l'echeance suivante coincide avec la fin du bail): meme formulation, date_effet=30/06/2025, date_fin=29/06/2034 → premiere break=30/06/2031 (6 ans) ; echeance suivante=30/06/2034 (9 ans) qui EGALE (a 1 jour pres) date_fin donc EXCLUE → ["30/06/2031"] uniquement
+  3bis) "renonce a sa faculte de resiliation triennale pour la duree ferme" avec duree_ferme exprimee en annees NON multiple de 3 (ex: 7 ans) et le texte precise "aura la faculte de donner conge au plus tot pour le [date]" → cette date explicite (= date_effet + duree_ferme, meme si duree_ferme n'est pas un multiple de 3) est la premiere break. Le droit triennal reste ANCRE SUR LE RYTHME D'ORIGINE depuis date_effet (annees 3, 6, 9, 12...) — la break SUIVANTE est le PROCHAIN multiple de 3 STRICTEMENT SUPERIEUR a duree_ferme, PAS premiere_break+3. Exemple: date_effet=01/09/2022, duree_ferme=7 ans (renonciation aux echeances 3 et 6), "conge au plus tot pour le 31 aout 2029" → premiere break=31/08/2029 (annee 7) ; prochain multiple de 3 apres 7 = 9 → echeance suivante=31/08/2031 (annee 9, PAS annee 10=2032) ; date_fin=31/08/2034 (12 ans) → annee 12 EXCLUE (=date_fin) → ["31/08/2029","31/08/2031"]
   4) "a l'expiration de la Neme annee" → date_effet + N ans
   Ne PAS inclure date_fin.
 - loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
@@ -678,6 +679,7 @@ REGLES DE CALCUL (lire attentivement la clause, ne pas appliquer mecaniquement):
 1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
 2) "renonce expressement a sa faculte de resiliation triennale" SANS restriction → PAS de break triennale, uniquement dates explicites des CP
 3) "renonce...triennale POUR LA DUREE FERME" OU "aura la faculte de donner conge a l'expiration de la Neme periode triennale pour la premiere fois" → premiere break = date_effet + N*3 ans. PUIS CONTINUER a intervalles de 3 ans supplementaires (N+1, N+2...) TANT QUE la date obtenue reste STRICTEMENT ANTERIEURE a date_fin — ne JAMAIS s'arreter apres la premiere date par defaut. EXEMPLE A (plusieurs breaks): "deuxieme periode triennale pour la premiere fois", date_effet=01/01/2021, date_fin=31/12/2030 → premiere break=31/12/2026 (6 ans) ; echeance suivante=31/12/2029 (9 ans) < date_fin donc AJOUTEE → ["31/12/2026","31/12/2029"]. EXEMPLE B (un seul, car l'echeance suivante coincide avec la fin du bail): meme formulation, date_effet=30/06/2025, date_fin=29/06/2034 → premiere break=30/06/2031 (6 ans) ; echeance suivante=30/06/2034 (9 ans) = date_fin (a 1 jour pres) donc EXCLUE → ["30/06/2031"] uniquement
+3bis) "renonce a sa faculte de resiliation triennale pour la duree ferme" avec duree_ferme NON multiple de 3 (ex: 7 ans) et une date de conge explicite "au plus tot" → cette date (date_effet + duree_ferme) est la premiere break, MAIS le rythme triennal suivant reste ANCRE sur date_effet (annees 3,6,9,12...) — la break suivante = prochain multiple de 3 STRICTEMENT SUPERIEUR a duree_ferme, PAS premiere_break+3. EXEMPLE: date_effet=01/09/2022, duree_ferme=7 ans, conge au plus tot 31/08/2029 → premiere break=31/08/2029 (annee 7) ; prochain multiple de 3 apres 7 = annee 9 → echeance suivante=31/08/2031 (PAS 2032) ; date_fin=31/08/2034 (annee 12, EXCLUE) → ["31/08/2029","31/08/2031"]
 4) "a l'expiration de la Neme annee" → date_effet + N ans
 CP priment toujours sur CG. Trier chronologiquement. Ne PAS inclure date_fin.`
 
@@ -843,15 +845,18 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
     if (hasTriennale) {
       // If duree_ferme > 3 ans, first break starts at duree_ferme (not year 3)
       // This handles "renonce à la 1ère triennale, ferme 6 ans → break à 6 ans puis tous les 3 ans"
-      let startYear = 3
       if (dureeFerme && dureeFerme.years > 3) {
-        startYear = dureeFerme.years
-        // First break at duree_ferme
+        // First break at duree_ferme (peut ne pas être un multiple de 3, ex:
+        // durée ferme 7 ans → premier congé possible "au plus tôt" à l'année 7).
         const firstBreak = new Date(effet.getFullYear() + dureeFerme.years, effet.getMonth() + (dureeFerme.months || 0), effet.getDate() - 1)
         if (firstBreak > effet && firstBreak < fin) candidates.add(fmtFR(firstBreak))
-        // Puis toutes les 3 ans jusqu'à date_fin (garde-fou anti-boucle à 20 itérations, pas une limite métier)
-        for (let i = 1; i < 20; i++) {
-          const y = startYear + i * 3
+        // Le droit triennal reste ancré sur le rythme D'ORIGINE (années 3,6,9,12...
+        // depuis date_effet), PAS un nouveau cycle qui repartirait de duree_ferme.
+        // Ex: ferme 7 ans (renonciation aux échéances 3 et 6) → prochaine échéance
+        // = année 9 (prochain multiple de 3 après 7), PAS année 7+3=10.
+        let nextTri = Math.ceil(dureeFerme.years / 3) * 3
+        if (nextTri <= dureeFerme.years) nextTri += 3 // si duree_ferme est déjà un multiple de 3, passer au suivant
+        for (let y = nextTri; y < nextTri + 60; y += 3) { // garde-fou anti-boucle, pas une limite métier
           const d = addYearsExpiry(effet, y)
           if (d >= fin) break
           candidates.add(fmtFR(d))
