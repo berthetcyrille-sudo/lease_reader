@@ -179,11 +179,11 @@ button, input { font-family: inherit; cursor: pointer; }
 
 .dash-table { flex: 1; overflow-y: auto; }
 
-.dash-thead { display: grid; grid-template-columns: 1.6fr 1.2fr 70px 120px 140px 100px 120px 136px; gap: 10px; padding: 0; border-bottom: 1px solid var(--border2); background: var(--surface2); position: sticky; top: -28px; z-index: 2; }
+.dash-thead { display: grid; grid-template-columns: 1.5fr 1.1fr 70px 90px 120px 140px 100px 120px 136px; gap: 10px; padding: 0; border-bottom: 1px solid var(--border2); background: var(--surface2); position: sticky; top: -28px; z-index: 2; }
 .dash-th { padding: 9px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); white-space: nowrap; }
 .dash-th-right { text-align: right; }
 
-.dash-row { display: grid; grid-template-columns: 1.6fr 1.2fr 70px 120px 140px 100px 120px 136px; gap: 10px; padding: 0; border-bottom: 1px solid var(--border); cursor: pointer; transition: all .18s; position: relative; background: var(--surface); overflow: visible; }
+.dash-row { display: grid; grid-template-columns: 1.5fr 1.1fr 70px 90px 120px 140px 100px 120px 136px; gap: 10px; padding: 0; border-bottom: 1px solid var(--border); cursor: pointer; transition: all .18s; position: relative; background: var(--surface); overflow: visible; }
 .dash-row:hover { background: var(--accent-bg); box-shadow: -2px 0 0 var(--accent); }
 .dash-row-av { background: var(--surface2); }
 .dash-row-av:hover { background: var(--accent-bg); }
