@@ -1880,9 +1880,15 @@ function EtatLocatifModal({ building, bails, onClose }) {
         (r.niveau || r.localisation) && !(r.categorie || '').toLowerCase().includes('station')
       )
       if (detailRows.length > 0) {
+        // Un seul étage occupé : la "surface totale" du bail (surface exploitée
+        // le cas échéant, incluant la quote-part de parties communes) s'applique
+        // entièrement à cet étage — on la préfère à la ligne de détail, qui peut
+        // ne représenter que le lot de bureaux hors quote-part.
+        const totalM2 = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
         detailRows.forEach(r => {
           const label = r.niveau || r.localisation
-          const surface = parseFloat(String(r.surface_m2 || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
+          const rowSurface = parseFloat(String(r.surface_m2 || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
+          const surface = (detailRows.length === 1 && totalM2 > 0) ? totalM2 : rowSurface
           if (!groups[label]) groups[label] = { key: label, label, tenants: [], sortKey: extractFloorInfo(label)?.key ?? 9999 }
           groups[label].tenants.push({ ...commonTenant, surface })
         })
