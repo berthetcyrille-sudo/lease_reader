@@ -2936,8 +2936,7 @@ function QualityCheckModal({ bails, onClose, onSelect }) {
   )
 }
 
-function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant }) {
-  const [filter, setFilter] = useState('all')
+function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
   const [extractionErrors, setExtractionErrors] = useState(null) // null or array of {name, reason}
@@ -2959,7 +2958,6 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
 
   // Flatten all items for table
   const [expanded, setExpanded] = useState({})
-  const [search, setSearch] = useState('')
   const [sortDir, setSortDir] = useState('asc')
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
@@ -3446,11 +3444,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
             </div>
             <div className="dash-th" style={{ gridColumn: '2' }}>Preneur</div>
             <div className="dash-th" style={{ gridColumn: '3' }}>Type</div>
-            <div className="dash-th" style={{ gridColumn: '4' }}>Date effet</div>
-            <div className="dash-th" style={{ gridColumn: '5' }}>Date fin</div>
-            <div className="dash-th" style={{ gridColumn: '6' }}>Break</div>
-            <div className="dash-th dash-th-right" style={{ gridColumn: '7' }}>Loyer HT/HC à la signature</div>
-            <div style={{ gridColumn: '8' }}/>
+            <div className="dash-th dash-th-right" style={{ gridColumn: '4' }}>Surface</div>
+            <div className="dash-th" style={{ gridColumn: '5' }}>Date effet</div>
+            <div className="dash-th" style={{ gridColumn: '6' }}>Date fin</div>
+            <div className="dash-th" style={{ gridColumn: '7' }}>Break</div>
+            <div className="dash-th dash-th-right" style={{ gridColumn: '8' }}>Loyer HT/HC à la signature</div>
+            <div style={{ gridColumn: '9' }}/>
           </div>
           {sortedFiltered.map((row, rowIdx) => {
             // Group header
@@ -3503,6 +3502,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                   date_effet: row.data?.date_effet_avenant || mods.date_effet || null,
                   date_fin: mods.date_fin || bailBase.date_fin,
                   break_options: mods.break_options || bailBase.break_options,
+                  surface_totale_m2: mods.surface_totale_m2 ?? bailBase.surface_totale_m2,
                   objet_avenant: row.data?.objet_avenant,
                 }
               : (row.data || {})
@@ -3608,6 +3608,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                       ⚠ Bail manquant
                     </span>
                   )}
+                </div>
+
+                {/* Surface */}
+                <div className="dash-td dash-td-right">
+                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
+                    {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
+                  </span>
                 </div>
 
                 {/* Date effet */}
@@ -3783,6 +3790,10 @@ export default function App() {
   const [showEtatLocatifMenu, setShowEtatLocatifMenu] = useState(false)
   const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
   const [showQualityCheck, setShowQualityCheck] = useState(false)
+  // Recherche/filtre du dashboard remontés ici (plutôt que locaux à Dashboard)
+  // pour survivre à la navigation vers une fiche détail et retour.
+  const [dashSearch, setDashSearch] = useState('')
+  const [dashFilter, setDashFilter] = useState('all')
   const [docTypes,     setDocTypes]     = useState([])     // 'bail'|'avenant'|'' per file
   const [fileOrder,    setFileOrder]    = useState([])     // indices ordonnés
   const [detecting,    setDetecting]    = useState(false)  // détection en cours
@@ -4324,6 +4335,10 @@ export default function App() {
                   newIds={newIds}
                   onRefresh={refreshHistoryNow}
                   onNewAvenant={id => setNewIds(prev => [...prev, id])}
+                  filter={dashFilter}
+                  setFilter={setDashFilter}
+                  search={dashSearch}
+                  setSearch={setDashSearch}
                   onUpdateActif={(id, value) => {
                     setHistory(prev => prev.map(b => {
                       if (b.id === id) return { ...b, actif_group: value || null }
