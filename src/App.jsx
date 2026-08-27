@@ -1892,10 +1892,18 @@ function EtatLocatifModal({ building, bails, onClose }) {
           estimatedField = 'start'
         }
       }
+      // Fusionne (union) les breaks déjà stockés avec le calcul déterministe —
+      // rattrape à l'affichage les extractions antérieures au renforcement de
+      // computeBreaks (ex: 3e échéance triennale manquante en base).
+      const storedBreaks = sanitizeBreakDates(d.break_options || [])
+      const computedBreaksEL = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+      const mergedBreaksSet = new Set(storedBreaks.map(b => b.trim()))
+      computedBreaksEL.forEach(c => mergedBreaksSet.add(c))
+      const mergedBreaks = [...mergedBreaksSet].sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
       const commonTenant = {
         name: shortPartyName(d.preneur) || row.file_name,
         start, end, estimated, estimatedField,
-        breaks: (d.break_options || []).map(parseFrDate).filter(Boolean),
+        breaks: mergedBreaks.map(parseFrDate).filter(Boolean),
         loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
         reconductionTacite: d.reconduction_tacite?.applicable ? {
           preavis: d.reconduction_tacite.preavis || null,
@@ -2217,13 +2225,19 @@ function ResultsView({ item }) {
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
   const src = d._sources || {}
   const pages = item.data?._pages || {}
-  // N'utiliser computeBreaks que si break_options est vide (fallback uniquement)
   // sanitizeBreakDates : filet de sécurité pour les données déjà en base où
-  // break_options contiendrait une phrase descriptive au lieu d'une date pure
-  // (corrigé à la source dans le prompt, mais on ne re-extrait pas l'existant).
-  let breaks = sanitizeBreakDates(d.break_options && d.break_options.length > 0
-    ? d.break_options
-    : computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme))
+  // break_options contiendrait une phrase descriptive au lieu d'une date pure.
+  // computeBreaks tourne TOUJOURS et vient compléter (union) ce qui est déjà
+  // stocké — pas seulement en fallback si vide — pour rattraper à l'affichage
+  // les extractions faites avant le renforcement de ce calcul (ex: 3e break
+  // triennale manquante alors que les 2 premières étaient déjà en base).
+  let breaks = sanitizeBreakDates(d.break_options || [])
+  const computedBreaks = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+  if (computedBreaks.length > 0) {
+    const existingSet = new Set(breaks.map(b => b.trim()))
+    computedBreaks.forEach(c => { if (!existingSet.has(c)) { breaks.push(c); existingSet.add(c) } })
+    breaks.sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
+  }
 
   // Si duree_ferme est renseignée, supprimer les breaks AVANT date_effet + duree_ferme
   if (d.duree_ferme && d.date_effet) {
