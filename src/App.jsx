@@ -824,10 +824,14 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
             : ordinal.startsWith('troisi') || ordinal.startsWith('3') ? 3
             : ordinal.startsWith('quatri') || ordinal.startsWith('4') ? 4 : null
     if (n) {
-      // First break at N×3 years, then every 3 years after
-      for (let i = n; i * 3 < 12; i++) {
+      // First break at N×3 years, puis toutes les 3 ans jusqu'à date_fin.
+      // (Le "20" est un simple garde-fou anti-boucle-infinie, pas une limite
+      // métier — avant, un plafond fixe à 12 ans coupait trop tôt les baux
+      // plus longs, ex: manquant la break à 2035 sur un bail de 12+ ans.)
+      for (let i = n; i < 20; i++) {
         const d = addYearsExpiry(effet, i * 3)
-        if (d < fin) candidates.add(fmtFR(d))
+        if (d >= fin) break
+        candidates.add(fmtFR(d))
       }
     }
   }
@@ -844,16 +848,20 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
         // First break at duree_ferme
         const firstBreak = new Date(effet.getFullYear() + dureeFerme.years, effet.getMonth() + (dureeFerme.months || 0), effet.getDate() - 1)
         if (firstBreak > effet && firstBreak < fin) candidates.add(fmtFR(firstBreak))
-        // Then every 3 years
-        for (let y = startYear + 3; y < startYear + 9; y += 3) {
+        // Puis toutes les 3 ans jusqu'à date_fin (garde-fou anti-boucle à 20 itérations, pas une limite métier)
+        for (let i = 1; i < 20; i++) {
+          const y = startYear + i * 3
           const d = addYearsExpiry(effet, y)
-          if (d < fin) candidates.add(fmtFR(d))
+          if (d >= fin) break
+          candidates.add(fmtFR(d))
         }
       } else {
-        // Standard: every 3 years from year 3
-        for (let y = 3; y < 9; y += 3) {
+        // Standard: tous les 3 ans à partir de l'année 3, jusqu'à date_fin
+        for (let i = 1; i < 20; i++) {
+          const y = i * 3
           const d = addYearsExpiry(effet, y)
-          if (d < fin) candidates.add(fmtFR(d))
+          if (d >= fin) break
+          candidates.add(fmtFR(d))
         }
       }
     }
