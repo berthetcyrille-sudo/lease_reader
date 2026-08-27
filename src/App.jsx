@@ -1483,7 +1483,7 @@ function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue }) 
   )
 }
 
-function SurfaceTable({ surfaces }) {
+function SurfaceTable({ surfaces, totalDeclared }) {
   const safe = Array.isArray(surfaces) ? surfaces : []
   if (!safe.length) return null
   const isPark = r => { const cat = (r.categorie || r.typologie || '').toLowerCase(); return cat.includes('station') || cat.includes('parking') || cat.includes('place') }
@@ -1492,6 +1492,12 @@ function SurfaceTable({ surfaces }) {
   const total = mainRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
   const totalLoyer = safe.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
   const parkTotalLoyer = parkRows.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
+  // Écart entre la somme du détail et la surface totale déclarée du bail —
+  // typiquement une quote-part de parties communes (« Surface Exploitée »,
+  // SUBL, surface utile...) non ventilée ligne par ligne.
+  const declared = parseFloat(String(totalDeclared || '').replace(',', '.')) || 0
+  const commonAreaGap = declared > 0 && total > 0 ? declared - total : 0
+  const hasNotableGap = Math.abs(commonAreaGap) > Math.max(1, declared * 0.01)
 
   // Compute unit price ONLY if both loyer_annuel AND surface_m2 are present
   const unitPrice = r => {
@@ -1544,6 +1550,16 @@ function SurfaceTable({ surfaces }) {
                       ? fmtEur(mainRows.reduce((a,r) => a + (parseAmount(r.loyer_annuel)||0), 0)) : '—'}
                   </td>
                 </tr>
+                {hasNotableGap && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '6px 10px 8px', fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
+                      {commonAreaGap > 0
+                        ? <>Écart de <strong>+{commonAreaGap.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m²</strong> avec la surface totale louée ({declared.toLocaleString('fr-FR')} m²) — probablement une quote-part de parties communes non ventilée (bail parlant de « Surface Exploitée », SUBL, ou surface utile).</>
+                        : <>La surface totale louée déclarée ({declared.toLocaleString('fr-FR')} m²) est inférieure de {Math.abs(commonAreaGap).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m² à la somme du détail ci-dessus — à vérifier.</>
+                      }
+                    </td>
+                  </tr>
+                )}
               </tfoot>
             )}
           </table>
@@ -2385,15 +2401,28 @@ function ResultsView({ item }) {
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Surfaces</div></div>
           <div className="gx">
-            {show('surface_totale_m2') && (
-              <div className="field">
-                <div className="field-lbl">Surface totale louée</div>
-                <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
-                  <PageJumpIcon item={item} pages={pages} field="surface_totale_m2" />
+            {show('surface_totale_m2') && (() => {
+              const detailSumHero = (Array.isArray(d.surfaces_detail) ? d.surfaces_detail : [])
+                .filter(r => !(r.categorie || '').toLowerCase().includes('station'))
+                .reduce((a, r) => a + (parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0), 0)
+              const totalHero = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
+              const gapHero = totalHero > 0 && detailSumHero > 0 ? totalHero - detailSumHero : 0
+              const showGapNote = gapHero > Math.max(1, totalHero * 0.01)
+              return (
+                <div className="field">
+                  <div className="field-lbl">Surface totale louée</div>
+                  <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
+                    <PageJumpIcon item={item} pages={pages} field="surface_totale_m2" />
+                  </div>
+                  {showGapNote && (
+                    <div style={{ fontSize: '10.5px', color: 'var(--text3)', fontStyle: 'italic', marginTop: '2px' }}>
+                      dont {gapHero.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m² de quote-part parties communes non ventilée
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )
+            })()}
             {show('parking_nb_places') && (() => {
               const pkUnit = computeParkingUnitPrice(d.parking_nb_places, d.surfaces_detail)
               return (
@@ -2547,7 +2576,7 @@ function ResultsView({ item }) {
             return (
               <div style={{ marginBottom: '16px' }}>
                 <div className="field-lbl" style={{ marginBottom: '6px' }}>Ventilation du loyer par composante</div>
-                <SurfaceTable surfaces={enriched} />
+                <SurfaceTable surfaces={enriched} totalDeclared={d.surface_totale_m2} />
               </div>
             )
           })()}
