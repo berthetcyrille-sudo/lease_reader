@@ -95,7 +95,8 @@ CHAMPS:
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
 - reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle"}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. null si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
-- surfaces_detail: TOUTES les composantes du loyer avec leur surface et loyer annuel. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple: [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. categorie: etage/plateau->Bureaux, terrasse/rooftop->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. La SOMME des loyer_annuel doit etre egale a loyer_signature_montant. La SOMME des surface_m2 (hors Stationnement) doit etre egale a surface_totale_m2 — si ce n'est pas le cas, verifier et corriger l'un des deux avant de repondre.
+- surface_totale_m2: la surface de reference du bail. REGLE: si le bail utilise le terme "Surface Exploitee" (ou variante proche) pour designer la surface globale des locaux, UTILISER CETTE VALEUR pour surface_totale_m2, meme si elle inclut une quote-part des parties communes — c'est la convention de reference dans ce bail. Ne descendre au sous-composant individuel (ex: "Surface de bureaux") QUE si aucune "Surface Exploitee"/surface globale n'est mentionnee. Exemple: "la Surface Exploitee... est de 584,50 m²... les Locaux se decomposent: Surface de bureaux (lot n°11): 510,20 m²" → surface_totale_m2 = 584.50 (la Surface Exploitee), PAS 510.20.
+- surfaces_detail: TOUTES les composantes du loyer avec leur surface et loyer annuel. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple: [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. categorie: etage/plateau->Bureaux, terrasse/rooftop->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. La SOMME des loyer_annuel doit etre egale a loyer_signature_montant. Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
 - _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes, meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null.
@@ -1779,7 +1780,11 @@ function auditBail(row) {
 
   // 3. Incohérence entre surface_totale_m2 (utilisé par le Dashboard) et la
   // somme des lignes de surfaces_detail (utilisée par l'État locatif) — un
-  // écart signale typiquement une ligne manquante ou mal classée à l'extraction.
+  // écart signale soit une ligne manquante/mal classée, soit un cas légitime
+  // "Surface Exploitée" (surface totale incluant une quote-part de parties
+  // communes, distincte de la somme des composantes individuellement louées)
+  // — on ne peut pas distinguer les deux depuis les données déjà extraites,
+  // donc on signale à vérifier sans présumer d'une erreur.
   const detailSum = (Array.isArray(d.surfaces_detail) ? d.surfaces_detail : [])
     .filter(r => !(r.categorie || '').toLowerCase().includes('station'))
     .reduce((a, r) => a + (parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0), 0)
@@ -1789,8 +1794,8 @@ function auditBail(row) {
     if (gap > Math.max(2, totalM2 * 0.02)) {
       issues.push({
         type: 'surface_incoherente',
-        severity: 'high',
-        detail: `Surface totale déclarée ${totalM2} m², mais somme des lignes de surfaces_detail = ${detailSum.toFixed(2)} m² (écart de ${gap.toFixed(2)} m²) — probable ligne manquante ou mal classée`,
+        severity: 'medium',
+        detail: `Surface totale déclarée ${totalM2} m², somme des lignes de surfaces_detail = ${detailSum.toFixed(2)} m² (écart de ${gap.toFixed(2)} m²) — soit une ligne manquante/mal classée, soit un cas légitime "Surface Exploitée" (incluant une quote-part de parties communes) : à vérifier sur le document source`,
       })
     }
   }
