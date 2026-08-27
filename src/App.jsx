@@ -1820,7 +1820,7 @@ function auditBail(row) {
   // légal par défaut pour la quasi-totalité des baux commerciaux — son absence
   // du texte n'est pas anormale et ne justifie pas une vérification systématique.
 
-  return { row, label, issues }
+  return { row, label, issues, dismissed: !!d._qc_dismissed }
 }
 
 // Fusionne les modifications des avenants (triés chronologiquement) sur les
@@ -2957,11 +2957,60 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
 }
 
 // ─── Modale de contrôle qualité ──────────────────────────────────────────────
-function QualityCheckModal({ bails, onClose, onSelect }) {
-  const results = useMemo(() => bails.map(auditBail).filter(r => r.issues.length > 0), [bails])
+function QualityCheckModal({ bails, onClose, onSelect, onDismiss }) {
+  const [showDismissed, setShowDismissed] = useState(false)
+  const [pending, setPending] = useState({}) // { [rowId]: true } — évite double-clic pendant l'écriture
+  const allResults = useMemo(() => bails.map(auditBail).filter(r => r.issues.length > 0), [bails])
+  const activeResults = allResults.filter(r => !r.dismissed)
+  const dismissedResults = allResults.filter(r => r.dismissed)
   const severityColor = { high: 'var(--danger)', medium: 'var(--accent)', low: 'var(--text3)' }
   const severityBg = { high: 'var(--danger-bg)', medium: 'var(--accent-bg)', low: 'var(--surface2)' }
   const severityLabel = { high: 'À vérifier en priorité', medium: 'À vérifier', low: 'Info' }
+
+  async function handleDismiss(e, rowId, dismissed) {
+    e.stopPropagation()
+    if (pending[rowId]) return
+    setPending(prev => ({ ...prev, [rowId]: true }))
+    await onDismiss?.(rowId, dismissed)
+    setPending(prev => { const n = { ...prev }; delete n[rowId]; return n })
+  }
+
+  function ResultCard({ r, dismissedCard }) {
+    return (
+      <div key={r.row.id} onClick={() => onSelect(r.row)}
+        style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', cursor: 'pointer', opacity: dismissedCard ? 0.6 : 1 }}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
+        onMouseLeave={e => e.currentTarget.style.background = ''}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px', marginBottom: '6px' }}>
+          <div style={{ fontWeight: 700, fontSize: '13px' }}>{r.label}</div>
+          <button
+            onClick={e => handleDismiss(e, r.row.id, !dismissedCard)}
+            disabled={pending[r.row.id]}
+            title={dismissedCard ? 'Réafficher dans la liste active' : 'Marquer comme vérifié — ne réapparaîtra plus'}
+            style={{
+              flexShrink: 0, fontSize: '11px', fontWeight: 600, padding: '3px 9px', borderRadius: '999px', cursor: pending[r.row.id] ? 'default' : 'pointer',
+              border: `1px solid ${dismissedCard ? 'var(--border2)' : 'var(--success)'}`,
+              background: dismissedCard ? 'var(--surface)' : 'var(--success-bg)',
+              color: dismissedCard ? 'var(--text3)' : 'var(--success)',
+              opacity: pending[r.row.id] ? 0.5 : 1,
+            }}>
+            {dismissedCard ? '↺ Réafficher' : '✓ Vérifié'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          {r.issues.map((iss, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+              <span style={{
+                fontSize: '10px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px', flexShrink: 0, marginTop: '1px',
+                color: severityColor[iss.severity], background: severityBg[iss.severity],
+              }}>{severityLabel[iss.severity]}</span>
+              <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{iss.detail}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -2977,36 +3026,34 @@ function QualityCheckModal({ bails, onClose, onSelect }) {
         </div>
 
         <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
-          {results.length === 0 ? (
+          {allResults.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
               Aucun cas suspect détecté sur les {bails.length} bail{bails.length !== 1 ? 'x' : ''} analysé{bails.length !== 1 ? 's' : ''}.
             </div>
           ) : (
             <>
               <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '10px' }}>
-                {results.length} bail{results.length !== 1 ? 'x' : ''} sur {bails.length} présentent au moins un point à vérifier.
+                {activeResults.length} bail{activeResults.length !== 1 ? 'x' : ''} sur {bails.length} présentent au moins un point à vérifier.
+                {dismissedResults.length > 0 && (
+                  <span onClick={() => setShowDismissed(v => !v)} style={{ marginLeft: '8px', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}>
+                    {showDismissed ? 'Masquer' : 'Afficher aussi'} les {dismissedResults.length} déjà vérifié{dismissedResults.length !== 1 ? 's' : ''}
+                  </span>
+                )}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {results.map(r => (
-                  <div key={r.row.id} onClick={() => onSelect(r.row)}
-                    style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', cursor: 'pointer' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '6px' }}>{r.label}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                      {r.issues.map((iss, i) => (
-                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                          <span style={{
-                            fontSize: '10px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px', flexShrink: 0, marginTop: '1px',
-                            color: severityColor[iss.severity], background: severityBg[iss.severity],
-                          }}>{severityLabel[iss.severity]}</span>
-                          <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{iss.detail}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {activeResults.length === 0 ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+                  Tout est vérifié pour l'instant 🎉
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {activeResults.map(r => <ResultCard key={r.row.id} r={r} dismissedCard={false} />)}
+                </div>
+              )}
+              {showDismissed && dismissedResults.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
+                  {dismissedResults.map(r => <ResultCard key={r.row.id} r={r} dismissedCard={true} />)}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -4400,6 +4447,13 @@ export default function App() {
             bails={history.filter(row => row.document_type === 'bail')}
             onClose={() => setShowQualityCheck(false)}
             onSelect={row => { setShowQualityCheck(false); setActiveItem(row); navigate(`/bail/${row.id}`) }}
+            onDismiss={async (rowId, dismissed) => {
+              const row = history.find(b => b.id === rowId)
+              if (!row) return
+              const newData = { ...row.data, _qc_dismissed: dismissed }
+              await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
+              setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
+            }}
           />
         )}
 
