@@ -3845,6 +3845,47 @@ export default function App() {
     setHistLoaded(true)
   }
 
+  // ─── Navigation par URL (API History native — pas de librairie de routage) ──
+  // /               → dashboard
+  // /bail/{id}      → fiche détail d'un bail ou avenant
+  // /etat-locatif/{immeuble encodé} → état locatif d'un actif groupant
+  function navigate(path) {
+    if (window.location.pathname !== path) window.history.pushState({}, '', path)
+  }
+
+  async function loadItemById(id) {
+    const { data } = await supabase.from('extractions')
+      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
+      .eq('id', id).single()
+    return data || null
+  }
+
+  async function applyUrlState() {
+    const path = window.location.pathname
+    const bailMatch = path.match(/^\/bail\/([^/]+)/)
+    const etatMatch = path.match(/^\/etat-locatif\/([^/]+)/)
+    if (bailMatch) {
+      const item = await loadItemById(decodeURIComponent(bailMatch[1]))
+      setEtatLocatifBuilding(null)
+      setActiveItem(item) // null si id introuvable/supprimé → retombe proprement sur le dashboard
+    } else if (etatMatch) {
+      setActiveItem(null)
+      setEtatLocatifBuilding(decodeURIComponent(etatMatch[1]))
+    } else {
+      setActiveItem(null)
+      setEtatLocatifBuilding(null)
+    }
+  }
+
+  // Lien direct/partagé ouvert à froid : appliquer l'URL au montage
+  useEffect(() => { applyUrlState() }, [])
+
+  // Boutons précédent/suivant du navigateur
+  useEffect(() => {
+    window.addEventListener('popstate', applyUrlState)
+    return () => window.removeEventListener('popstate', applyUrlState)
+  }, [])
+
   // Le Dashboard est désormais la seule page (plus d'onglet "Extraire" séparé
   // à cliquer en premier) — il faut donc charger l'historique dès le montage.
   useEffect(() => { loadHistory() }, [])
@@ -3854,6 +3895,7 @@ export default function App() {
     function handler(e) {
       setEtatLocatifBuilding(null)
       setActiveItem(e.detail)
+      navigate(`/bail/${e.detail.id}`)
     }
     window.addEventListener('etatlocatif-select', handler)
     return () => window.removeEventListener('etatlocatif-select', handler)
@@ -4213,7 +4255,7 @@ export default function App() {
     <>
       <div className="app">
         <header className="topbar">
-          <div onClick={() => { setActiveItem(null); switchTab('history') }} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer' }}>
+          <div onClick={() => { setActiveItem(null); navigate('/'); switchTab('history') }} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
@@ -4249,7 +4291,7 @@ export default function App() {
                 ) : buildingGroups.map(g => (
                   <div
                     key={g.name}
-                    onClick={() => { setEtatLocatifBuilding(g.name); setShowEtatLocatifMenu(false) }}
+                    onClick={() => { setEtatLocatifBuilding(g.name); setShowEtatLocatifMenu(false); navigate(`/etat-locatif/${encodeURIComponent(g.name)}`) }}
                     style={{ padding: '9px 12px', fontSize: '13px', cursor: 'pointer', borderBottom: '1px solid var(--border)', color: 'var(--text)' }}
                     onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
                     onMouseLeave={e => e.currentTarget.style.background = ''}>
@@ -4278,7 +4320,7 @@ export default function App() {
           <QualityCheckModal
             bails={history.filter(row => row.document_type === 'bail')}
             onClose={() => setShowQualityCheck(false)}
-            onSelect={row => { setShowQualityCheck(false); setActiveItem(row) }}
+            onSelect={row => { setShowQualityCheck(false); setActiveItem(row); navigate(`/bail/${row.id}`) }}
           />
         )}
 
@@ -4286,7 +4328,7 @@ export default function App() {
           <EtatLocatifModal
             building={etatLocatifBuilding}
             bails={history.filter(row => row.document_type === 'bail' && row.actif_group === etatLocatifBuilding)}
-            onClose={() => setEtatLocatifBuilding(null)}
+            onClose={() => { setEtatLocatifBuilding(null); navigate('/') }}
           />
         )}
 
@@ -4302,7 +4344,7 @@ export default function App() {
               <div className="result-title">{resultTitle}</div>
               {resultSub && <div className="result-sub">{resultSub}</div>}
               <div className="result-actions">
-                <button className="btn back" onClick={() => setActiveItem(null)}>← Retour au dashboard</button>
+                <button className="btn back" onClick={() => { setActiveItem(null); navigate('/') }}>← Retour au dashboard</button>
                 <button className="btn primary" onClick={() => {
                   const bailParent = history.find(b => b.avenants?.some(a => a.id === activeItem.id))
                   exportToExcel(
@@ -4328,7 +4370,7 @@ export default function App() {
                 <Dashboard
                   tree={history}
                   totalCounts={totalCounts}
-                  onSelect={item => setActiveItem(item)}
+                  onSelect={item => { setActiveItem(item); navigate(`/bail/${item.id}`) }}
                   onDelete={handleDeleteItem}
                   onClear={handleClearHistory}
                   onExportAll={() => exportAllToExcel(history, setExportErrors)}
