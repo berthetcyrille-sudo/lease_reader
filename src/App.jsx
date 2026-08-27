@@ -3600,7 +3600,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                 </div>
 
                 {/* Type */}
-                <div className="dash-td">
+                <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px', flexDirection: 'column', gap: '3px' }}>
                   <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`}>
                     {isAv ? 'Avenant' : 'Bail'}
                   </span>
@@ -3617,8 +3617,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                 </div>
 
                 {/* Surface */}
-                <div className="dash-td dash-td-right">
-                  <span style={{ fontSize: '12px', color: 'var(--text2)' }}>
+                <div className="dash-td dash-td-right" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>
                     {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
                   </span>
                 </div>
@@ -3634,7 +3634,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                 </div>
 
                 {/* Break */}
-                <div className="dash-td">
+                <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   {breaks.length > 0 ? (
                     <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
                       {breaks
@@ -3648,7 +3648,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                 </div>
 
                 {/* Loyer */}
-                <div className="dash-td dash-td-right">
+                <div className="dash-td dash-td-right" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   {d.loyer_signature_montant ? (
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>
                       {fmtEur(d.loyer_signature_montant)}
