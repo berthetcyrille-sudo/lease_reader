@@ -1867,6 +1867,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
       let start = parseFrDate(d.date_effet)
       let end = parseFrDate(d.date_fin)
       let estimated = false
+      let estimatedField = null // 'end' | 'start' — précise quelle date a été calculée
       // Cas VEFA : la date de fin est souvent formulée en relatif
       // ("9 ans à compter de la Date de Livraison") plutôt qu'en date fixe.
       // Si on a une date de départ (même prévisionnelle) et une durée totale,
@@ -1877,11 +1878,23 @@ function EtatLocatifModal({ building, bails, onClose }) {
           end = new Date(start)
           end.setFullYear(end.getFullYear() + parseInt(m[1]))
           estimated = true
+          estimatedField = 'end'
+        }
+      } else if (end && !start) {
+        // Cas symétrique : date de fin connue mais date d'effet absente de
+        // l'extraction (champ manquant, pas forcément un VEFA) — on la
+        // recalcule en remontant depuis la date de fin et la durée totale,
+        // plutôt que de perdre le bail dans le filet "dates non déterminées".
+        const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
+        if (m) {
+          start = new Date(end.getFullYear() - parseInt(m[1]), end.getMonth(), end.getDate() + 1)
+          estimated = true
+          estimatedField = 'start'
         }
       }
       const commonTenant = {
         name: shortPartyName(d.preneur) || row.file_name,
-        start, end, estimated,
+        start, end, estimated, estimatedField,
         breaks: (d.break_options || []).map(parseFrDate).filter(Boolean),
         loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
         reconductionTacite: d.reconduction_tacite?.applicable ? {
@@ -1998,16 +2011,18 @@ function EtatLocatifModal({ building, bails, onClose }) {
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-              <span style={{ color: 'var(--text3)' }}>Prise d'effet</span>
+              <span style={{ color: 'var(--text3)' }}>Prise d'effet{t.estimatedField === 'start' ? ' (estimée)' : ''}</span>
               <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.start)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-              <span style={{ color: 'var(--text3)' }}>{t.reconductionTacite ? 'Fin du terme ferme' : 'Échéance'}{t.estimated ? ' (estimée)' : ''}</span>
+              <span style={{ color: 'var(--text3)' }}>{t.reconductionTacite ? 'Fin du terme ferme' : 'Échéance'}{t.estimatedField === 'end' ? ' (estimée)' : ''}</span>
               <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.end)}</span>
             </div>
             {t.estimated && (
               <div style={{ fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic' }}>
-                Calculée à partir de la durée totale et de la date de livraison prévisionnelle (VEFA)
+                {t.estimatedField === 'start'
+                  ? 'Date d\'effet non extraite — recalculée à partir de la date de fin et de la durée totale'
+                  : 'Calculée à partir de la durée totale et de la date de livraison prévisionnelle (VEFA)'}
               </div>
             )}
             {t.reconductionTacite && (
@@ -2090,7 +2105,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                     <div style={{ position: 'relative', flex: 1, height: `${rowHeight}px` }}>
                       {f.tenants.map((t, i) => {
                         if (!t.start || !t.end) {
-                          // Dates non exploitables (ex. VEFA : "9 ans à compter de la date de livraison")
+                          // Dates non exploitables ni calculables (ni date_effet+durée, ni date_fin+durée)
                           // — on affiche quand même le bail, ancré au début de la frise, plutôt que de le faire disparaître.
                           const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.showRent && t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
                           return (
@@ -2107,7 +2122,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                                 height: '20px', borderRadius: '5px', display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: '10px', fontWeight: 600,
                                 color: 'var(--text3)', background: 'repeating-linear-gradient(45deg, var(--surface2), var(--surface2) 5px, var(--border) 5px, var(--border) 10px)',
                               }}>
-                                ⚠ Dates non déterminées (VEFA)
+                                ⚠ Dates non déterminées
                               </div>
                             </div>
                           )
@@ -2132,7 +2147,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                               {status === 'risk' && <span title="Échéance dans moins de 18 mois">⚠</span>}
                               {t.name}
                               {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)' }}>· {infoLine}</span>}
-                              {t.estimated && <span title="Échéance estimée à partir de la durée totale et de la date de livraison prévisionnelle (VEFA)" style={{ fontWeight: 400, color: 'var(--text3)', fontStyle: 'italic' }}>(estimé)</span>}
+                              {t.estimated && <span title={t.estimatedField === 'start' ? 'Date d\'effet non extraite — recalculée à partir de la date de fin et de la durée totale' : 'Échéance estimée à partir de la durée totale et de la date de livraison prévisionnelle (VEFA)'} style={{ fontWeight: 400, color: 'var(--text3)', fontStyle: 'italic' }}>(estimé)</span>}
                               {t.reconductionTacite && <span title={`Reconduction tacite${t.reconductionTacite.periodicite ? ' ' + t.reconductionTacite.periodicite : ''}${t.reconductionTacite.preavis ? ', préavis ' + t.reconductionTacite.preavis : ''}`} style={{ fontWeight: 400, color: 'var(--accent)', fontStyle: 'italic' }}>↻ reconduction tacite</span>}
                             </div>
                             <div style={{ position: 'relative', height: '20px', borderRadius: '5px', overflow: 'hidden', display: 'flex', border: t.estimated ? '1.5px dashed var(--text3)' : 'none' }}>
