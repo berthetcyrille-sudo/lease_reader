@@ -93,7 +93,7 @@ CHAMPS:
 {"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
 
 REGLES PAR CHAMP:
-- duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
+- duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible). ATTENTION: NE JAMAIS mettre duree_ferme = duree_totale par defaut quand rien n'est explicitement restreint — un bail SANS renonciation ni restriction du droit de resiliation triennale (art. L.145-4) a en realite une duree_ferme implicite de 3 ans (premiere sortie possible), PAS une duree_ferme egale a la duree totale (ce qui reviendrait a interdire toute sortie anticipee, ce qui n'est pas ce que dit le bail dans ce cas). Si aucune duree ferme n'est explicitement chiffree ET qu'aucune renonciation totale n'est exprimee, laisser duree_ferme a null plutot que de la deviner egale a duree_totale.
 - reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle"}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. null si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
 - surface_totale_m2: la surface de reference du bail. REGLE: si le bail utilise le terme "Surface Exploitee" (ou variante proche) pour designer la surface globale des locaux, UTILISER CETTE VALEUR pour surface_totale_m2, meme si elle inclut une quote-part des parties communes — c'est la convention de reference dans ce bail. Ne descendre au sous-composant individuel (ex: "Surface de bureaux") QUE si aucune "Surface Exploitee"/surface globale n'est mentionnee. Exemple: "la Surface Exploitee... est de 584,50 m²... les Locaux se decomposent: Surface de bureaux (lot n°11): 510,20 m²" → surface_totale_m2 = 584.50 (la Surface Exploitee), PAS 510.20.
 - surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple avec ventilation de loyer (toutes les lignes ont un loyer_annuel): [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
@@ -101,7 +101,7 @@ REGLES PAR CHAMP:
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
 - _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes, meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null.
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
-- break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG. REGLE ABSOLUE CONVENTION DE DATE: toute date calculee par addition d'un nombre entier d'annees a date_effet (breaks, ou date_fin si elle doit etre calculee) s'exprime au JOUR ANNIVERSAIRE MOINS 1 JOUR — convention standard des baux commerciaux francais. Exemple: date_effet=15/10/2020, echeance a 6 ans → 15/10/2020 + 6 ans = 15/10/2026, MOINS 1 JOUR = 14/10/2026 (PAS 15/10/2026). Cette regle s'applique a TOUTE date calculee dans break_options ET a date_fin lorsqu'elle doit etre deduite de duree_totale (mais PAS si le bail donne une date de fin EXPLICITE en toutes lettres — dans ce cas utiliser cette date telle quelle, meme si elle ne suit pas cette convention). REGLE ABSOLUE (s'applique a TOUTES les regles ci-dessous, quelle que soit la formulation du bail: "periode triennale", "echeance triennale", "faculte triennale", etc.): les echeances triennales SUCCESSIVES se calculent TOUJOURS comme des multiples de 3 ANS DEPUIS DATE_EFFET (annees 3, 6, 9, 12...), JAMAIS en ajoutant 3 ans a la date de la break precedente. Meme si le bail nomme une premiere sortie a une annee qui n'est pas un multiple de 3 (ex: annee 4, ou annee 7, en fin de duree ferme), l'echeance suivante reste le PROCHAIN multiple de 3 depuis date_effet strictement superieur a cette annee — PAS cette annee + 3. REGLES DE CALCUL:
+- break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG — SAUF si les CP renvoient EXPRESSEMENT a un article des CG pour les modalites de conge/duree (ex: "le PRENEUR pourra delivrer conge selon les modalites convenues a l'article CG2.2 DUREE CONGE du Bail") : dans ce cas, c'est CET ARTICLE DES CG qu'il faut lire et appliquer, pas l'ignorer sous pretexte que les CP priment en general — les CP eux-memes designent les CG comme source de la regle. REGLE ABSOLUE CONVENTION DE DATE: toute date calculee par addition d'un nombre entier d'annees a date_effet (breaks, ou date_fin si elle doit etre calculee) s'exprime au JOUR ANNIVERSAIRE MOINS 1 JOUR — convention standard des baux commerciaux francais. Exemple: date_effet=15/10/2020, echeance a 6 ans → 15/10/2020 + 6 ans = 15/10/2026, MOINS 1 JOUR = 14/10/2026 (PAS 15/10/2026). Cette regle s'applique a TOUTE date calculee dans break_options ET a date_fin lorsqu'elle doit etre deduite de duree_totale (mais PAS si le bail donne une date de fin EXPLICITE en toutes lettres — dans ce cas utiliser cette date telle quelle, meme si elle ne suit pas cette convention). REGLE ABSOLUE (s'applique a TOUTES les regles ci-dessous, quelle que soit la formulation du bail: "periode triennale", "echeance triennale", "faculte triennale", etc.): les echeances triennales SUCCESSIVES se calculent TOUJOURS comme des multiples de 3 ANS DEPUIS DATE_EFFET (annees 3, 6, 9, 12...), JAMAIS en ajoutant 3 ans a la date de la break precedente. Meme si le bail nomme une premiere sortie a une annee qui n'est pas un multiple de 3 (ex: annee 4, ou annee 7, en fin de duree ferme), l'echeance suivante reste le PROCHAIN multiple de 3 depuis date_effet strictement superieur a cette annee — PAS cette annee + 3. REGLES DE CALCUL:
   1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
   2) "renonce a sa faculte de resiliation triennale" SANS restriction → aucune break triennale, uniquement les dates explicites des CP
   3) "renonce...triennale POUR LA DUREE FERME" ou "aura la faculte de donner conge a l'expiration de la Neme periode/echeance triennale pour la premiere fois" → premiere break = date_effet + N*3 ans. PUIS CONTINUER a intervalles de 3 ans supplementaires (N+1, N+2...) TANT QUE la date obtenue reste STRICTEMENT ANTERIEURE a date_fin — ne JAMAIS s'arreter apres la premiere date par defaut. Exemple A (plusieurs breaks): "deuxieme periode triennale pour la premiere fois", date_effet=01/01/2021, date_fin=31/12/2030 → premiere break=31/12/2026 (2*3=6 ans) ; echeance suivante=31/12/2029 (3*3=9 ans), qui est < date_fin donc AJOUTEE aussi → ["31/12/2026","31/12/2029"]. Exemple B (un seul break, car l'echeance suivante coincide avec la fin du bail): meme formulation, date_effet=30/06/2025, date_fin=29/06/2034 → premiere break=30/06/2031 (6 ans) ; echeance suivante=30/06/2034 (9 ans) qui EGALE (a 1 jour pres) date_fin donc EXCLUE → ["30/06/2031"] uniquement
@@ -849,9 +849,16 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
     // fragile : une formulation différente, ou un extrait _sources incomplet,
     // faisait échouer silencieusement toute la détection).
     {
+      // Une "duree ferme" incoherente (>= duree totale du bail, sans qu'un
+      // renoncement total ait ete detecte) trahit typiquement une erreur
+      // d'extraction — pas une vraie donnee bloquant tout droit de sortie.
+      // On ne s'y fie que si elle laisse une marge reelle avant date_fin.
+      const totalSpanYears = (fin - effet) / (1000 * 60 * 60 * 24 * 365.25)
+      const dureeFermeFiable = dureeFerme && dureeFerme.years > 3 && dureeFerme.years < totalSpanYears - 0.5
+
       // If duree_ferme > 3 ans, first break starts at duree_ferme (not year 3)
       // This handles "renonce à la 1ère triennale, ferme 6 ans → break à 6 ans puis tous les 3 ans"
-      if (dureeFerme && dureeFerme.years > 3) {
+      if (dureeFermeFiable) {
         // First break at duree_ferme (peut ne pas être un multiple de 3, ex:
         // durée ferme 7 ans → premier congé possible "au plus tôt" à l'année 7).
         const firstBreak = new Date(effet.getFullYear() + dureeFerme.years, effet.getMonth() + (dureeFerme.months || 0), effet.getDate() - 1)
@@ -869,6 +876,7 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
         }
       } else {
         // Standard: tous les 3 ans à partir de l'année 3, jusqu'à date_fin
+        // (aussi le repli si duree_ferme semble incohérente — cf. ci-dessus)
         for (let i = 1; i < 20; i++) {
           const y = i * 3
           const d = addYearsExpiry(effet, y)
@@ -1895,6 +1903,47 @@ function auditBail(row) {
   // du texte n'est pas anormale et ne justifie pas une vérification systématique.
 
   return { row, label, issues, dismissed: !!d._qc_dismissed }
+}
+
+// Détection de doublons probables : deux baux (ou plus) portant sur le même
+// actif ET le même preneur ET une surface quasi identique sont très probablement
+// le même document déposé/extrait deux fois. Nécessite de comparer TOUS les
+// baux entre eux — contrairement aux autres contrôles, qui n'examinent qu'un
+// bail à la fois.
+function findDuplicateBails(bails) {
+  const groups = {}
+  bails.forEach(row => {
+    const d = row.data || {}
+    const building = (d.immeuble || d.adresse || '').toLowerCase().trim()
+    const tenant = (shortPartyName(d.preneur) || '').toLowerCase().trim()
+    if (!building || !tenant) return
+    const key = `${building}|||${tenant}`
+    if (!groups[key]) groups[key] = []
+    groups[key].push(row)
+  })
+
+  const detailsByRowId = {}
+  Object.values(groups).forEach(group => {
+    if (group.length < 2) return
+    // Sous-regroupement par surface (arrondie au m² près) pour éviter les faux
+    // positifs entre deux baux légitimement différents sur le même actif/preneur
+    // (ex: extension par avenant réextraite comme bail séparé, surfaces différentes).
+    const bySurface = {}
+    group.forEach(row => {
+      const s = parseFloat(String(row.data?.surface_totale_m2 || '').replace(',', '.'))
+      const sKey = !isNaN(s) && s > 0 ? Math.round(s) : `sans-surface-${row.id}` // pas de surface → jamais groupé avec un autre
+      if (!bySurface[sKey]) bySurface[sKey] = []
+      bySurface[sKey].push(row)
+    })
+    Object.entries(bySurface).forEach(([sKey, rows]) => {
+      if (rows.length < 2) return
+      rows.forEach(row => {
+        const others = rows.filter(r => r.id !== row.id).map(r => r.file_name).join(', ')
+        detailsByRowId[row.id] = `Semble être un doublon — même actif, même preneur, surface quasi identique (~${sKey} m²) que : ${others}`
+      })
+    })
+  })
+  return detailsByRowId
 }
 
 // Fusionne les modifications des avenants (triés chronologiquement) sur les
@@ -3093,7 +3142,16 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
   const [showDismissed, setShowDismissed] = useState(false)
   const [pending, setPending] = useState({}) // { [rowId]: true } — évite double-clic pendant l'écriture
   const [fixPending, setFixPending] = useState({}) // { [rowId]: true } — pour le bouton "−1 jour"
-  const allResults = useMemo(() => bails.map(auditBail).filter(r => r.issues.length > 0), [bails])
+  const allResults = useMemo(() => {
+    const dupDetails = findDuplicateBails(bails)
+    return bails.map(row => {
+      const r = auditBail(row)
+      if (dupDetails[row.id]) {
+        r.issues = [...r.issues, { type: 'doublon_suspect', severity: 'high', detail: dupDetails[row.id] }]
+      }
+      return r
+    }).filter(r => r.issues.length > 0)
+  }, [bails])
   const activeResults = allResults.filter(r => !r.dismissed)
   const dismissedResults = allResults.filter(r => r.dismissed)
   const severityColor = { high: 'var(--danger)', medium: 'var(--accent)', low: 'var(--text3)' }
