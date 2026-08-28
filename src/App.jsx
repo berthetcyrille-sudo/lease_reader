@@ -3126,6 +3126,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   const [avenantBatchProgress, setAvenantBatchProgress] = useState(null) // { bailLabel, current, total, fileName, state } — bloquant, pour l'ajout d'avenant(s)
   const [attachTarget, setAttachTarget] = useState(null) // document en attente d'attache de fichier source
   const [confirmReextract, setConfirmReextract] = useState(null) // row en attente de confirmation de réextraction
+  const [confirmAttachReextract, setConfirmAttachReextract] = useState(null) // row sans fichier source, en attente de confirmation attache+réextraction
   const [reextractProgress, setReextractProgress] = useState(null) // { label, state } — bloquant
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
   const avenantInputRef = useRef(null)
@@ -3305,46 +3306,75 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
     e.target.value = ''
     if (!file || !row) return
 
-    setAvenantUpload(prev => ({ ...prev, [row.id]: { state: 'compressing' } }))
+    // Les baux sans fichier source sont typiquement d'anciennes extractions,
+    // faites avec des règles de prompt potentiellement dépassées — on profite
+    // donc de l'attache du fichier pour relancer une extraction complète dans
+    // la foulée, plutôt que de se limiter à la localisation de pages.
+    const isAv = row.document_type === 'avenant'
+    const label = row.data?.immeuble || row.data?.adresse || row.file_name
+    setReextractProgress({ label, state: 'compressing' })
     try {
       const prepared = await compressPdfIfNeeded(file, (current, total) => {
-        setAvenantUpload(prev => ({ ...prev, [row.id]: { state: 'compressing', current, total } }))
+        setReextractProgress(prev => ({ ...prev, state: 'compressing', progCurrent: current, progTotal: total }))
       })
       if (prepared.size > 30 * 1024 * 1024) {
         throw new Error(`Fichier trop volumineux (${Math.round(prepared.size / 1024 / 1024)} Mo > 30 Mo)`)
       }
 
-      setAvenantUpload(prev => ({ ...prev, [row.id]: { state: 'loading' } }))
-      await uploadSourceFile(row.id, prepared)
+      setReextractProgress(prev => ({ ...prev, state: 'loading' }))
+      const base64 = await toBase64(prepared)
+      const mediaType = getMediaType(prepared)
+      const extracted = await callClaude(base64, mediaType, isAv ? AVENANT_PROMPT : EXTRACTION_PROMPT)
 
-      // Localisation des pages pour les valeurs déjà extraites — jamais de
-      // ré-extraction, donc aucun risque de modifier des données déjà vérifiées.
-      if (prepared.name.toLowerCase().endsWith('.pdf')) {
-        const values = buildValuesToLocate(row)
-        if (Object.keys(values).length > 0) {
-          const base64 = await toBase64(prepared)
-          const pages = await callClaude(base64, 'application/pdf', buildLocatePagesPrompt(values))
-          // callClaude passe par un nettoyeur générique qui peut injecter des clés
-          // parasites (ex: break_options: []) hors du contexte de cette requête ciblée.
-          // On ne garde que les valeurs numériques = de vrais numéros de page.
-          const cleanPages = pages && typeof pages === 'object'
-            ? Object.fromEntries(Object.entries(pages).filter(([, v]) => typeof v === 'number' && v > 0))
-            : null
-          if (cleanPages && Object.keys(cleanPages).length > 0) {
-            const mergedData = { ...row.data, _pages: { ...(row.data?._pages || {}), ...cleanPages } }
-            await supabase.from('extractions').update({ data: mergedData }).eq('id', row.id)
+      // Mêmes appels complémentaires (breaks + financier) qu'à l'extraction initiale.
+      try {
+        if (!isAv) {
+          const [breakResult, financialResult] = await Promise.all([
+            callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
+            callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
+          ])
+          if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
+          if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
+          if (financialResult) {
+            const f = financialResult
+            if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
+            if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
+            if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
+            if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
+            if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
+            if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
+            if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
+            if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
+          }
+        } else {
+          const financialResult = await callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null)
+          if (financialResult) {
+            const f = financialResult
+            const mods = extracted.champs_modifies || {}
+            if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
+            if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
+            if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
+            if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
+            if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
+            if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
+            if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
+            if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) mods.indemnites_break = f.indemnites_break
+            extracted.champs_modifies = mods
           }
         }
-      }
+      } catch (_) { /* non bloquant */ }
 
-      setAvenantUpload(prev => { const n = { ...prev }; delete n[row.id]; return n })
+      await uploadSourceFile(row.id, prepared) // attache le fichier + renseigne storage_path
+      const { error: updateErr } = await supabase.from('extractions').update({ data: extracted }).eq('id', row.id)
+      if (updateErr) throw updateErr
+
+      setReextractProgress(null)
       setAttachTarget(null)
-      showToast('success', 'Fichier source attaché')
+      showToast('success', `« ${label} » attaché et réextrait avec succès`)
       onRefresh?.()
     } catch (err) {
-      const msg = err.message || 'Erreur inconnue'
-      setAvenantUpload(prev => ({ ...prev, [row.id]: { state: 'error', error: msg } }))
-      showToast('error', `Échec de l'attache du fichier : ${msg}`)
+      setReextractProgress(null)
+      showToast('error', `Échec de l'attache/réextraction : ${err.message || 'Erreur inconnue'}`)
     }
   }
 
@@ -3566,6 +3596,15 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
           confirmLabel="Réextraire"
           onConfirm={() => handleReextract(confirmReextract)}
           onCancel={() => setConfirmReextract(null)}
+        />
+      )}
+      {confirmAttachReextract && (
+        <ConfirmModal
+          title="Joindre le fichier et réextraire ?"
+          message={`Ce document n'a pas encore de fichier source attaché — probablement une extraction ancienne, faite avec des règles de prompt potentiellement dépassées. Le fichier que tu vas choisir remplacera les données actuelles de "${confirmAttachReextract.data?.immeuble || confirmAttachReextract.data?.adresse || confirmAttachReextract.file_name}" par une extraction avec les règles actuelles. Les avenants éventuels ne sont pas affectés.`}
+          confirmLabel="Choisir le fichier"
+          onConfirm={() => { openAttachPicker(confirmAttachReextract); setConfirmAttachReextract(null) }}
+          onCancel={() => setConfirmAttachReextract(null)}
         />
       )}
       {/* Export errors modal */}
@@ -3974,7 +4013,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     </button>
                   ) : (
-                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); openAttachPicker(row) }} title="Attacher le fichier source (rattrapage)">
+                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); setConfirmAttachReextract(row) }} title="Joindre le fichier source et réextraire (remplace les données avec le prompt actuel)">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                     </button>
                   )}
