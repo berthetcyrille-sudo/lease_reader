@@ -1492,7 +1492,7 @@ function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue }) 
   )
 }
 
-function SurfaceTable({ surfaces, totalDeclared }) {
+function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared }) {
   const safe = Array.isArray(surfaces) ? surfaces : []
   if (!safe.length) return null
   const isPark = r => { const cat = (r.categorie || r.typologie || '').toLowerCase(); return cat.includes('station') || cat.includes('parking') || cat.includes('place') }
@@ -1501,6 +1501,11 @@ function SurfaceTable({ surfaces, totalDeclared }) {
   const total = mainRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
   const totalLoyer = safe.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
   const parkTotalLoyer = parkRows.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
+  const mainLoyerSum = mainRows.reduce((a, r) => a + (parseAmount(r.loyer_annuel) || 0), 0)
+  // Si aucune ligne n'a de loyer propre (bail non ventilé par composante), on
+  // retombe sur le loyer global du bail plutôt que d'afficher un total vide.
+  const mainLoyerDisplay = mainLoyerSum > 0 ? mainLoyerSum : (parseAmount(totalLoyerDeclared) || 0)
+  const mainLoyerIsFallback = mainLoyerSum === 0 && mainLoyerDisplay > 0
   // Écart entre la somme du détail et la surface totale déclarée du bail —
   // typiquement une quote-part de parties communes (« Surface Exploitée »,
   // SUBL, surface utile...) non ventilée ligne par ligne.
@@ -1555,8 +1560,8 @@ function SurfaceTable({ surfaces, totalDeclared }) {
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{total.toLocaleString('fr-FR')} m²</td>
                   <td />
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>
-                    {mainRows.reduce((a,r) => a + (parseAmount(r.loyer_annuel)||0), 0) > 0
-                      ? fmtEur(mainRows.reduce((a,r) => a + (parseAmount(r.loyer_annuel)||0), 0)) : '—'}
+                    {mainLoyerDisplay > 0 ? fmtEur(mainLoyerDisplay) : '—'}
+                    {mainLoyerIsFallback && <span title="Loyer global du bail — non ventilé par composante dans le document" style={{ fontSize: '10px', marginLeft: '3px', fontWeight: 400, fontStyle: 'italic', color: 'var(--text3)' }}>*</span>}
                   </td>
                 </tr>
                 {hasNotableGap && (
@@ -1566,6 +1571,13 @@ function SurfaceTable({ surfaces, totalDeclared }) {
                         ? <>Écart de <strong>+{commonAreaGap.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m²</strong> avec la surface totale louée ({declared.toLocaleString('fr-FR')} m²) — probablement une quote-part de parties communes non ventilée (bail parlant de « Surface Exploitée », SUBL, ou surface utile).</>
                         : <>La surface totale louée déclarée ({declared.toLocaleString('fr-FR')} m²) est inférieure de {Math.abs(commonAreaGap).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m² à la somme du détail ci-dessus — à vérifier.</>
                       }
+                    </td>
+                  </tr>
+                )}
+                {mainLoyerIsFallback && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
+                      * loyer global du bail, non ventilé par composante dans le document source
                     </td>
                   </tr>
                 )}
@@ -2633,7 +2645,7 @@ function ResultsView({ item }) {
             return (
               <div style={{ marginBottom: '16px' }}>
                 <div className="field-lbl" style={{ marginBottom: '6px' }}>Ventilation du loyer par composante</div>
-                <SurfaceTable surfaces={enriched} totalDeclared={d.surface_totale_m2} />
+                <SurfaceTable surfaces={enriched} totalDeclared={d.surface_totale_m2} totalLoyerDeclared={d.loyer_signature_montant} />
               </div>
             )
           })()}
