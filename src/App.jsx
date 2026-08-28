@@ -840,9 +840,13 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
   }
 
   if (!hasWaiver && !periodeMatch) {
-    const hasTriennale = /triennale|p.riode.{0,10}3\s*ans/i.test(clauseText) ||
-                         /chaque.{0,20}(p.riode|terme|fin)/i.test(clauseText)
-    if (hasTriennale) {
+    // Le droit de résiliation triennale (art. L.145-4 Code de commerce) est la
+    // règle par défaut d'un bail commercial — on l'applique donc SYSTÉMATIQUEMENT
+    // dès qu'aucune renonciation totale n'est détectée, plutôt que de dépendre
+    // de la présence littérale du mot "triennale" dans le texte extrait (trop
+    // fragile : une formulation différente, ou un extrait _sources incomplet,
+    // faisait échouer silencieusement toute la détection).
+    {
       // If duree_ferme > 3 ans, first break starts at duree_ferme (not year 3)
       // This handles "renonce à la 1ère triennale, ferme 6 ans → break à 6 ans puis tous les 3 ans"
       if (dureeFerme && dureeFerme.years > 3) {
