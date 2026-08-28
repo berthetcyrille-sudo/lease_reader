@@ -4334,6 +4334,15 @@ export default function App() {
     setHistory(tree)
     setTotalCounts(counts)
     setHistLoaded(true)
+    // Si la fiche détail actuellement affichée correspond à un document rafraîchi,
+    // la resynchroniser aussi — sinon elle reste figée sur l'ancienne version tant
+    // qu'on ne revient pas au dashboard (ex: après 🔄 Réextraire ou 📎 Attacher).
+    setActiveItem(prev => {
+      if (!prev) return prev
+      const flat = tree.flatMap(b => [b, ...(b.avenants || [])])
+      const fresh = flat.find(r => r.id === prev.id)
+      return fresh || prev
+    })
   }
 
   async function switchTab(t) {
@@ -4735,6 +4744,7 @@ export default function App() {
               const newData = { ...row.data, _qc_dismissed: dismissed }
               await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
               setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
+              if (activeItem?.id === rowId) setActiveItem(prev => ({ ...prev, data: newData }))
             }}
             onFixAnniversary={async (rowId, dates) => {
               const row = history.find(b => b.id === rowId)
@@ -4752,6 +4762,7 @@ export default function App() {
               const newData = { ...row.data, break_options: newBreaks }
               await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
               setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
+              if (activeItem?.id === rowId) setActiveItem(prev => ({ ...prev, data: newData }))
             }}
           />
         )}
