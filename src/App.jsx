@@ -101,7 +101,7 @@ REGLES PAR CHAMP:
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
 - _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes, meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null.
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
-- break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG. REGLE ABSOLUE (s'applique a TOUTES les regles ci-dessous, quelle que soit la formulation du bail: "periode triennale", "echeance triennale", "faculte triennale", etc.): les echeances triennales SUCCESSIVES se calculent TOUJOURS comme des multiples de 3 ANS DEPUIS DATE_EFFET (annees 3, 6, 9, 12...), JAMAIS en ajoutant 3 ans a la date de la break precedente. Meme si le bail nomme une premiere sortie a une annee qui n'est pas un multiple de 3 (ex: annee 4, ou annee 7, en fin de duree ferme), l'echeance suivante reste le PROCHAIN multiple de 3 depuis date_effet strictement superieur a cette annee — PAS cette annee + 3. REGLES DE CALCUL:
+- break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG. REGLE ABSOLUE CONVENTION DE DATE: toute date calculee par addition d'un nombre entier d'annees a date_effet (breaks, ou date_fin si elle doit etre calculee) s'exprime au JOUR ANNIVERSAIRE MOINS 1 JOUR — convention standard des baux commerciaux francais. Exemple: date_effet=15/10/2020, echeance a 6 ans → 15/10/2020 + 6 ans = 15/10/2026, MOINS 1 JOUR = 14/10/2026 (PAS 15/10/2026). Cette regle s'applique a TOUTE date calculee dans break_options ET a date_fin lorsqu'elle doit etre deduite de duree_totale (mais PAS si le bail donne une date de fin EXPLICITE en toutes lettres — dans ce cas utiliser cette date telle quelle, meme si elle ne suit pas cette convention). REGLE ABSOLUE (s'applique a TOUTES les regles ci-dessous, quelle que soit la formulation du bail: "periode triennale", "echeance triennale", "faculte triennale", etc.): les echeances triennales SUCCESSIVES se calculent TOUJOURS comme des multiples de 3 ANS DEPUIS DATE_EFFET (annees 3, 6, 9, 12...), JAMAIS en ajoutant 3 ans a la date de la break precedente. Meme si le bail nomme une premiere sortie a une annee qui n'est pas un multiple de 3 (ex: annee 4, ou annee 7, en fin de duree ferme), l'echeance suivante reste le PROCHAIN multiple de 3 depuis date_effet strictement superieur a cette annee — PAS cette annee + 3. REGLES DE CALCUL:
   1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
   2) "renonce a sa faculte de resiliation triennale" SANS restriction → aucune break triennale, uniquement les dates explicites des CP
   3) "renonce...triennale POUR LA DUREE FERME" ou "aura la faculte de donner conge a l'expiration de la Neme periode/echeance triennale pour la premiere fois" → premiere break = date_effet + N*3 ans. PUIS CONTINUER a intervalles de 3 ans supplementaires (N+1, N+2...) TANT QUE la date obtenue reste STRICTEMENT ANTERIEURE a date_fin — ne JAMAIS s'arreter apres la premiere date par defaut. Exemple A (plusieurs breaks): "deuxieme periode triennale pour la premiere fois", date_effet=01/01/2021, date_fin=31/12/2030 → premiere break=31/12/2026 (2*3=6 ans) ; echeance suivante=31/12/2029 (3*3=9 ans), qui est < date_fin donc AJOUTEE aussi → ["31/12/2026","31/12/2029"]. Exemple B (un seul break, car l'echeance suivante coincide avec la fin du bail): meme formulation, date_effet=30/06/2025, date_fin=29/06/2034 → premiere break=30/06/2031 (6 ans) ; echeance suivante=30/06/2034 (9 ans) qui EGALE (a 1 jour pres) date_fin donc EXCLUE → ["30/06/2031"] uniquement
@@ -675,6 +675,7 @@ function exportAllToExcel(tree, onErrors) {
 const BREAK_PROMPT = `Expert baux commerciaux français. Analyse UNIQUEMENT la clause de durée et de résiliation de ce bail. Retourne UNIQUEMENT un JSON minifié sur UNE SEULE LIGNE : {"date_effet":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","break_options":["jj/mm/aaaa",...]}
 
 REGLE ABSOLUE pour break_options : liste COMPLETE et EXHAUSTIVE.
+REGLE ABSOLUE CONVENTION DE DATE: toute date calculee par addition d'annees entieres a date_effet s'exprime au JOUR ANNIVERSAIRE MOINS 1 JOUR (convention standard des baux commerciaux). Exemple: date_effet=15/10/2020, echeance a 6 ans → 14/10/2026 (PAS 15/10/2026). Ne s'applique pas si le bail donne une date EXPLICITE en toutes lettres.
 REGLE ABSOLUE (quelle que soit la formulation: "periode triennale", "echeance triennale", etc.): les echeances triennales SUCCESSIVES se calculent TOUJOURS comme des multiples de 3 ANS DEPUIS DATE_EFFET, JAMAIS en ajoutant 3 ans a la break precedente — meme si la premiere sortie nommee par le bail tombe sur une annee qui n'est pas un multiple de 3 (ex: annee 4 ou 7, fin de duree ferme).
 REGLES DE CALCUL (lire attentivement la clause, ne pas appliquer mecaniquement):
 1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
@@ -1773,6 +1774,21 @@ function parseYearsFromDureeText(s) {
   return m ? parseInt(m[1]) : null
 }
 
+// Une date de break tombant EXACTEMENT au jour anniversaire (sans le -1 jour
+// conventionnel) suggère que l'IA n'a pas appliqué la convention standard des
+// baux commerciaux — sauf si le bail écrit cette date explicitement en toutes
+// lettres, auquel cas c'est normal et cette détection est un faux positif à
+// écarter au cas par cas.
+function matchesExactAnniversary(breakDateStr, effet) {
+  const bd = parseFrDate(breakDateStr)
+  if (!bd || !effet) return null
+  for (let n = 1; n < 40; n++) {
+    const exact = new Date(effet.getFullYear() + n, effet.getMonth(), effet.getDate())
+    if (bd.getTime() === exact.getTime()) return n
+  }
+  return null
+}
+
 function auditBail(row) {
   const d = row.data || {}
   const issues = []
@@ -1833,6 +1849,22 @@ function auditBail(row) {
       severity: 'medium',
       detail: `${malformed.length} entrée(s) de break_options mal formatée(s) (texte au lieu d'une date pure) — récupérée(s) à l'affichage si une date y est repérable, mais à vérifier`,
     })
+  }
+
+  // 2bis. Break(s) tombant exactement au jour anniversaire de date_effet, sans
+  // le "-1 jour" conventionnel des baux commerciaux français — sauf si le bail
+  // écrit cette date en toutes lettres (auquel cas c'est un faux positif).
+  if (effet) {
+    const anniversaryHits = cleanBreaks
+      .map(b => ({ b, n: matchesExactAnniversary(b, effet) }))
+      .filter(x => x.n !== null)
+    if (anniversaryHits.length > 0) {
+      issues.push({
+        type: 'break_jour_anniversaire',
+        severity: 'medium',
+        detail: `${anniversaryHits.map(x => `${x.b} (année ${x.n})`).join(', ')} tombe(nt) exactement au jour anniversaire de la prise d'effet — devrait être le jour précédent (convention "jour anniversaire moins 1 jour"), sauf si cette date est écrite explicitement en toutes lettres dans le bail. À vérifier sur le document source.`,
+      })
+    }
   }
 
   // 3. Incohérence entre surface_totale_m2 (utilisé par le Dashboard) et la
