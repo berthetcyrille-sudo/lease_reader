@@ -3109,6 +3109,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   const [avenantUpload, setAvenantUpload] = useState({}) // { [bailId]: { state: 'compressing'|'loading'|'error', error, progress } } — utilisé par l'attache de fichier source uniquement
   const [avenantBatchProgress, setAvenantBatchProgress] = useState(null) // { bailLabel, current, total, fileName, state } — bloquant, pour l'ajout d'avenant(s)
   const [attachTarget, setAttachTarget] = useState(null) // document en attente d'attache de fichier source
+  const [confirmReextract, setConfirmReextract] = useState(null) // row en attente de confirmation de réextraction
+  const [reextractProgress, setReextractProgress] = useState(null) // { label, state } — bloquant
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
   const avenantInputRef = useRef(null)
   const attachInputRef = useRef(null)
@@ -3330,6 +3332,89 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
     }
   }
 
+  // ─── Réextraction en place (garde l'id, ne touche pas aux avenants) ────────
+  async function handleReextract(row) {
+    setConfirmReextract(null)
+    const isAv = row.document_type === 'avenant'
+    const label = row.data?.immeuble || row.data?.adresse || row.file_name
+    setReextractProgress({ label, state: 'downloading' })
+    try {
+      if (!row.storage_path) throw new Error('Aucun fichier source attaché à ce document.')
+      const { data: signedData, error: signErr } = await supabase.storage
+        .from('lease-sources').createSignedUrl(row.storage_path, 300)
+      if (signErr) throw signErr
+      const fileRes = await fetch(signedData.signedUrl)
+      if (!fileRes.ok) throw new Error('Téléchargement du fichier source échoué')
+      const blob = await fileRes.blob()
+      let file = new File([blob], row.file_name || row.storage_path.split('/').pop(), { type: blob.type })
+
+      setReextractProgress(prev => ({ ...prev, state: 'compressing' }))
+      file = await compressPdfIfNeeded(file, (current, total) => {
+        setReextractProgress(prev => ({ ...prev, state: 'compressing', progCurrent: current, progTotal: total }))
+      })
+      if (file.size > 30 * 1024 * 1024) {
+        throw new Error(`Fichier trop volumineux (${Math.round(file.size / 1024 / 1024)} Mo > 30 Mo)`)
+      }
+
+      setReextractProgress(prev => ({ ...prev, state: 'loading' }))
+      const base64 = await toBase64(file)
+      const mediaType = getMediaType(file)
+      const extracted = await callClaude(base64, mediaType, isAv ? AVENANT_PROMPT : EXTRACTION_PROMPT)
+
+      // Appels dédiés en parallèle : breaks + financier — mêmes enrichissements
+      // que lors d'une extraction initiale, pour ne pas produire un résultat
+      // moins complet qu'une première extraction.
+      try {
+        if (!isAv) {
+          const [breakResult, financialResult] = await Promise.all([
+            callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
+            callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
+          ])
+          if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
+          if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
+          if (financialResult) {
+            const f = financialResult
+            if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
+            if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
+            if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
+            if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
+            if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
+            if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
+            if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
+            if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
+          }
+        } else {
+          const financialResult = await callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null)
+          if (financialResult) {
+            const f = financialResult
+            const mods = extracted.champs_modifies || {}
+            if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
+            if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
+            if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
+            if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
+            if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
+            if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
+            if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
+            if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) mods.indemnites_break = f.indemnites_break
+            extracted.champs_modifies = mods
+          }
+        }
+      } catch (_) { /* non bloquant */ }
+
+      // On garde l'id, le parent_id, l'actif_group et le storage_path déjà en
+      // place — seul le contenu extrait (data) est remplacé.
+      const { error: updateErr } = await supabase.from('extractions').update({ data: extracted }).eq('id', row.id)
+      if (updateErr) throw updateErr
+
+      setReextractProgress(null)
+      showToast('success', `« ${label} » réextrait avec succès`)
+      onRefresh?.()
+    } catch (err) {
+      setReextractProgress(null)
+      showToast('error', `Échec de la réextraction : ${err.message || 'Erreur inconnue'}`)
+    }
+  }
+
   // Build display rows based on filter and expanded state
   const displayRows = []
   tree.forEach(bail => {
@@ -3456,6 +3541,15 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
           danger
           onConfirm={e => { onDelete(confirmDelete, { stopPropagation: () => {} }); setConfirmDelete(null) }}
           onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+      {confirmReextract && (
+        <ConfirmModal
+          title="Réextraire ce document ?"
+          message={`Les données actuelles de "${confirmReextract.data?.immeuble || confirmReextract.data?.adresse || confirmReextract.file_name}" seront remplacées par une nouvelle extraction à partir du fichier source déjà attaché. Les avenants éventuels ne sont pas affectés. Cette action écrase toute correction manuelle déjà apportée.`}
+          confirmLabel="Réextraire"
+          onConfirm={() => handleReextract(confirmReextract)}
+          onCancel={() => setConfirmReextract(null)}
         />
       )}
       {/* Export errors modal */}
@@ -3868,6 +3962,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                     </button>
                   )}
+                  {row.storage_path && (
+                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); setConfirmReextract(row) }} title="Réextraire (remplace les données à partir du fichier source, sans toucher aux avenants)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02" /><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/></svg>
+                    </button>
+                  )}
                   <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); onSelect(row) }} title="Voir le détail">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   </button>
@@ -3919,6 +4018,32 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
               {avenantBatchProgress.state === 'compressing'
                 ? `Compression${avenantBatchProgress.progTotal ? ` (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : '…'}`
                 : 'Extraction en cours…'}
+            </div>
+            <div className="progress-track" style={{ margin: 0 }}><div className="progress-bar active" /></div>
+          </div>
+        </div>
+      )}
+      {reextractProgress && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 5000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'var(--surface)', borderRadius: '14px', padding: '32px 40px',
+            minWidth: '360px', maxWidth: '440px', textAlign: 'center', boxShadow: '0 16px 48px rgba(0,0,0,.35)',
+          }}>
+            <div style={{
+              width: '36px', height: '36px', margin: '0 auto 16px', borderRadius: '50%',
+              border: '3px solid var(--border2)', borderTopColor: 'var(--accent)',
+              animation: 'spin 0.8s linear infinite',
+            }} />
+            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Réextraction de « {reextractProgress.label} »
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
+              {reextractProgress.state === 'downloading' && 'Téléchargement du fichier source…'}
+              {reextractProgress.state === 'compressing' && `Compression${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`}
+              {reextractProgress.state === 'loading' && 'Extraction en cours…'}
             </div>
             <div className="progress-track" style={{ margin: 0 }}><div className="progress-bar active" /></div>
           </div>
