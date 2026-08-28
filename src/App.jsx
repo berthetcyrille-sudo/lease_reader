@@ -1898,6 +1898,19 @@ function auditBail(row) {
     }
   }
 
+  // 4. Durée ferme quasi égale à la durée totale — ambigu par nature : peut
+  // être une vraie renonciation totale à toute sortie anticipée (légitime),
+  // ou une erreur d'extraction (duree_ferme mal déduite faute de restriction
+  // explicite dans le bail). Impossible de trancher depuis les données seules
+  // — signalé pour vérification, pas comme une erreur certaine.
+  if (dureeFermeYears && dureeTotaleYears && dureeFermeYears >= dureeTotaleYears - 1) {
+    issues.push({
+      type: 'duree_ferme_ambigue',
+      severity: 'low',
+      detail: `Durée ferme (${dureeFermeYears} ans) quasi égale à la durée totale (${dureeTotaleYears} ans) — soit le bail prévoit vraiment une renonciation totale à toute sortie anticipée, soit c'est une erreur d'extraction (rien n'est explicitement restreint dans le texte). À vérifier sur le document source.`,
+    })
+  }
+
   // Note : la reconduction tacite (art. L145-9 Code de commerce) est le régime
   // légal par défaut pour la quasi-totalité des baux commerciaux — son absence
   // du texte n'est pas anormale et ne justifie pas une vérification systématique.
