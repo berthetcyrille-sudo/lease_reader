@@ -710,7 +710,7 @@ indemnites_break: Sommes dues par le PRENEUR au BAILLEUR UNIQUEMENT en cas d exe
 1) FORFAIT CHIFFRE PAR DATE DE BREAK: montant ou formule specifique par echéance (ex: "6 mois de loyer si conge au 31/08/2028") -> une ligne par break date.
 2) INDEMNITE DE RESTITUTION/REMISE EN ETAT: si le bail prevoit une indemnite forfaitaire due a la restitution en cas de sortie anticipee (ex: "indemnite forfaitaire de remise en etat de 115 840 € en cas de depart a compter de la 6eme annee") -> inclure avec break_date=date de la premiere break concernee et calcul=formule ou texte.
 3) REMBOURSEMENT DES MESURES D ACCOMPAGNEMENT SI CONGE: clause generale de remboursement des avantages (franchises, MDA, travaux) si le preneur exerce son conge avant terme -> une ligne sans break_date specifique.
-A EXCLURE de indemnites_break: (1) clauses de remboursement uniquement en cas de CESSION du bail ou du fonds; (2) penalites dues en cas de depart FAUTIF ou de resiliation anticipee HORS option de break (clause resolutoire, indemnite d'immobilisation); (3) indemnites dues entre deux dates de break. Inclure UNIQUEMENT les sommes dues lorsque le preneur EXERCE VALABLEMENT une option de break prevue au bail.
+A EXCLURE de indemnites_break: (1) clauses de remboursement uniquement en cas de CESSION du bail ou du fonds — MEME si la clause mentionne un remboursement "au prorata temporis" ou des "mesures d'accompagnement", des lors que le fait generateur est une cession a un tiers (notamment hors du Groupe du Preneur) et NON l'exercice d'une option de conge/break par le preneur lui-meme. Exemple a EXCLURE: "remboursement des mesures d'accompagnement (franchise de loyer) accordees intuitu personae au prorata temporis en cas de cession du droit au bail ou du fonds de commerce au benefice d'une societe ne faisant pas partie du Groupe du Preneur" → ceci est une clause de cession, PAS une indemnite de break, NE JAMAIS lui attribuer de break_date ni l'inclure dans indemnites_break, meme partiellement; (2) penalites dues en cas de depart FAUTIF ou de resiliation anticipee HORS option de break (clause resolutoire, indemnite d'immobilisation); (3) indemnites dues entre deux dates de break. Inclure UNIQUEMENT les sommes dues lorsque le preneur EXERCE VALABLEMENT une option de break prevue au bail.
 NE PAS INVENTER de montants. Format: [{"break_date":"31/08/2028 ou null","motif":"texte","montant":"chiffres bruts ou null","calcul":"formule ou texte de la clause"}].`
 
 // ─── JSON cleaning & parsing ──────────────────────────────────────────────────
@@ -2363,6 +2363,12 @@ function ResultsView({ item }) {
   const cleanBreakDatesSet = new Set(breaks.map(b => normalizeDate(b)))
   const condBreakEntries = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
     .map(ib => ({ date: ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null, condition: safeStr(ib.motif) || safeStr(ib.calcul) }))
+    // Filet de sécurité : une clause de CESSION (remboursement si cession du
+    // bail/fonds à un tiers hors groupe) n'est pas une vraie option de sortie
+    // du preneur — elle ne doit jamais apparaître comme une "break conditionnelle",
+    // même si l'IA lui a par erreur attribué une break_date (cas d'exclusion déjà
+    // prévu au prompt, mais pas toujours respecté).
+    .filter(cb => !/cession/i.test(cb.condition || ''))
     .filter(cb => cb.date && /^\d{2}\/\d{2}\/\d{4}$/.test(cb.date) && !cleanBreakDatesSet.has(cb.date))
 
   const breakItems = [
@@ -2917,31 +2923,40 @@ function ResultsView({ item }) {
       )}
 
 
-      {d.indemnites_break?.length > 0 && (
-        <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Indemnités dues par le preneur en cas d'exercice d'une option de break</div></div>
-          <div className="table-wrap">
-            <table className="indemnites-table">
-              <thead><tr>
-                <th>Date de break</th>
-                <th>Motif</th>
-                <th style={{ textAlign: 'right' }}>Montant</th>
-                <th>Base de calcul / Formule</th>
-              </tr></thead>
-              <tbody>
-                {d.indemnites_break.map((row, i) => (
-                  <tr key={i}>
-                    <td style={{ whiteSpace: 'nowrap' }}>{safeStr(row.break_date) || '—'}</td>
-                    <td>{safeStr(row.motif) || '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
-                    <td style={{ color: 'var(--text2)' }}>{safeStr(row.calcul) || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {(() => {
+        // Même filet de sécurité que pour la carte "Break conditionnelle" :
+        // une clause de cession n'est pas une vraie indemnité de break, même
+        // si l'IA l'a par erreur incluse dans indemnites_break.
+        const cleanIndemnitesBreak = (d.indemnites_break || []).filter(row =>
+          !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '')
+        )
+        if (cleanIndemnitesBreak.length === 0) return null
+        return (
+          <div className="sec">
+            <div className="sec-hd"><div className="sec-label">Indemnités dues par le preneur en cas d'exercice d'une option de break</div></div>
+            <div className="table-wrap">
+              <table className="indemnites-table">
+                <thead><tr>
+                  <th>Date de break</th>
+                  <th>Motif</th>
+                  <th style={{ textAlign: 'right' }}>Montant</th>
+                  <th>Base de calcul / Formule</th>
+                </tr></thead>
+                <tbody>
+                  {cleanIndemnitesBreak.map((row, i) => (
+                    <tr key={i}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{safeStr(row.break_date) || '—'}</td>
+                      <td>{safeStr(row.motif) || '—'}</td>
+                      <td style={{ textAlign: 'right' }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
+                      <td style={{ color: 'var(--text2)' }}>{safeStr(row.calcul) || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Jouissance */}
       {(show('destination') || show('article_606')) && (
