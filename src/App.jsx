@@ -2356,9 +2356,34 @@ function ResultsView({ item }) {
     pills.push({ label: 'Franchise', cls: 'pill-green' })
   }
 
+  // Breaks conditionnelles (indemnites_break avec une break_date qui n'est PAS
+  // déjà dans break_options) — jusqu'ici visibles seulement dans le texte libre
+  // "Détail échéances", on les fait remonter dans la frise principale avec leur
+  // condition, plutôt que de les laisser noyées dans un paragraphe.
+  const cleanBreakDatesSet = new Set(breaks.map(b => normalizeDate(b)))
+  const condBreakEntries = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
+    .map(ib => ({ date: ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null, condition: safeStr(ib.motif) || safeStr(ib.calcul) }))
+    .filter(cb => cb.date && /^\d{2}\/\d{2}\/\d{4}$/.test(cb.date) && !cleanBreakDatesSet.has(cb.date))
+
+  const breakItems = [
+    ...breaks.map(br => ({ val: br, conditional: false })),
+    ...condBreakEntries.map(cb => ({ val: cb.date, conditional: true, condition: cb.condition })),
+  ].sort((a, b) => { const da = parseFR(a.val), db = parseFR(b.val); return (da && db) ? da - db : 0 })
+
+  let bNum = 0
   const primaryDates = [
     d.date_effet ? { key: 'date_effet', label: "Prise d'effet", type: 'primary' } : null,
-    ...breaks.map((br, i) => ({ key: `break_${i}`, label: `Break option${breaks.length > 1 ? ' '+( i+1) : ''}`, val: br, type: 'break' })),
+    ...breakItems.map((item, i) => {
+      if (!item.conditional) bNum++
+      return {
+        key: `break_${i}`,
+        label: item.conditional ? 'Break conditionnelle' : `Break option${breakItems.filter(x => !x.conditional).length > 1 ? ' ' + bNum : ''}`,
+        val: item.val,
+        type: item.conditional ? 'break_conditionnel' : 'break',
+        condition: item.condition,
+        bNum: item.conditional ? null : bNum,
+      }
+    }),
     d.date_fin   ? { key: 'date_fin',   label: 'Expiration',    type: 'primary' } : null,
   ].filter(Boolean)
 
@@ -2415,18 +2440,22 @@ function ResultsView({ item }) {
           {primaryDates.length > 0 && (
             <div className="date-strip" style={{ gridTemplateColumns: `repeat(${Math.min(primaryDates.length, 5)}, 1fr)`, marginBottom: '12px' }}>
               {primaryDates.map(f => {
-                const pageField = f.type === 'break' ? 'break_options' : f.key
+                const isCondBreak = f.type === 'break_conditionnel'
+                const pageField = f.type === 'break' ? 'break_options' : (isCondBreak ? 'indemnites_break' : f.key)
                 return (
-                <div key={f.key} className={`date-card${f.type === 'break' ? ' date-card-break' : ''}`}>
+                <div key={f.key} className={`date-card${f.type === 'break' ? ' date-card-break' : ''}`}
+                  style={isCondBreak ? { background: '#FAEEDA', border: '1px solid #EF9F27' } : undefined}>
                   <div className="date-lbl">
-                    {f.type === 'break' && <span className="break-tag">B{breaks.length > 1 ? f.key.split('_')[1]*1+1 : ''}</span>}
+                    {f.type === 'break' && <span className="break-tag">B{breakItems.filter(x => !x.conditional).length > 1 ? f.bNum : ''}</span>}
+                    {isCondBreak && <span className="break-tag" style={{ background: '#EF9F27' }} title="Break conditionnelle — voir la condition ci-dessous">⚠</span>}
                     {' '}{f.label}
                   </div>
-                  <div className={`date-val${f.type === 'break' ? ' break' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <div className={`date-val${(f.type === 'break' || isCondBreak) ? ' break' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', color: isCondBreak ? '#B8860B' : undefined }}>
                     {f.val || d[f.key]}
                     <PageJumpIcon item={item} pages={pages} field={pageField} />
                   </div>
                   {f.type === 'break' && d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
+                  {isCondBreak && f.condition && <div style={{ fontSize: '11px', color: '#B8860B', marginTop: '4px' }}>Conditionnelle : {f.condition}</div>}
                 </div>
               )})}
             </div>
