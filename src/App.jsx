@@ -96,7 +96,7 @@ REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
 - reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle"}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. null si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
 - surface_totale_m2: la surface de reference du bail. REGLE: si le bail utilise le terme "Surface Exploitee" (ou variante proche) pour designer la surface globale des locaux, UTILISER CETTE VALEUR pour surface_totale_m2, meme si elle inclut une quote-part des parties communes — c'est la convention de reference dans ce bail. Ne descendre au sous-composant individuel (ex: "Surface de bureaux") QUE si aucune "Surface Exploitee"/surface globale n'est mentionnee. Exemple: "la Surface Exploitee... est de 584,50 m²... les Locaux se decomposent: Surface de bureaux (lot n°11): 510,20 m²" → surface_totale_m2 = 584.50 (la Surface Exploitee), PAS 510.20.
-- surfaces_detail: TOUTES les composantes du loyer avec leur surface et loyer annuel. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple: [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. categorie: etage/plateau->Bureaux, terrasse/rooftop->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. La SOMME des loyer_annuel doit etre egale a loyer_signature_montant. Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
+- surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple avec ventilation de loyer (toutes les lignes ont un loyer_annuel): [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
 - _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes, meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null.
@@ -1789,6 +1789,25 @@ function auditBail(row) {
     }
   }
 
+  // 1bis. Résidu de l'ancien bug de calcul (durée ferme non multiple de 3) :
+  // avant correction, la 2e échéance était calculée à durée_ferme+3 ans au lieu
+  // du prochain multiple de 3 depuis la date d'effet — repère les bails ayant
+  // potentiellement cette date incorrecte figée en base suite à une extraction
+  // antérieure au correctif.
+  if (effet && fin && dureeFermeYears && dureeFermeYears % 3 !== 0) {
+    const wrongYear = dureeFermeYears + 3
+    const correctYear = Math.ceil(dureeFermeYears / 3) * 3
+    const wrongStr = fmtFR(new Date(effet.getFullYear() + wrongYear, effet.getMonth(), effet.getDate() - 1))
+    if (cleanBreaks.includes(wrongStr)) {
+      const correctStr = fmtFR(new Date(effet.getFullYear() + correctYear, effet.getMonth(), effet.getDate() - 1))
+      issues.push({
+        type: 'break_ancien_calcul',
+        severity: 'high',
+        detail: `Break enregistrée au ${wrongStr} (durée ferme + 3 ans) — probablement un résidu de l'ancien calcul, avant correction. La bonne échéance devrait être le ${correctStr} (prochain multiple de 3 depuis la date d'effet). Réextraction recommandée pour purger la date incorrecte.`,
+      })
+    }
+  }
+
   // 2. break_options mal formés (texte descriptif au lieu d'une date pure)
   const malformed = rawBreaks.filter(b => typeof b === 'string' && !/^\d{2}\/\d{2}\/\d{4}$/.test(b.trim()))
   if (malformed.length > 0) {
@@ -3104,6 +3123,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   // Flatten all items for table
   const [expanded, setExpanded] = useState({})
   const [sortDir, setSortDir] = useState('asc')
+  const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur'
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
   const [renamingGroup, setRenamingGroup] = useState(null) // group name
@@ -3373,8 +3393,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   }
   const filtered = q ? displayRows.filter(row => rowMatchesSearch(row, q)) : displayRows
 
-  // Sort top-level bails by actif name, avenants follow their bail
+  // Sort top-level bails by actif name or preneur, avenants follow their bail
   const getActifName = row => (row.data?.immeuble || row.data?.adresse || row.file_name || '').toLowerCase()
+  const getPreneurName = row => (shortPartyName(row.data?.preneur) || '').toLowerCase()
   const sortedFiltered = (() => {
     const bails = filtered.filter(r => r._level === 0)
     const avMap = {}
@@ -3384,7 +3405,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
       avMap[pid].push(r)
     })
     bails.sort((a, b) => {
-      const cmp = getActifName(a).localeCompare(getActifName(b), 'fr')
+      const cmp = sortBy === 'preneur'
+        ? getPreneurName(a).localeCompare(getPreneurName(b), 'fr')
+        : getActifName(a).localeCompare(getActifName(b), 'fr')
       return sortDir === 'asc' ? cmp : -cmp
     })
     // Group by actif_group
@@ -3583,11 +3606,15 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
         <div className="dash-table">
           <div className="dash-thead">
             <div className="dash-th" style={{ gridColumn: '1', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
-              onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}>
+              onClick={() => { if (sortBy === 'actif') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('actif'); setSortDir('asc') } }}>
               Actif / Document
-              <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
+              {sortBy === 'actif' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
             </div>
-            <div className="dash-th" style={{ gridColumn: '2' }}>Preneur</div>
+            <div className="dash-th" style={{ gridColumn: '2', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
+              onClick={() => { if (sortBy === 'preneur') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('preneur'); setSortDir('asc') } }}>
+              Preneur
+              {sortBy === 'preneur' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+            </div>
             <div className="dash-th" style={{ gridColumn: '3' }}>Type</div>
             <div className="dash-th dash-th-right" style={{ gridColumn: '4' }}>Surface</div>
             <div className="dash-th" style={{ gridColumn: '5' }}>Date effet</div>
