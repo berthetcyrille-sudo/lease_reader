@@ -1863,6 +1863,7 @@ function auditBail(row) {
         type: 'break_jour_anniversaire',
         severity: 'medium',
         detail: `${anniversaryHits.map(x => `${x.b} (année ${x.n})`).join(', ')} tombe(nt) exactement au jour anniversaire de la prise d'effet — devrait être le jour précédent (convention "jour anniversaire moins 1 jour"), sauf si cette date est écrite explicitement en toutes lettres dans le bail. À vérifier sur le document source.`,
+        affectedDates: anniversaryHits.map(x => x.b),
       })
     }
   }
@@ -3044,9 +3045,10 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
 }
 
 // ─── Modale de contrôle qualité ──────────────────────────────────────────────
-function QualityCheckModal({ bails, onClose, onSelect, onDismiss }) {
+function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary }) {
   const [showDismissed, setShowDismissed] = useState(false)
   const [pending, setPending] = useState({}) // { [rowId]: true } — évite double-clic pendant l'écriture
+  const [fixPending, setFixPending] = useState({}) // { [rowId]: true } — pour le bouton "−1 jour"
   const allResults = useMemo(() => bails.map(auditBail).filter(r => r.issues.length > 0), [bails])
   const activeResults = allResults.filter(r => !r.dismissed)
   const dismissedResults = allResults.filter(r => r.dismissed)
@@ -3060,6 +3062,14 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss }) {
     setPending(prev => ({ ...prev, [rowId]: true }))
     await onDismiss?.(rowId, dismissed)
     setPending(prev => { const n = { ...prev }; delete n[rowId]; return n })
+  }
+
+  async function handleFixAnniversary(e, rowId, dates) {
+    e.stopPropagation()
+    if (fixPending[rowId]) return
+    setFixPending(prev => ({ ...prev, [rowId]: true }))
+    await onFixAnniversary?.(rowId, dates)
+    setFixPending(prev => { const n = { ...prev }; delete n[rowId]; return n })
   }
 
   function ResultCard({ r, dismissedCard }) {
@@ -3086,12 +3096,25 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
           {r.issues.map((iss, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{
                 fontSize: '10px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px', flexShrink: 0, marginTop: '1px',
                 color: severityColor[iss.severity], background: severityBg[iss.severity],
               }}>{severityLabel[iss.severity]}</span>
               <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{iss.detail}</span>
+              {iss.type === 'break_jour_anniversaire' && !dismissedCard && (
+                <button
+                  onClick={e => handleFixAnniversary(e, r.row.id, iss.affectedDates)}
+                  disabled={fixPending[r.row.id]}
+                  title="Retirer 1 jour à cette/ces date(s) — corrige uniquement les breaks concernées, ne touche à rien d'autre"
+                  style={{
+                    fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '999px', cursor: fixPending[r.row.id] ? 'default' : 'pointer',
+                    border: '1px solid var(--accent)', background: 'var(--accent-bg)', color: 'var(--accent)',
+                    opacity: fixPending[r.row.id] ? 0.5 : 1, flexShrink: 0,
+                  }}>
+                  {fixPending[r.row.id] ? '…' : '−1 jour'}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -4710,6 +4733,23 @@ export default function App() {
               const row = history.find(b => b.id === rowId)
               if (!row) return
               const newData = { ...row.data, _qc_dismissed: dismissed }
+              await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
+              setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
+            }}
+            onFixAnniversary={async (rowId, dates) => {
+              const row = history.find(b => b.id === rowId)
+              if (!row) return
+              const toFix = new Set(dates)
+              const newBreaks = (row.data?.break_options || []).map(b => {
+                if (typeof b === 'string' && toFix.has(b.trim())) {
+                  const d = parseFR(b.trim())
+                  if (!d) return b
+                  d.setDate(d.getDate() - 1)
+                  return fmtFR(d)
+                }
+                return b
+              })
+              const newData = { ...row.data, break_options: newBreaks }
               await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
               setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
             }}
