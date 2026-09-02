@@ -2232,7 +2232,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                   <div key={h} style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</div>
                 ))}
                 <div style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                  Échéancier — les années s'affichent directement sur chaque barre, à chaque transition
+                  Échéancier
                 </div>
               </div>
               {bailRows.map(t => {
