@@ -2048,8 +2048,14 @@ function EtatLocatifModal({ building, bails, onClose }) {
       let locationLabel, sortKey, surface
       if (detailRows.length > 0) {
         const niveaux = [...new Set(detailRows.map(r => r.niveau || r.localisation))]
-        const infoList = niveaux.map(n => ({ label: n, info: extractFloorInfo(n) })).sort((a, b) => (a.info?.key ?? 9999) - (b.info?.key ?? 9999))
-        locationLabel = infoList.map(x => x.label).join(', ')
+        // On n'affiche que l'étage reconnu (RDC, 1er, 2e...), pas le texte brut
+        // du bail qui peut contenir des mentions de lot très variables en
+        // longueur ("galerie lot 1 voir plan...") — bien plus lisible en badge
+        // compact, et le texte complet reste visible dans l'infobulle.
+        const infoList = niveaux
+          .map(n => ({ raw: n, info: extractFloorInfo(n) }))
+          .sort((a, b) => (a.info?.key ?? 9999) - (b.info?.key ?? 9999))
+        locationLabel = infoList.map(x => x.info ? x.info.label : x.raw).join(', ')
         sortKey = infoList[0]?.info?.key ?? 9999
         // Un seul étage occupé : la "surface totale" du bail (surface exploitée
         // le cas échéant, incluant la quote-part de parties communes) s'applique
@@ -2219,7 +2225,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
           ) : (
             <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
               <div style={{ display: 'flex', position: 'relative', height: '26px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
-                <div style={{ width: '130px', flexShrink: 0, borderRight: '1px solid var(--border)' }} />
+                <div style={{ width: '100px', flexShrink: 0, borderRight: '1px solid var(--border)' }} />
                 <div style={{ position: 'relative', flex: 1 }}>
                   {years.map(y => {
                     const yd = new Date(y, 0, 1)
@@ -2236,8 +2242,14 @@ function EtatLocatifModal({ building, bails, onClose }) {
                 const ROW_H = 52
                 return (
                   <div key={t.row.id} style={{ display: 'flex', borderBottom: '1px solid var(--border)', height: `${ROW_H}px` }}>
-                    <div title={t.locationLabel} style={{ width: '130px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {t.locationLabel}
+                    <div style={{ width: '100px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid var(--border)', background: 'var(--surface2)', padding: '4px 6px' }}>
+                      <span title={t.locationLabel} style={{
+                        fontSize: '11px', fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-bg)',
+                        padding: '4px 10px', borderRadius: '999px', maxWidth: '100%',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {t.locationLabel}
+                      </span>
                     </div>
                     <div style={{ position: 'relative', flex: 1, height: `${ROW_H}px` }}>
                       {(() => {
