@@ -2222,19 +2222,22 @@ function EtatLocatifModal({ building, bails, onClose }) {
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
               Aucun bail rattaché à cet actif groupant pour le moment.
             </div>
-          ) : (
+          ) : (() => {
+            const INFO_COLS = '190px 75px 100px 100px'
+            const gridTemplate = `${INFO_COLS} 1fr`
+            return (
             <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', position: 'relative', height: '26px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
-                <div style={{ width: '100px', flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em', textAlign: 'center', padding: '0 4px' }}>
-                  Niveau / Bâtiment
-                </div>
-                <div style={{ position: 'relative', flex: 1 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: gridTemplate, alignItems: 'stretch', height: '32px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                {['Preneur', 'Surface', 'Loyer', 'Niveau'].map(h => (
+                  <div key={h} style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</div>
+                ))}
+                <div style={{ position: 'relative', overflow: 'hidden' }}>
                   {years.map(y => {
                     const yd = new Date(y, 0, 1)
                     const pct = ((yd - domainStart) / domainMs) * 100
                     return (
                       <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
-                        {pct > 2 && <span style={{ position: 'absolute', top: '4px', left: '3px', fontSize: '10px', color: 'var(--text3)' }}>{y}</span>}
+                        <span style={{ position: 'absolute', top: '7px', left: 0, transform: 'translateX(-50%)', fontSize: '12px', fontWeight: 700, color: 'var(--text2)' }}>{y}</span>
                       </div>
                     )
                   })}
@@ -2242,65 +2245,62 @@ function EtatLocatifModal({ building, bails, onClose }) {
               </div>
               {bailRows.map(t => {
                 const ROW_H = 52
+                const status = t.start && t.end ? tenantStatus(t, today) : null
                 return (
-                  <div key={t.row.id} style={{ display: 'flex', borderBottom: '1px solid var(--border)', height: `${ROW_H}px` }}>
-                    <div style={{ width: '100px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid var(--border)', background: 'var(--surface2)', padding: '4px 6px' }}>
+                  <div key={t.row.id} style={{ display: 'grid', gridTemplateColumns: gridTemplate, alignItems: 'center', borderBottom: '1px solid var(--border)', height: `${ROW_H}px` }}>
+                    <div
+                      onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                      style={{ paddingLeft: '10px', paddingRight: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: t.row ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {status === 'risk' && <span title="Échéance dans moins de 18 mois" style={{ flexShrink: 0 }}>⚠</span>}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
+                      {t.estimated && <span title={t.estimatedField === 'start' ? 'Date d\'effet non extraite — recalculée à partir de la date de fin et de la durée totale' : 'Échéance estimée (VEFA)'} style={{ flexShrink: 0, color: 'var(--text3)' }}>≈</span>}
+                      {t.reconductionTacite && <span title={`Reconduction tacite${t.reconductionTacite.periodicite ? ' ' + t.reconductionTacite.periodicite : ''}${t.reconductionTacite.preavis ? ', préavis ' + t.reconductionTacite.preavis : ''}`} style={{ flexShrink: 0, color: 'var(--accent)' }}>↻</span>}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px' }}>{t.surface > 0 ? `${Math.round(t.surface)} m²` : '—'}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.loyer > 0 ? fmtEur(t.loyer) : '—'}</div>
+                    <div style={{ paddingLeft: '10px' }}>
                       <span title={t.locationLabel} style={{
                         fontSize: '11px', fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-bg)',
-                        padding: '4px 10px', borderRadius: '999px', maxWidth: '100%',
+                        padding: '3px 9px', borderRadius: '999px', display: 'inline-block', maxWidth: '100%',
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>
                         {t.locationLabel}
                       </span>
                     </div>
-                    <div style={{ position: 'relative', flex: 1, height: `${ROW_H}px` }}>
+                    <div style={{ position: 'relative', height: `${ROW_H}px` }}>
                       {(() => {
                         if (!t.start || !t.end) {
                           // Dates non exploitables ni calculables (ni date_effet+durée, ni date_fin+durée)
                           // — on affiche quand même le bail, ancré au début de la frise, plutôt que de le faire disparaître.
-                          const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
                           return (
                             <div
                               onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                               onMouseLeave={() => setTooltip(null)}
                               onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                              style={{ position: 'absolute', left: '4px', width: '380px', top: '4px', height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
-                              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                {t.name}
-                                {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis' }}>· {infoLine}</span>}
-                              </div>
-                              <div style={{
-                                height: '20px', borderRadius: '5px', display: 'flex', alignItems: 'center', padding: '0 8px', fontSize: '10px', fontWeight: 600,
-                                color: 'var(--text3)', background: 'repeating-linear-gradient(45deg, var(--surface2), var(--surface2) 5px, var(--border) 5px, var(--border) 10px)',
+                              style={{
+                                position: 'absolute', left: '6px', width: '220px', top: '14px', height: '24px', borderRadius: '5px',
+                                display: 'flex', alignItems: 'center', padding: '0 10px', fontSize: '11px', fontWeight: 600,
+                                color: 'var(--text3)', cursor: t.row ? 'pointer' : 'default',
+                                background: 'repeating-linear-gradient(45deg, var(--surface2), var(--surface2) 5px, var(--border) 5px, var(--border) 10px)',
                               }}>
-                                ⚠ Dates non déterminées
-                              </div>
+                              ⚠ Dates non déterminées
                             </div>
                           )
                         }
                         const left = ((t.start - domainStart) / domainMs) * 100
-                        const status = tenantStatus(t, today)
                         const segments = tenantSegments(t)
                         const barSpan = t.end - t.start
                         const fullEnd = effectiveEnd(t)
                         const fullSpan = fullEnd - t.start
                         const fullWidth = ((fullEnd - domainStart) / domainMs) * 100 - left
                         const fixedPortionPct = t.reconductionTacite ? (barSpan / fullSpan) * 100 : 100
-                        const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
                         return (
                           <div
                             onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                             onMouseLeave={() => setTooltip(null)}
                             onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                            style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: '4px', height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              {status === 'risk' && <span title="Échéance dans moins de 18 mois">⚠</span>}
-                              {t.name}
-                              {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)' }}>· {infoLine}</span>}
-                              {t.estimated && <span title={t.estimatedField === 'start' ? 'Date d\'effet non extraite — recalculée à partir de la date de fin et de la durée totale' : 'Échéance estimée à partir de la durée totale et de la date de livraison prévisionnelle (VEFA)'} style={{ fontWeight: 400, color: 'var(--text3)', fontStyle: 'italic' }}>(estimé)</span>}
-                              {t.reconductionTacite && <span title={`Reconduction tacite${t.reconductionTacite.periodicite ? ' ' + t.reconductionTacite.periodicite : ''}${t.reconductionTacite.preavis ? ', préavis ' + t.reconductionTacite.preavis : ''}`} style={{ fontWeight: 400, color: 'var(--accent)', fontStyle: 'italic' }}>↻ reconduction tacite</span>}
-                            </div>
-                            <div style={{ position: 'relative', height: '20px', borderRadius: '5px', overflow: 'hidden', display: 'flex', border: t.estimated ? '1.5px dashed var(--text3)' : 'none' }}>
+                            style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: '15px', height: '22px', cursor: t.row ? 'pointer' : 'default' }}>
+                            <div style={{ position: 'relative', height: '100%', borderRadius: '5px', overflow: 'hidden', display: 'flex', border: t.estimated ? '1.5px dashed var(--text3)' : 'none' }}>
                               <div style={{ position: 'absolute', left: 0, width: `${fixedPortionPct}%`, top: 0, bottom: 0, display: 'flex' }}>
                                 {segments.map((seg, si) => (
                                   <div key={si} style={{
@@ -2329,7 +2329,8 @@ function EtatLocatifModal({ building, bails, onClose }) {
               )
               })}
             </div>
-          )}
+            )
+          })()}
         </div>
       </div>
       {tooltip && <TenantTooltip x={tooltip.x} y={tooltip.y} tenant={tooltip.tenant} />}
