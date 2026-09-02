@@ -2231,16 +2231,8 @@ function EtatLocatifModal({ building, bails, onClose }) {
                 {['Preneur', 'Surface', 'Loyer', 'Niveau'].map(h => (
                   <div key={h} style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</div>
                 ))}
-                <div style={{ position: 'relative', overflow: 'hidden' }}>
-                  {years.map(y => {
-                    const yd = new Date(y, 0, 1)
-                    const pct = ((yd - domainStart) / domainMs) * 100
-                    return (
-                      <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
-                        <span style={{ position: 'absolute', top: '7px', left: 0, transform: 'translateX(-50%)', fontSize: '12px', fontWeight: 700, color: 'var(--text2)' }}>{y}</span>
-                      </div>
-                    )
-                  })}
+                <div style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                  Échéancier — les années s'affichent directement sur chaque barre, à chaque transition
                 </div>
               </div>
               {bailRows.map(t => {
@@ -2250,9 +2242,12 @@ function EtatLocatifModal({ building, bails, onClose }) {
                   <div key={t.row.id} style={{ display: 'grid', gridTemplateColumns: gridTemplate, alignItems: 'center', borderBottom: '1px solid var(--border)', height: `${ROW_H}px` }}>
                     <div
                       onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                      style={{ paddingLeft: '10px', paddingRight: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: t.row ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      {status === 'risk' && <span title="Échéance dans moins de 18 mois" style={{ flexShrink: 0 }}>⚠</span>}
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
+                      style={{ paddingLeft: '10px', paddingRight: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text)', cursor: t.row ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', lineHeight: 1.3 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                      {status === 'risk' && <span title="Échéance de sortie dans moins de 18 mois" style={{
+                        flexShrink: 0, fontSize: '9.5px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px',
+                        background: '#FAEEDA', color: '#B8860B', whiteSpace: 'nowrap',
+                      }}>Échéance proche</span>}
                       {t.estimated && <span title={t.estimatedField === 'start' ? 'Date d\'effet non extraite — recalculée à partir de la date de fin et de la durée totale' : 'Échéance estimée (VEFA)'} style={{ flexShrink: 0, color: 'var(--text3)' }}>≈</span>}
                       {t.reconductionTacite && <span title={`Reconduction tacite${t.reconductionTacite.periodicite ? ' ' + t.reconductionTacite.periodicite : ''}${t.reconductionTacite.preavis ? ', préavis ' + t.reconductionTacite.preavis : ''}`} style={{ flexShrink: 0, color: 'var(--accent)' }}>↻</span>}
                     </div>
@@ -2294,12 +2289,17 @@ function EtatLocatifModal({ building, bails, onClose }) {
                         const fullSpan = fullEnd - t.start
                         const fullWidth = ((fullEnd - domainStart) / domainMs) * 100 - left
                         const fixedPortionPct = t.reconductionTacite ? (barSpan / fullSpan) * 100 : 100
+                        // Années affichées directement sur la ligne, à chaque transition
+                        // (début, chaque break, fin) — remplace l'échelle d'années partagée.
+                        const transitionDates = [t.start, ...t.breaks.filter(b => b > t.start && b < t.end), t.reconductionTacite ? fullEnd : t.end].filter(Boolean)
+                        const seenYears = new Set()
                         return (
+                          <React.Fragment>
                           <div
                             onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                             onMouseLeave={() => setTooltip(null)}
                             onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                            style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: '15px', height: '22px', cursor: t.row ? 'pointer' : 'default' }}>
+                            style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: '18px', height: '22px', cursor: t.row ? 'pointer' : 'default' }}>
                             <div style={{ position: 'relative', height: '100%', borderRadius: '5px', overflow: 'hidden', display: 'flex', border: t.estimated ? '1.5px dashed var(--text3)' : 'none' }}>
                               <div style={{ position: 'absolute', left: 0, width: `${fixedPortionPct}%`, top: 0, bottom: 0, display: 'flex' }}>
                                 {segments.map((seg, si) => (
@@ -2318,6 +2318,19 @@ function EtatLocatifModal({ building, bails, onClose }) {
                               )}
                             </div>
                           </div>
+                          {transitionDates.map((dt, i) => {
+                            const yr = dt.getFullYear()
+                            if (seenYears.has(yr)) return null
+                            seenYears.add(yr)
+                            const pct = ((dt - domainStart) / domainMs) * 100
+                            return (
+                              <span key={i} style={{
+                                position: 'absolute', left: `${pct}%`, top: '2px', transform: 'translateX(-50%)',
+                                fontSize: '9.5px', fontWeight: 700, color: 'var(--text3)', whiteSpace: 'nowrap', pointerEvents: 'none',
+                              }}>{yr}</span>
+                            )
+                          })}
+                          </React.Fragment>
                         )
                       })()}
                       <div title={`Aujourd'hui : ${fmt(today)}`} style={{
