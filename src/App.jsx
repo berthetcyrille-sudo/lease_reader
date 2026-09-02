@@ -3287,6 +3287,230 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
   )
 }
 
+// ─── Modale d'attache en masse (dossier → correspondance par nom de fichier) ─
+function BulkAttachModal({ candidateRows, onClose, onRefresh }) {
+  const [dragging, setDragging] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [matches, setMatches] = useState(null) // null tant qu'aucun dossier déposé
+  const [progress, setProgress] = useState(null) // { current, total, fileName, state }
+  const [results, setResults] = useState(null) // { success, failed: [{name, msg}] }
+  const inputRef = useRef()
+
+  function buildMatches(files) {
+    const usedIds = new Set()
+    return files.map(file => {
+      const norm = file.name.trim().toLowerCase()
+      const row = candidateRows.find(r => !usedIds.has(r.id) && (r.file_name || '').trim().toLowerCase() === norm)
+      if (row) usedIds.add(row.id)
+      return { file, row: row || null }
+    })
+  }
+
+  const handleFiles = useCallback(files => {
+    const valid = Array.from(files).filter(f => ['pdf', 'docx'].includes(f.name.split('.').pop().toLowerCase()))
+    if (!valid.length) { alert('Aucun fichier PDF ou DOCX trouvé.'); return }
+    setMatches(buildMatches(valid))
+  }, [candidateRows])
+
+  const handleDrop = useCallback(async e => {
+    e.preventDefault()
+    setDragging(false)
+    const items = Array.from(e.dataTransfer.items || [])
+    const hasEntries = items.some(i => i.webkitGetAsEntry)
+    if (!hasEntries) { handleFiles(e.dataTransfer.files); return }
+    setScanning(true)
+    const entries = items.map(i => i.webkitGetAsEntry()).filter(Boolean)
+    const allFiles = (await Promise.all(entries.map(en => collectFiles(en, '')))).flat()
+    setScanning(false)
+    if (!allFiles.length) { alert('Aucun fichier PDF ou DOCX trouvé dans le répertoire.'); return }
+    handleFiles(allFiles)
+  }, [handleFiles])
+
+  async function runBulk() {
+    const toRun = matches.filter(m => m.row)
+    let success = 0
+    const failed = []
+    for (let i = 0; i < toRun.length; i++) {
+      const { file, row } = toRun[i]
+      const isAv = row.document_type === 'avenant'
+      setProgress({ current: i + 1, total: toRun.length, fileName: file.name, state: 'compressing' })
+      try {
+        const prepared = await compressPdfIfNeeded(file, (c, t) => {
+          setProgress(p => ({ ...p, state: 'compressing', progCurrent: c, progTotal: t }))
+        })
+        if (prepared.size > 30 * 1024 * 1024) {
+          throw new Error(`Fichier trop volumineux (${Math.round(prepared.size / 1024 / 1024)} Mo > 30 Mo)`)
+        }
+        setProgress(p => ({ ...p, state: 'loading' }))
+        const base64 = await toBase64(prepared)
+        const mediaType = getMediaType(prepared)
+        const extracted = await callClaude(base64, mediaType, isAv ? AVENANT_PROMPT : EXTRACTION_PROMPT)
+
+        try {
+          if (!isAv) {
+            const [breakResult, financialResult] = await Promise.all([
+              callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
+              callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
+            ])
+            if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
+            if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
+            if (financialResult) {
+              const f = financialResult
+              if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
+              if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
+              if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
+              if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
+              if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
+              if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
+              if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
+              if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
+            }
+          } else {
+            const financialResult = await callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null)
+            if (financialResult) {
+              const f = financialResult
+              const mods = extracted.champs_modifies || {}
+              if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
+              if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
+              if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
+              if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
+              if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
+              if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
+              if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
+              if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) mods.indemnites_break = f.indemnites_break
+              extracted.champs_modifies = mods
+            }
+          }
+        } catch (_) { /* non bloquant */ }
+
+        await uploadSourceFile(row.id, prepared)
+        const { error } = await supabase.from('extractions').update({ data: extracted }).eq('id', row.id)
+        if (error) throw error
+        success++
+      } catch (err) {
+        failed.push({ name: file.name, msg: err.message || 'Erreur inconnue' })
+      }
+    }
+    setProgress(null)
+    setResults({ success, failed })
+    onRefresh?.()
+  }
+
+  const matchedCount = matches ? matches.filter(m => m.row).length : 0
+  const unmatchedCount = matches ? matches.length - matchedCount : 0
+
+  return (
+    <div className="modal-overlay" onClick={() => { if (!progress) onClose() }}>
+      <div className="modal" style={{ width: '720px', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div className="modal-title">Attacher un dossier en masse</div>
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
+              Rapproche les fichiers du dossier aux documents déjà extraits mais sans fichier source, par nom de fichier identique, puis relance l'extraction pour chacun avec les règles actuelles.
+            </div>
+          </div>
+          {!progress && <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>}
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
+          {progress ? (
+            <div style={{ padding: '30px 10px', textAlign: 'center' }}>
+              <div style={{
+                width: '36px', height: '36px', margin: '0 auto 16px', borderRadius: '50%',
+                border: '3px solid var(--border2)', borderTopColor: 'var(--accent)',
+                animation: 'spin 0.8s linear infinite',
+              }} />
+              <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '6px' }}>
+                Traitement {progress.current}/{progress.total}
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {progress.fileName}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
+                {progress.state === 'compressing'
+                  ? `Compression${progress.progTotal ? ` (page ${progress.progCurrent}/${progress.progTotal})` : '…'}`
+                  : 'Extraction en cours…'}
+              </div>
+              <div className="progress-track" style={{ margin: '0 40px' }}><div className="progress-bar active" /></div>
+            </div>
+          ) : results ? (
+            <div style={{ padding: '10px 4px' }}>
+              <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '10px' }}>
+                {results.success > 0 && <span style={{ color: 'var(--success)' }}>✓ {results.success} document{results.success > 1 ? 's' : ''} attaché{results.success > 1 ? 's' : ''} et réextrait{results.success > 1 ? 's' : ''}</span>}
+                {results.success > 0 && results.failed.length > 0 && ' · '}
+                {results.failed.length > 0 && <span style={{ color: 'var(--danger)' }}>✕ {results.failed.length} échec{results.failed.length > 1 ? 's' : ''}</span>}
+              </div>
+              {results.failed.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px' }}>
+                  {results.failed.map((f, i) => (
+                    <div key={i} style={{ fontSize: '12px', padding: '8px 12px', background: 'var(--danger-bg)', borderRadius: '6px' }}>
+                      <strong>{f.name}</strong> — {f.msg}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button className="btn primary" onClick={onClose} style={{ width: '100%' }}>Fermer</button>
+            </div>
+          ) : matches ? (
+            <div>
+              <div style={{ fontSize: '13px', marginBottom: '10px' }}>
+                <strong>{matchedCount}</strong> fichier{matchedCount > 1 ? 's' : ''} rapproché{matchedCount > 1 ? 's' : ''} avec succès
+                {unmatchedCount > 0 && <span style={{ color: 'var(--text3)' }}> · {unmatchedCount} sans correspondance (ignoré{unmatchedCount > 1 ? 's' : ''})</span>}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '380px', overflowY: 'auto', marginBottom: '16px' }}>
+                {matches.map((m, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderRadius: '6px',
+                    background: m.row ? 'var(--success-bg)' : 'var(--surface2)',
+                  }}>
+                    <span style={{ fontSize: '13px', flexShrink: 0 }}>{m.row ? '✓' : '—'}</span>
+                    <span style={{ fontSize: '12px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.file.name}</span>
+                    {m.row ? (
+                      <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '220px' }}>
+                        → {m.row.data?.immeuble || m.row.data?.adresse || m.row.file_name}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0, fontStyle: 'italic' }}>aucune correspondance</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn primary" onClick={runBulk} disabled={matchedCount === 0} style={{ flex: 1, opacity: matchedCount === 0 ? 0.5 : 1 }}>
+                  Attacher et réextraire {matchedCount > 0 ? `(${matchedCount})` : ''}
+                </button>
+                <button className="btn" onClick={() => setMatches(null)}>Recommencer</button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className={`drop-zone${dragging ? ' dragging' : ''}`}
+              onClick={() => inputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); setDragging(true) }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false) }}
+              onDrop={handleDrop}
+            >
+              <input ref={inputRef} type="file" accept=".pdf,.docx" multiple style={{ display: 'none' }} onChange={e => handleFiles(e.target.files)} />
+              <div className="drop-icon">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+              </div>
+              <div className="drop-title">
+                {scanning ? '⏳ Scan du répertoire en cours…' : 'Déposez un dossier ou des fichiers ici'}
+              </div>
+              <div className="drop-sub">
+                {candidateRows.length} document{candidateRows.length > 1 ? 's' : ''} sans fichier source actuellement — le rapprochement se fait par nom de fichier identique
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
@@ -3298,6 +3522,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   const [attachTarget, setAttachTarget] = useState(null) // document en attente d'attache de fichier source
   const [confirmReextract, setConfirmReextract] = useState(null) // row en attente de confirmation de réextraction
   const [confirmAttachReextract, setConfirmAttachReextract] = useState(null) // row sans fichier source, en attente de confirmation attache+réextraction
+  const [showBulkAttach, setShowBulkAttach] = useState(false)
   const [reextractProgress, setReextractProgress] = useState(null) // { label, state } — bloquant
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
   const avenantInputRef = useRef(null)
@@ -3902,6 +4127,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
         </div>
         {tree.length > 0 && (
           <div style={{ display: 'flex', gap: '6px' }}>
+            <button className="btn" style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }} onClick={() => setShowBulkAttach(true)}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+              Attacher un dossier
+            </button>
             <button className="btn" style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }} onClick={onExportAll}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -3912,6 +4143,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
           </div>
         )}
       </div>
+
+      {showBulkAttach && (
+        <BulkAttachModal
+          candidateRows={tree.flatMap(b => [b, ...(b.avenants || [])]).filter(r => !r.storage_path)}
+          onClose={() => setShowBulkAttach(false)}
+          onRefresh={onRefresh}
+        />
+      )}
 
       {/* Table */}
       {!filtered.length ? (
