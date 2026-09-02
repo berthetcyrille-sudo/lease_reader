@@ -2115,8 +2115,13 @@ function EtatLocatifModal({ building, bails, onClose }) {
   const domainStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
   const domainEnd = withDates.length ? new Date(Math.max(...withDates.map(t => effectiveEnd(t))) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
   const domainMs = domainEnd - domainStart
-  const years = []
-  for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) years.push(y)
+  const allYears = []
+  for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) allYears.push(y)
+  // Sur une étendue large (beaucoup d'années), afficher une année sur deux ou
+  // trois plutôt que toutes — sinon les étiquettes n'ont pas la place de
+  // respirer et se retrouvent collées les unes aux autres.
+  const yearStep = allYears.length > 24 ? 3 : allYears.length > 13 ? 2 : 1
+  const years = allYears.filter((y, i) => i % yearStep === 0 || i === allYears.length - 1)
 
   function fmt(d) { return d ? d.toLocaleDateString('fr-FR') : '—' }
 
