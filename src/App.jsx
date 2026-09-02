@@ -2324,10 +2324,16 @@ function EtatLocatifModal({ building, bails, onClose }) {
                             seenYears.add(yr)
                             const pct = ((dt - domainStart) / domainMs) * 100
                             return (
-                              <span key={i} style={{
-                                position: 'absolute', left: `${pct}%`, top: '2px', transform: 'translateX(-50%)',
-                                fontSize: '9.5px', fontWeight: 700, color: 'var(--text3)', whiteSpace: 'nowrap', pointerEvents: 'none',
-                              }}>{yr}</span>
+                              <React.Fragment key={i}>
+                                <span style={{
+                                  position: 'absolute', left: `${pct}%`, top: '1px', transform: 'translateX(-50%)',
+                                  fontSize: '9.5px', fontWeight: 700, color: 'var(--text3)', whiteSpace: 'nowrap', pointerEvents: 'none',
+                                }}>{yr}</span>
+                                <div style={{
+                                  position: 'absolute', left: `${pct}%`, top: '12px', width: '1px', height: '6px',
+                                  background: 'var(--border2)', transform: 'translateX(-50%)', pointerEvents: 'none',
+                                }} />
+                              </React.Fragment>
                             )
                           })}
                           </React.Fragment>
