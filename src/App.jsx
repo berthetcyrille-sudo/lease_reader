@@ -2225,14 +2225,16 @@ function EtatLocatifModal({ building, bails, onClose }) {
           ) : (
             <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
               <div style={{ display: 'flex', position: 'relative', height: '26px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
-                <div style={{ width: '100px', flexShrink: 0, borderRight: '1px solid var(--border)' }} />
+                <div style={{ width: '100px', flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em', textAlign: 'center', padding: '0 4px' }}>
+                  Niveau / Bâtiment
+                </div>
                 <div style={{ position: 'relative', flex: 1 }}>
                   {years.map(y => {
                     const yd = new Date(y, 0, 1)
                     const pct = ((yd - domainStart) / domainMs) * 100
                     return (
                       <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
-                        <span style={{ position: 'absolute', top: '4px', left: '3px', fontSize: '10px', color: 'var(--text3)' }}>{y}</span>
+                        {pct > 2 && <span style={{ position: 'absolute', top: '4px', left: '3px', fontSize: '10px', color: 'var(--text3)' }}>{y}</span>}
                       </div>
                     )
                   })}
