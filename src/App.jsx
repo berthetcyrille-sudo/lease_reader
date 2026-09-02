@@ -2227,12 +2227,20 @@ function EtatLocatifModal({ building, bails, onClose }) {
             const gridTemplate = `${INFO_COLS} 1fr`
             return (
             <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: gridTemplate, alignItems: 'stretch', height: '32px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: gridTemplate, alignItems: 'stretch', height: '34px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
                 {['Preneur', 'Surface', 'Loyer', 'Niveau'].map(h => (
                   <div key={h} style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</div>
                 ))}
-                <div style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                  Échéancier
+                <div style={{ position: 'relative', overflow: 'hidden' }}>
+                  {years.map(y => {
+                    const yd = new Date(y, 0, 1)
+                    const pct = ((yd - domainStart) / domainMs) * 100
+                    return (
+                      <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
+                        <span style={{ position: 'absolute', top: '9px', left: 0, transform: 'translateX(-50%)', fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>{y}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
               {bailRows.map(t => {
@@ -2289,17 +2297,12 @@ function EtatLocatifModal({ building, bails, onClose }) {
                         const fullSpan = fullEnd - t.start
                         const fullWidth = ((fullEnd - domainStart) / domainMs) * 100 - left
                         const fixedPortionPct = t.reconductionTacite ? (barSpan / fullSpan) * 100 : 100
-                        // Années affichées directement sur la ligne, à chaque transition
-                        // (début, chaque break, fin) — remplace l'échelle d'années partagée.
-                        const transitionDates = [t.start, ...t.breaks.filter(b => b > t.start && b < t.end), t.reconductionTacite ? fullEnd : t.end].filter(Boolean)
-                        const seenYears = new Set()
                         return (
-                          <React.Fragment>
                           <div
                             onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                             onMouseLeave={() => setTooltip(null)}
                             onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                            style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: '18px', height: '22px', cursor: t.row ? 'pointer' : 'default' }}>
+                            style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: '15px', height: '22px', cursor: t.row ? 'pointer' : 'default' }}>
                             <div style={{ position: 'relative', height: '100%', borderRadius: '5px', overflow: 'hidden', display: 'flex', border: t.estimated ? '1.5px dashed var(--text3)' : 'none' }}>
                               <div style={{ position: 'absolute', left: 0, width: `${fixedPortionPct}%`, top: 0, bottom: 0, display: 'flex' }}>
                                 {segments.map((seg, si) => (
@@ -2318,25 +2321,6 @@ function EtatLocatifModal({ building, bails, onClose }) {
                               )}
                             </div>
                           </div>
-                          {transitionDates.map((dt, i) => {
-                            const yr = dt.getFullYear()
-                            if (seenYears.has(yr)) return null
-                            seenYears.add(yr)
-                            const pct = ((dt - domainStart) / domainMs) * 100
-                            return (
-                              <React.Fragment key={i}>
-                                <span style={{
-                                  position: 'absolute', left: `${pct}%`, top: '1px', transform: 'translateX(-50%)',
-                                  fontSize: '9.5px', fontWeight: 700, color: 'var(--text3)', whiteSpace: 'nowrap', pointerEvents: 'none',
-                                }}>{yr}</span>
-                                <div style={{
-                                  position: 'absolute', left: `${pct}%`, top: '12px', width: '1px', height: '6px',
-                                  background: 'var(--border2)', transform: 'translateX(-50%)', pointerEvents: 'none',
-                                }} />
-                              </React.Fragment>
-                            )
-                          })}
-                          </React.Fragment>
                         )
                       })()}
                       <div title={`Aujourd'hui : ${fmt(today)}`} style={{
