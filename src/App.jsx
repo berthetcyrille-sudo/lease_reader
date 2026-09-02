@@ -2422,7 +2422,7 @@ function ResultsView({ item }) {
   // déjà dans break_options) — jusqu'ici visibles seulement dans le texte libre
   // "Détail échéances", on les fait remonter dans la frise principale avec leur
   // condition, plutôt que de les laisser noyées dans un paragraphe.
-  const cleanBreakDatesSet = new Set(breaks.map(b => normalizeDate(b)))
+  const cleanBreakParsedDates = breaks.map(b => parseFR(b)).filter(Boolean)
   const condBreakEntries = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
     .map(ib => ({ date: ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null, condition: safeStr(ib.motif) || safeStr(ib.calcul) }))
     // Filet de sécurité : une clause de CESSION (remboursement si cession du
@@ -2431,7 +2431,17 @@ function ResultsView({ item }) {
     // même si l'IA lui a par erreur attribué une break_date (cas d'exclusion déjà
     // prévu au prompt, mais pas toujours respecté).
     .filter(cb => !/cession/i.test(cb.condition || ''))
-    .filter(cb => cb.date && /^\d{2}\/\d{2}\/\d{4}$/.test(cb.date) && !cleanBreakDatesSet.has(cb.date))
+    .filter(cb => cb.date && /^\d{2}\/\d{2}\/\d{4}$/.test(cb.date))
+    .filter(cb => {
+      // Exclure si une break "propre" tombe à quelques jours près de cette
+      // date — c'est très probablement LA MÊME échéance triennale, juste
+      // calculée deux fois par l'IA (deux appels distincts, conventions de
+      // jour légèrement différentes), pas une échéance véritablement en plus.
+      const cbParsed = parseFR(cb.date)
+      if (!cbParsed) return false
+      const isDuplicateOfClean = cleanBreakParsedDates.some(bd => Math.abs(bd - cbParsed) <= 3 * 24 * 60 * 60 * 1000)
+      return !isDuplicateOfClean
+    })
 
   const breakItems = [
     ...breaks.map(br => ({ val: br, conditional: false })),
