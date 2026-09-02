@@ -3288,7 +3288,7 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
 }
 
 // ─── Modale d'attache en masse (dossier → correspondance par nom de fichier) ─
-function BulkAttachModal({ candidateRows, onClose, onRefresh }) {
+function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
   const [dragging, setDragging] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [matches, setMatches] = useState(null) // null tant qu'aucun dossier déposé
@@ -3301,8 +3301,13 @@ function BulkAttachModal({ candidateRows, onClose, onRefresh }) {
     return files.map(file => {
       const norm = file.name.trim().toLowerCase()
       const row = candidateRows.find(r => !usedIds.has(r.id) && (r.file_name || '').trim().toLowerCase() === norm)
-      if (row) usedIds.add(row.id)
-      return { file, row: row || null }
+      if (row) { usedIds.add(row.id); return { file, row, status: 'matched' } }
+      // Pas de candidat à attacher — mais peut-être qu'un document du même nom
+      // existe déjà et a simplement déjà son fichier source (rien à faire),
+      // plutôt qu'aucun document correspondant n'existe du tout en base.
+      const alreadyAttached = (allRows || []).find(r => r.storage_path && (r.file_name || '').trim().toLowerCase() === norm)
+      if (alreadyAttached) return { file, row: null, status: 'already_attached' }
+      return { file, row: null, status: 'no_match' }
     })
   }
 
@@ -3396,8 +3401,9 @@ function BulkAttachModal({ candidateRows, onClose, onRefresh }) {
     onRefresh?.()
   }
 
-  const matchedCount = matches ? matches.filter(m => m.row).length : 0
-  const unmatchedCount = matches ? matches.length - matchedCount : 0
+  const matchedCount = matches ? matches.filter(m => m.status === 'matched').length : 0
+  const alreadyAttachedCount = matches ? matches.filter(m => m.status === 'already_attached').length : 0
+  const noMatchCount = matches ? matches.filter(m => m.status === 'no_match').length : 0
 
   return (
     <div className="modal-overlay" onClick={() => { if (!progress) onClose() }}>
@@ -3455,22 +3461,25 @@ function BulkAttachModal({ candidateRows, onClose, onRefresh }) {
             <div>
               <div style={{ fontSize: '13px', marginBottom: '10px' }}>
                 <strong>{matchedCount}</strong> fichier{matchedCount > 1 ? 's' : ''} rapproché{matchedCount > 1 ? 's' : ''} avec succès
-                {unmatchedCount > 0 && <span style={{ color: 'var(--text3)' }}> · {unmatchedCount} sans correspondance (ignoré{unmatchedCount > 1 ? 's' : ''})</span>}
+                {alreadyAttachedCount > 0 && <span style={{ color: 'var(--text3)' }}> · {alreadyAttachedCount} déjà attaché{alreadyAttachedCount > 1 ? 's' : ''} (rien à faire)</span>}
+                {noMatchCount > 0 && <span style={{ color: 'var(--text3)' }}> · {noMatchCount} sans document correspondant en base</span>}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '380px', overflowY: 'auto', marginBottom: '16px' }}>
                 {matches.map((m, i) => (
                   <div key={i} style={{
                     display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderRadius: '6px',
-                    background: m.row ? 'var(--success-bg)' : 'var(--surface2)',
+                    background: m.status === 'matched' ? 'var(--success-bg)' : m.status === 'already_attached' ? 'var(--accent-bg)' : 'var(--surface2)',
                   }}>
-                    <span style={{ fontSize: '13px', flexShrink: 0 }}>{m.row ? '✓' : '—'}</span>
+                    <span style={{ fontSize: '13px', flexShrink: 0 }}>{m.status === 'matched' ? '✓' : m.status === 'already_attached' ? '📄' : '—'}</span>
                     <span style={{ fontSize: '12px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.file.name}</span>
-                    {m.row ? (
+                    {m.status === 'matched' ? (
                       <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '220px' }}>
                         → {m.row.data?.immeuble || m.row.data?.adresse || m.row.file_name}
                       </span>
+                    ) : m.status === 'already_attached' ? (
+                      <span style={{ fontSize: '11px', color: 'var(--accent)', flexShrink: 0, fontStyle: 'italic' }}>déjà attaché — rien à faire</span>
                     ) : (
-                      <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0, fontStyle: 'italic' }}>aucune correspondance</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0, fontStyle: 'italic' }}>aucun document correspondant en base</span>
                     )}
                   </div>
                 ))}
@@ -4147,6 +4156,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
       {showBulkAttach && (
         <BulkAttachModal
           candidateRows={tree.flatMap(b => [b, ...(b.avenants || [])]).filter(r => !r.storage_path)}
+          allRows={tree.flatMap(b => [b, ...(b.avenants || [])])}
           onClose={() => setShowBulkAttach(false)}
           onRefresh={onRefresh}
         />
