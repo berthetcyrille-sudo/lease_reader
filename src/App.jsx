@@ -2443,8 +2443,24 @@ function ResultsView({ item }) {
       return !isDuplicateOfClean
     })
 
+  // Pour chaque break "propre", rattacher la condition/indemnité éventuellement
+  // décrite dans indemnites_break pour la MÊME échéance (à quelques jours près)
+  // — plutôt que de la perdre simplement parce qu'elle décrit une date déjà
+  // affichée par ailleurs (cf. le filtre condBreakEntries ci-dessus).
+  const rawIndemnitesBreak = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
+    .filter(ib => !/cession/i.test(safeStr(ib.motif) || '') && !/cession/i.test(safeStr(ib.calcul) || ''))
+  function findIndemniteForBreak(breakDateStr) {
+    const bd = parseFR(breakDateStr)
+    if (!bd) return null
+    const match = rawIndemnitesBreak.find(ib => {
+      const ibDate = ib.break_date ? parseFR(normalizeDate(safeStr(ib.break_date))) : null
+      return ibDate && Math.abs(ibDate - bd) <= 3 * 24 * 60 * 60 * 1000
+    })
+    return match ? (safeStr(match.motif) || safeStr(match.calcul)) : null
+  }
+
   const breakItems = [
-    ...breaks.map(br => ({ val: br, conditional: false })),
+    ...breaks.map(br => ({ val: br, conditional: false, indemnite: findIndemniteForBreak(br) })),
     ...condBreakEntries.map(cb => ({ val: cb.date, conditional: true, condition: cb.condition })),
   ].sort((a, b) => { const da = parseFR(a.val), db = parseFR(b.val); return (da && db) ? da - db : 0 })
 
@@ -2459,6 +2475,7 @@ function ResultsView({ item }) {
         val: item.val,
         type: item.conditional ? 'break_conditionnel' : 'break',
         condition: item.condition,
+        indemnite: item.indemnite,
         bNum: item.conditional ? null : bNum,
       }
     }),
@@ -2533,6 +2550,7 @@ function ResultsView({ item }) {
                     <PageJumpIcon item={item} pages={pages} field={pageField} />
                   </div>
                   {f.type === 'break' && d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
+                  {f.type === 'break' && f.indemnite && <div style={{ fontSize: '11px', color: '#B8860B', marginTop: '4px' }}>Indemnité si exercée : {f.indemnite}</div>}
                   {isCondBreak && f.condition && <div style={{ fontSize: '11px', color: '#B8860B', marginTop: '4px' }}>Conditionnelle : {f.condition}</div>}
                 </div>
               )})}
