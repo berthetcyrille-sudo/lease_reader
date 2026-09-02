@@ -1995,10 +1995,12 @@ function EtatLocatifModal({ building, bails, onClose }) {
   const [tooltip, setTooltip] = useState(null) // { x, y, tenant }
   const today = new Date()
 
-  const floors = useMemo(() => {
-    const groups = {}
-    let unresolvedIdx = 0
-    bails.forEach(row => {
+  // Une ligne par BAIL (pas par étage) — un bail qui occupe plusieurs étages
+  // affiche un libellé de localisation agrégé plutôt que d'être éclaté sur
+  // plusieurs lignes. Un même preneur avec plusieurs baux distincts garde
+  // autant de lignes que de baux (jamais fusionné).
+  const bailRows = useMemo(() => {
+    const rows = bails.map(row => {
       const d = mergedBailData(row)
       let start = parseFrDate(d.date_effet)
       let end = parseFrDate(d.date_fin)
@@ -2036,66 +2038,58 @@ function EtatLocatifModal({ building, bails, onClose }) {
       const mergedBreaksSet = new Set(storedBreaks.map(b => b.trim()))
       computedBreaksEL.forEach(c => mergedBreaksSet.add(c))
       const mergedBreaks = [...mergedBreaksSet].sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
-      const commonTenant = {
-        name: shortPartyName(d.preneur) || row.file_name,
-        start, end, estimated, estimatedField,
-        breaks: mergedBreaks.map(parseFrDate).filter(Boolean),
-        loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
-        reconductionTacite: d.reconduction_tacite?.applicable ? {
-          preavis: d.reconduction_tacite.preavis || null,
-          periodicite: d.reconduction_tacite.periodicite || null,
-        } : null,
-        row,
-      }
-      // Source principale : surfaces_detail, qui donne le niveau réel par lot
-      // (un même bail peut occuper plusieurs étages avec des surfaces distinctes).
+
+      // Localisation : liste des niveaux distincts occupés par ce bail (issus
+      // de surfaces_detail), triés du plus bas au plus haut, sinon repli sur
+      // l'adresse/l'immeuble.
       const detailRows = (d.surfaces_detail || []).filter(r =>
         (r.niveau || r.localisation) && !(r.categorie || '').toLowerCase().includes('station')
       )
+      let locationLabel, sortKey, surface
       if (detailRows.length > 0) {
+        const niveaux = [...new Set(detailRows.map(r => r.niveau || r.localisation))]
+        const infoList = niveaux.map(n => ({ label: n, info: extractFloorInfo(n) })).sort((a, b) => (a.info?.key ?? 9999) - (b.info?.key ?? 9999))
+        locationLabel = infoList.map(x => x.label).join(', ')
+        sortKey = infoList[0]?.info?.key ?? 9999
         // Un seul étage occupé : la "surface totale" du bail (surface exploitée
         // le cas échéant, incluant la quote-part de parties communes) s'applique
         // entièrement à cet étage — on la préfère à la ligne de détail, qui peut
         // ne représenter que le lot de bureaux hors quote-part.
         const totalM2 = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
-        detailRows.forEach(r => {
-          const label = r.niveau || r.localisation
-          const rowSurface = parseFloat(String(r.surface_m2 || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0
-          const surface = (detailRows.length === 1 && totalM2 > 0) ? totalM2 : rowSurface
-          if (!groups[label]) groups[label] = { key: label, label, tenants: [], sortKey: extractFloorInfo(label)?.key ?? 9999 }
-          groups[label].tenants.push({ ...commonTenant, surface })
-        })
+        surface = (detailRows.length === 1 && totalM2 > 0)
+          ? totalM2
+          : detailRows.reduce((a, r) => a + (parseFloat(String(r.surface_m2 || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0), 0)
       } else {
-        // Repli : ni surfaces_detail, ni étage identifiable dans l'adresse —
-        // chaque bail garde sa propre ligne plutôt que d'être entassé avec d'autres.
         const info = extractFloorInfo(d.adresse)
-        const key = info ? info.label : `u-${unresolvedIdx++}`
-        const rawLabel = d.immeuble || d.adresse || 'Lot non localisé'
-        const label = info ? info.label : (rawLabel.length > 28 ? rawLabel.slice(0, 26) + '…' : rawLabel)
-        const surface = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
-        if (!groups[key]) groups[key] = { key, label, tenants: [], sortKey: info ? info.key : 9999 }
-        groups[key].tenants.push({ ...commonTenant, surface })
+        locationLabel = info ? info.label : (d.immeuble || d.adresse || 'Lot non localisé')
+        sortKey = info ? info.key : 9999
+        surface = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
+      }
+
+      return {
+        sortKey,
+        tenant: {
+          name: shortPartyName(d.preneur) || row.file_name,
+          start, end, estimated, estimatedField,
+          breaks: mergedBreaks.map(parseFrDate).filter(Boolean),
+          loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
+          reconductionTacite: d.reconduction_tacite?.applicable ? {
+            preavis: d.reconduction_tacite.preavis || null,
+            periodicite: d.reconduction_tacite.periodicite || null,
+          } : null,
+          row,
+          locationLabel,
+          surface,
+          showRent: true, // un bail = une ligne désormais, plus de risque de doublon d'affichage du loyer
+        },
       }
     })
-    const arr = Object.values(groups)
-    const resolved = arr.filter(f => f.sortKey !== 9999).sort((a, b) => b.sortKey - a.sortKey)
-    const unresolved = arr.filter(f => f.sortKey === 9999)
-    const ordered = [...resolved, ...unresolved]
-    // Un même bail peut apparaître sur plusieurs étages (surfaces_detail) : on
-    // n'affiche le loyer total qu'une seule fois (première occurrence), pour
-    // éviter de laisser croire qu'il est dû à chaque étage.
-    const seenBailIds = new Set()
-    ordered.forEach(f => {
-      f.tenants.forEach(t => {
-        const id = t.row?.id
-        t.showRent = !id || !seenBailIds.has(id)
-        if (id) seenBailIds.add(id)
-      })
-    })
-    return ordered
+    const resolved = rows.filter(r => r.sortKey !== 9999).sort((a, b) => b.sortKey - a.sortKey)
+    const unresolved = rows.filter(r => r.sortKey === 9999)
+    return [...resolved, ...unresolved].map(r => r.tenant)
   }, [bails])
 
-  const allTenants = useMemo(() => floors.flatMap(f => f.tenants), [floors])
+  const allTenants = bailRows
   const withDates = allTenants.filter(t => t.start && t.end)
   // Segment "reconduction tacite" : la barre se prolonge jusqu'à la première
   // date de sortie effective possible à partir d'aujourd'hui — c-a-d aujourd'hui
@@ -2218,7 +2212,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
         </div>
 
         <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
-          {floors.length === 0 ? (
+          {bailRows.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
               Aucun bail rattaché à cet actif groupant pour le moment.
             </div>
@@ -2238,26 +2232,25 @@ function EtatLocatifModal({ building, bails, onClose }) {
                   })}
                 </div>
               </div>
-              {floors.map(f => {
+              {bailRows.map(t => {
                 const ROW_H = 52
-                const rowHeight = Math.max(ROW_H, f.tenants.length * ROW_H)
                 return (
-                  <div key={f.key} style={{ display: 'flex', borderBottom: '1px solid var(--border)', height: `${rowHeight}px` }}>
-                    <div style={{ width: '130px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {f.label}
+                  <div key={t.row.id} style={{ display: 'flex', borderBottom: '1px solid var(--border)', height: `${ROW_H}px` }}>
+                    <div title={t.locationLabel} style={{ width: '130px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'var(--text3)', background: 'var(--surface2)', borderRight: '1px solid var(--border)', textAlign: 'center', padding: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.locationLabel}
                     </div>
-                    <div style={{ position: 'relative', flex: 1, height: `${rowHeight}px` }}>
-                      {f.tenants.map((t, i) => {
+                    <div style={{ position: 'relative', flex: 1, height: `${ROW_H}px` }}>
+                      {(() => {
                         if (!t.start || !t.end) {
                           // Dates non exploitables ni calculables (ni date_effet+durée, ni date_fin+durée)
                           // — on affiche quand même le bail, ancré au début de la frise, plutôt que de le faire disparaître.
-                          const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.showRent && t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
+                          const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
                           return (
-                            <div key={i}
+                            <div
                               onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                               onMouseLeave={() => setTooltip(null)}
                               onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                              style={{ position: 'absolute', left: '4px', width: '380px', top: `${i * ROW_H + 4}px`, height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
+                              style={{ position: 'absolute', left: '4px', width: '380px', top: '4px', height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
                               <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                 {t.name}
                                 {infoLine && <span style={{ fontWeight: 400, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis' }}>· {infoLine}</span>}
@@ -2272,7 +2265,6 @@ function EtatLocatifModal({ building, bails, onClose }) {
                           )
                         }
                         const left = ((t.start - domainStart) / domainMs) * 100
-                        const width = ((t.end - t.start) / domainMs) * 100
                         const status = tenantStatus(t, today)
                         const segments = tenantSegments(t)
                         const barSpan = t.end - t.start
@@ -2280,13 +2272,13 @@ function EtatLocatifModal({ building, bails, onClose }) {
                         const fullSpan = fullEnd - t.start
                         const fullWidth = ((fullEnd - domainStart) / domainMs) * 100 - left
                         const fixedPortionPct = t.reconductionTacite ? (barSpan / fullSpan) * 100 : 100
-                        const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.showRent && t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
+                        const infoLine = [t.surface > 0 ? `${Math.round(t.surface)} m²` : null, (t.loyer > 0) ? `${fmtEur(t.loyer)} (total du bail)` : null].filter(Boolean).join(' · ')
                         return (
-                          <div key={i}
+                          <div
                             onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                             onMouseLeave={() => setTooltip(null)}
                             onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                            style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: `${i * ROW_H + 4}px`, height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
+                            style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: '4px', height: `${ROW_H - 8}px`, cursor: t.row ? 'pointer' : 'default' }}>
                             <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                               {status === 'risk' && <span title="Échéance dans moins de 18 mois">⚠</span>}
                               {t.name}
@@ -2313,7 +2305,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                             </div>
                           </div>
                         )
-                      })}
+                      })()}
                       <div title={`Aujourd'hui : ${fmt(today)}`} style={{
                         position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: 0, bottom: 0,
                         width: 0, borderLeft: '1.5px dashed var(--accent)', opacity: 0.55, zIndex: 2,
