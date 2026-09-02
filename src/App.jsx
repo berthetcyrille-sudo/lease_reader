@@ -2223,15 +2223,14 @@ function EtatLocatifModal({ building, bails, onClose }) {
               Aucun bail rattaché à cet actif groupant pour le moment.
             </div>
           ) : (() => {
-            const INFO_COLS = '190px 75px 100px 100px'
-            const gridTemplate = `${INFO_COLS} 1fr`
+            const COL_W = [190, 75, 100, 100]
             return (
             <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: gridTemplate, alignItems: 'stretch', height: '34px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
-                {['Preneur', 'Surface', 'Loyer', 'Niveau'].map(h => (
-                  <div key={h} style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</div>
+              <div style={{ display: 'flex', alignItems: 'stretch', height: '34px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                {['Preneur', 'Surface', 'Loyer', 'Niveau'].map((h, i) => (
+                  <div key={h} style={{ width: `${COL_W[i]}px`, flexShrink: 0, display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</div>
                 ))}
-                <div style={{ position: 'relative', overflow: 'hidden' }}>
+                <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
                   {years.map(y => {
                     const yd = new Date(y, 0, 1)
                     const pct = ((yd - domainStart) / domainMs) * 100
@@ -2247,10 +2246,10 @@ function EtatLocatifModal({ building, bails, onClose }) {
                 const ROW_H = 52
                 const status = t.start && t.end ? tenantStatus(t, today) : null
                 return (
-                  <div key={t.row.id} style={{ display: 'grid', gridTemplateColumns: gridTemplate, alignItems: 'center', borderBottom: '1px solid var(--border)', height: `${ROW_H}px` }}>
+                  <div key={t.row.id} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', height: `${ROW_H}px` }}>
                     <div
                       onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                      style={{ paddingLeft: '10px', paddingRight: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text)', cursor: t.row ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', lineHeight: 1.3 }}>
+                      style={{ width: `${COL_W[0]}px`, flexShrink: 0, paddingLeft: '10px', paddingRight: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text)', cursor: t.row ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', lineHeight: 1.3 }}>
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
                       {status === 'risk' && <span title="Échéance de sortie dans moins de 18 mois" style={{
                         flexShrink: 0, fontSize: '9.5px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px',
@@ -2259,9 +2258,9 @@ function EtatLocatifModal({ building, bails, onClose }) {
                       {t.estimated && <span title={t.estimatedField === 'start' ? 'Date d\'effet non extraite — recalculée à partir de la date de fin et de la durée totale' : 'Échéance estimée (VEFA)'} style={{ flexShrink: 0, color: 'var(--text3)' }}>≈</span>}
                       {t.reconductionTacite && <span title={`Reconduction tacite${t.reconductionTacite.periodicite ? ' ' + t.reconductionTacite.periodicite : ''}${t.reconductionTacite.preavis ? ', préavis ' + t.reconductionTacite.preavis : ''}`} style={{ flexShrink: 0, color: 'var(--accent)' }}>↻</span>}
                     </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px' }}>{t.surface > 0 ? `${Math.round(t.surface)} m²` : '—'}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.loyer > 0 ? fmtEur(t.loyer) : '—'}</div>
-                    <div style={{ paddingLeft: '10px' }}>
+                    <div style={{ width: `${COL_W[1]}px`, flexShrink: 0, fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px' }}>{t.surface > 0 ? `${Math.round(t.surface)} m²` : '—'}</div>
+                    <div style={{ width: `${COL_W[2]}px`, flexShrink: 0, fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.loyer > 0 ? fmtEur(t.loyer) : '—'}</div>
+                    <div style={{ width: `${COL_W[3]}px`, flexShrink: 0, paddingLeft: '10px' }}>
                       <span title={t.locationLabel} style={{
                         fontSize: '11px', fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-bg)',
                         padding: '3px 9px', borderRadius: '999px', display: 'inline-block', maxWidth: '100%',
@@ -2270,7 +2269,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                         {t.locationLabel}
                       </span>
                     </div>
-                    <div style={{ position: 'relative', height: `${ROW_H}px` }}>
+                    <div style={{ flex: 1, minWidth: 0, position: 'relative', height: `${ROW_H}px` }}>
                       {(() => {
                         if (!t.start || !t.end) {
                           // Dates non exploitables ni calculables (ni date_effet+durée, ni date_fin+durée)
