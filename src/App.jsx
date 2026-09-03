@@ -87,7 +87,7 @@ const ALL_FIELDS = SECTIONS.flatMap(s => s.fields)
 
 const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les données du bail. JSON minifié UNE SEULE LIGNE, sans markdown.
 
-REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent. INTERDIT: ne JAMAIS concatener une annotation, precision ou commentaire entre parentheses dans un champ date (format strict JJ/MM/AAAA, rien d'autre) ou dans un champ duree (ex: "1 an", "9 ans" — rien d'autre). Si une information complementaire existe (ex: reconduction, plafond de duree, condition), elle DOIT aller dans son champ dedie (ex: reconduction_tacite) et nulle part ailleurs — jamais annexee en texte libre dans date_fin, date_effet ou duree_totale. Exemple INTERDIT: date_fin="31/12/2023 (renouvelable, terme absolu 31/12/2034)" — la valeur correcte est date_fin="31/12/2023" avec reconduction_tacite.date_limite_absolue="31/12/2034" ; duree_totale="1 an renouvelable par tacite reconduction, duree maximale 12 ans" est egalement INTERDIT — la valeur correcte est duree_totale="1 an".
+REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent.
 
 CHAMPS:
 {"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
@@ -95,7 +95,7 @@ CHAMPS:
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible). ATTENTION: NE JAMAIS mettre duree_ferme = duree_totale par defaut quand rien n'est explicitement restreint — un bail SANS renonciation ni restriction du droit de resiliation triennale (art. L.145-4) a en realite une duree_ferme implicite de 3 ans (premiere sortie possible), PAS une duree_ferme egale a la duree totale (ce qui reviendrait a interdire toute sortie anticipee, ce qui n'est pas ce que dit le bail dans ce cas). Si aucune duree ferme n'est explicitement chiffree ET qu'aucune renonciation totale n'est exprimee, laisser duree_ferme a null plutot que de la deviner egale a duree_totale.
   ATTENTION DEROGATION PARTIELLE CP/CG: quand une clause CP dit "par derogation a l'article CG-X - DUREE, le Contrat est consenti pour une DUREE FERME de N annees, le PRENEUR renoncant a donner conge a l'expiration de la 3eme et de la 6eme annee" (ou formulation equivalente), cette clause CP ne deroge QUE sur le mecanisme de sortie anticipee (duree_ferme = N annees) — elle NE redefinit PAS la duree totale du bail. La duree_totale reste celle fixee par l'article CG-X vise (souvent PLUS LONGUE, ex: 12 ans), sauf si la clause CP dit explicitement autre chose sur la duree totale elle-meme. NE JAMAIS recopier la valeur de la "duree ferme" CP dans duree_totale sans avoir verifie la duree totale dans l'article CG correspondant. Exemple: CP dit "par derogation a l'article CG3 - DUREE, le Contrat est consenti pour une duree ferme de neuf (9) annees, le PRENEUR renoncant a la 3eme et 6eme annee" et CG3 dit "le Contrat est consenti pour une duree de douze (12) annees" → duree_totale=12 ans, duree_ferme=9 ans (PAS duree_totale=9 ans).
-- reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle","date_limite_absolue":null}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. date_limite_absolue: certains baux plafonnent la duree totale possible de la reconduction tacite par une clause du type "en tout etat de cause, la Convention/le Contrat ne pourra exceder N (en toutes lettres) annees et prendra automatiquement fin le [date], sans formalite". Si une telle clause EXPLICITE existe, reporter cette date exacte (format JJ/MM/AAAA) dans date_limite_absolue — c'est un plafond contractuel dur, distinct du preavis de conge habituel. Sinon (reconduction tacite sans limite de duree totale exprimee), laisser date_limite_absolue a null. null pour le champ reconduction_tacite entier si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
+- reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle"}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. null si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
 - surface_totale_m2: la surface de reference du bail. REGLE: si le bail utilise le terme "Surface Exploitee" (ou variante proche) pour designer la surface globale des locaux, UTILISER CETTE VALEUR pour surface_totale_m2, meme si elle inclut une quote-part des parties communes — c'est la convention de reference dans ce bail. Ne descendre au sous-composant individuel (ex: "Surface de bureaux") QUE si aucune "Surface Exploitee"/surface globale n'est mentionnee. Exemple: "la Surface Exploitee... est de 584,50 m²... les Locaux se decomposent: Surface de bureaux (lot n°11): 510,20 m²" → surface_totale_m2 = 584.50 (la Surface Exploitee), PAS 510.20.
 - surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple avec ventilation de loyer (toutes les lignes ont un loyer_annuel): [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
@@ -1872,29 +1872,6 @@ function auditBail(row) {
     })
   }
 
-  // 2ter. Champs date/durée pollués par du texte concaténé (ex: date_fin =
-  // "31/12/2023 (renouvelable, terme absolu 31/12/2034)" au lieu d'une date
-  // pure) — résidu d'extractions antérieures à l'ajout du champ dédié
-  // reconduction_tacite.date_limite_absolue. La date extraite reste
-  // exploitable (parseFrDate prend la première trouvée) mais l'info de
-  // plafond est perdue pour le Gantt tant que le bail n'est pas réextrait.
-  ;[['date_fin', d.date_fin], ['date_effet', d.date_effet], ['date_signature', d.date_signature]].forEach(([field, val]) => {
-    if (typeof val === 'string' && val.trim() && !/^\d{2}\/\d{2}\/\d{4}$/.test(val.trim())) {
-      issues.push({
-        type: 'champ_date_pollue',
-        severity: 'high',
-        detail: `${field} = "${val}" contient du texte en plus de la date — devrait être une date pure (JJ/MM/AAAA). Réextraction recommandée pour isoler l'information annexe (ex: plafond de reconduction) dans son propre champ.`,
-      })
-    }
-  })
-  if (typeof d.duree_totale === 'string' && d.duree_totale.trim() && !/^\d+\s*ans?$/i.test(d.duree_totale.trim())) {
-    issues.push({
-      type: 'champ_duree_pollue',
-      severity: 'high',
-      detail: `duree_totale = "${d.duree_totale}" contient du texte en plus de la durée — devrait être une valeur simple (ex: "1 an", "9 ans"). Réextraction recommandée.`,
-    })
-  }
-
   // 2bis. Break(s) tombant exactement au jour anniversaire de date_effet, sans
   // le "-1 jour" conventionnel des baux commerciaux français — sauf si le bail
   // écrit cette date en toutes lettres (auquel cas c'est un faux positif).
@@ -2164,7 +2141,6 @@ function EtatLocatifModal({ building, bails, onClose }) {
           reconductionTacite: d.reconduction_tacite?.applicable ? {
             preavis: d.reconduction_tacite.preavis || null,
             periodicite: d.reconduction_tacite.periodicite || null,
-            dateLimiteAbsolue: parseFrDate(d.reconduction_tacite.date_limite_absolue) || null,
           } : null,
           row,
           locationLabel,
@@ -2186,13 +2162,6 @@ function EtatLocatifModal({ building, bails, onClose }) {
   // civil en cours à cette date (règle usuelle du congé en tacite reconduction).
   function reconductionCutoff(t) {
     if (!t.reconductionTacite) return t.end
-    // Plafond contractuel absolu (ex: "ne pourra excéder 12 ans, fin
-    // automatique le 31/12/2034 sans formalité") : la reconduction tacite ne
-    // peut jamais dépasser cette date, quel que soit le préavis calculé
-    // depuis aujourd'hui — ce plafond prime sur le calcul par défaut.
-    if (t.reconductionTacite.dateLimiteAbsolue) {
-      return t.reconductionTacite.dateLimiteAbsolue > t.end ? t.reconductionTacite.dateLimiteAbsolue : t.end
-    }
     const m = String(t.reconductionTacite.preavis || '').match(/(\d+)\s*mois/i)
     const noticeMonths = m ? parseInt(m[1]) : 6
     const target = new Date(today)
@@ -2273,11 +2242,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
               <div style={{ fontSize: '10px', color: 'var(--accent)', fontStyle: 'italic' }}>
                 ↻ Reconduction tacite{t.reconductionTacite.periodicite ? ` ${t.reconductionTacite.periodicite}` : ''} au-delà de cette date
                 {t.reconductionTacite.preavis ? ` (préavis ${t.reconductionTacite.preavis})` : ''}
-                {t.reconductionTacite.dateLimiteAbsolue ? (
-                  <><br />⛔ Fin automatique (plafond contractuel, sans formalité) : {fmt(t.reconductionTacite.dateLimiteAbsolue)}</>
-                ) : (
-                  <><br />Prochaine sortie possible : {fmt(reconductionCutoff(t))}</>
-                )}
+                <br />Prochaine sortie possible : {fmt(reconductionCutoff(t))}
               </div>
             )}
             {t.breaks.length > 0 && (
@@ -2412,13 +2377,10 @@ function EtatLocatifModal({ building, bails, onClose }) {
                                 ))}
                               </div>
                               {t.reconductionTacite && (
-                                <div title={t.reconductionTacite.dateLimiteAbsolue
-                                  ? `Reconduction tacite — fin automatique et sans formalité le ${fmt(t.reconductionTacite.dateLimiteAbsolue)}`
-                                  : 'Reconduction tacite — durée non figée, se poursuit sauf congé'} style={{
+                                <div title="Reconduction tacite — durée non figée, se poursuit sauf congé" style={{
                                   position: 'absolute', left: `${fixedPortionPct}%`, right: 0, top: 0, bottom: 0,
                                   background: `repeating-linear-gradient(45deg, ${segments[segments.length-1]?.color || 'var(--accent)'}33, ${segments[segments.length-1]?.color || 'var(--accent)'}33 4px, transparent 4px, transparent 8px)`,
                                   borderLeft: '1.5px dashed var(--accent)',
-                                  borderRight: t.reconductionTacite.dateLimiteAbsolue ? '3px solid var(--danger)' : 'none',
                                 }} />
                               )}
                             </div>
