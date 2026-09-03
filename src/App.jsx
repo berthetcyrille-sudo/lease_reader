@@ -99,7 +99,7 @@ REGLES PAR CHAMP:
 - surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple avec ventilation de loyer (toutes les lignes ont un loyer_annuel): [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
-- _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes, meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null.
+- _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_totale":1,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes (duree_totale et duree_ferme sont presque toujours dans la meme clause, ne pas en oublier un des deux), meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null.
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
 - break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG — SAUF si les CP renvoient EXPRESSEMENT a un article des CG pour les modalites de conge/duree (ex: "le PRENEUR pourra delivrer conge selon les modalites convenues a l'article CG2.2 DUREE CONGE du Bail") : dans ce cas, c'est CET ARTICLE DES CG qu'il faut lire et appliquer, pas l'ignorer sous pretexte que les CP priment en general — les CP eux-memes designent les CG comme source de la regle. REGLE ABSOLUE CONVENTION DE DATE: toute date calculee par addition d'un nombre entier d'annees a date_effet (breaks, ou date_fin si elle doit etre calculee) s'exprime au JOUR ANNIVERSAIRE MOINS 1 JOUR — convention standard des baux commerciaux francais. Exemple: date_effet=15/10/2020, echeance a 6 ans → 15/10/2020 + 6 ans = 15/10/2026, MOINS 1 JOUR = 14/10/2026 (PAS 15/10/2026). Cette regle s'applique a TOUTE date calculee dans break_options ET a date_fin lorsqu'elle doit etre deduite de duree_totale (mais PAS si le bail donne une date de fin EXPLICITE en toutes lettres — dans ce cas utiliser cette date telle quelle, meme si elle ne suit pas cette convention). REGLE ABSOLUE (s'applique a TOUTES les regles ci-dessous, quelle que soit la formulation du bail: "periode triennale", "echeance triennale", "faculte triennale", etc.): les echeances triennales SUCCESSIVES se calculent TOUJOURS comme des multiples de 3 ANS DEPUIS DATE_EFFET (annees 3, 6, 9, 12...), JAMAIS en ajoutant 3 ans a la date de la break precedente. Meme si le bail nomme une premiere sortie a une annee qui n'est pas un multiple de 3 (ex: annee 4, ou annee 7, en fin de duree ferme), l'echeance suivante reste le PROCHAIN multiple de 3 depuis date_effet strictement superieur a cette annee — PAS cette annee + 3. REGLES DE CALCUL:
   1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
@@ -2010,6 +2010,44 @@ function EtatLocatifModal({ building, bails, onClose }) {
   const bailRows = useMemo(() => {
     const rows = bails.map(row => {
       const d = mergedBailData(row)
+
+      // Si un avenant confirme la date d'effet (levée de condition suspensive),
+      // on recalcule date_fin et break_options à partir d'elle AVANT la
+      // détection "estimée" ci-dessous — une fois la date de départ certaine,
+      // ce n'est plus une estimation incertaine (contrairement au cas VEFA
+      // sans confirmation), donc pas de pointillés à afficher pour ce bail.
+      if (Array.isArray(row.avenants) && row.avenants.length > 0) {
+        const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
+        const sortedAvs = [...row.avenants].sort((a, b) =>
+          toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
+            .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
+        let confirmedByAvenant = false
+        let hasExplicitDateFin = false
+        let hasExplicitBreaks = false
+        sortedAvs.forEach(av => {
+          const mods = av.data?.champs_modifies || {}
+          if (mods.date_effet) confirmedByAvenant = true
+          if (mods.date_fin) hasExplicitDateFin = true
+          if (Array.isArray(mods.break_options) && mods.break_options.length > 0) hasExplicitBreaks = true
+        })
+        if (confirmedByAvenant) {
+          const startConfirmed = parseFrDate(d.date_effet)
+          if (startConfirmed) {
+            if (!hasExplicitDateFin) {
+              const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
+              if (m) {
+                const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
+                d.date_fin = fmtFR(end)
+              }
+            }
+            if (!hasExplicitBreaks) {
+              const recalc = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+              if (recalc.length > 0) d.break_options = recalc
+            }
+          }
+        }
+      }
+
       let start = parseFrDate(d.date_effet)
       let end = parseFrDate(d.date_fin)
       let estimated = false
