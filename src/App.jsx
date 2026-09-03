@@ -1471,7 +1471,7 @@ function BulletField({ label, value, full }) {
   )
 }
 
-function Field({ label, value, mono, verbose, full, source }) {
+function Field({ label, value, mono, verbose, full, source, item, pages, pageField }) {
   const safe = safeStr(value)
   const tooltip = source || (safe && safe !== 'Non renseigné' ? `Extrait : "${safe}"` : null)
   return (
@@ -1480,7 +1480,10 @@ function Field({ label, value, mono, verbose, full, source }) {
         {label}
         {tooltip && <span className="field-info" title={tooltip}>i</span>}
       </div>
-      <div className={`field-val${!safe ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`}>{safe || 'Non renseigné'}</div>
+      <div className={`field-val${!safe ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        {safe || 'Non renseigné'}
+        {pageField && <PageJumpIcon item={item} pages={pages} field={pageField} />}
+      </div>
     </div>
   )
 }
@@ -2380,6 +2383,42 @@ function ResultsView({ item }) {
     })
   }, [item.id, d.indexation_indice, d.indexation_valeur_base, d.date_signature])
 
+  // Si un avenant confirme la date d'effet (ex: levée d'une condition
+  // suspensive), on l'utilise comme référence — et on recalcule date_fin et
+  // break_options à partir d'elle, sauf si un avenant a lui-même déjà fourni
+  // une valeur explicite pour ces champs (auquel cas elle prime).
+  let effetConfirmePar = null
+  if (!isAv && Array.isArray(item.avenants) && item.avenants.length > 0) {
+    const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
+    const sortedAvs = [...item.avenants].sort((a, b) =>
+      toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
+        .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
+    let hasExplicitDateFin = false
+    let hasExplicitBreaks = false
+    sortedAvs.forEach(av => {
+      const mods = av.data?.champs_modifies || {}
+      if (mods.date_effet) { d.date_effet = mods.date_effet; effetConfirmePar = av }
+      if (mods.date_fin) hasExplicitDateFin = true
+      if (Array.isArray(mods.break_options) && mods.break_options.length > 0) hasExplicitBreaks = true
+    })
+    if (effetConfirmePar) {
+      const startConfirmed = parseFrDate(d.date_effet)
+      if (startConfirmed) {
+        if (!hasExplicitDateFin) {
+          const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
+          if (m) {
+            const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
+            d.date_fin = fmtFR(end)
+          }
+        }
+        if (!hasExplicitBreaks) {
+          const recalculed = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+          if (recalculed.length > 0) d.break_options = recalculed
+        }
+      }
+    }
+  }
+
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
   const src = d._sources || {}
   const pages = item.data?._pages || {}
@@ -2488,7 +2527,7 @@ function ResultsView({ item }) {
 
   let bNum = 0
   const primaryDates = [
-    d.date_effet ? { key: 'date_effet', label: "Prise d'effet", type: 'primary' } : null,
+    d.date_effet ? { key: 'date_effet', label: "Prise d'effet", type: 'primary', confirmedByAvenant: effetConfirmePar } : null,
     ...breakItems.map((item, i) => {
       if (!item.conditional) bNum++
       return {
@@ -2543,8 +2582,8 @@ function ResultsView({ item }) {
           <div className="sec-hd"><div className="sec-label">Contrat et durée</div></div>
           <div className="gx">
             <Field label="Type de contrat" value={d.type_bail} />
-            <Field label="Durée totale" value={d.duree_totale} />
-            <Field label="Durée ferme" value={d.duree_ferme} />
+            <Field label="Durée totale" value={d.duree_totale} item={item} pages={pages} pageField="duree_totale" />
+            <Field label="Durée ferme" value={d.duree_ferme} item={item} pages={pages} pageField="duree_ferme" />
           </div>
         </div>
       )}
@@ -2574,6 +2613,11 @@ function ResultsView({ item }) {
                   {f.type === 'break' && d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
                   {f.type === 'break' && f.indemnite && <div style={{ fontSize: '11px', color: '#B8860B', marginTop: '4px' }}>Indemnité si exercée : {f.indemnite}</div>}
                   {isCondBreak && f.condition && <div style={{ fontSize: '11px', color: '#B8860B', marginTop: '4px' }}>Conditionnelle : {f.condition}</div>}
+                  {f.confirmedByAvenant && (
+                    <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '4px' }}>
+                      Confirmée par avenant{f.confirmedByAvenant.data?.date_signature_avenant ? ` du ${f.confirmedByAvenant.data.date_signature_avenant}` : ''} — échéance et fin de bail recalculées
+                    </div>
+                  )}
                 </div>
               )})}
             </div>
