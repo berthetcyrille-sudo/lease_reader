@@ -2176,11 +2176,16 @@ function EtatLocatifModal({ building, bails, onClose }) {
   const domainMs = domainEnd - domainStart
   const allYears = []
   for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) allYears.push(y)
-  // Sur une étendue large (beaucoup d'années), afficher une année sur deux ou
-  // trois plutôt que toutes — sinon les étiquettes n'ont pas la place de
-  // respirer et se retrouvent collées les unes aux autres.
-  const yearStep = allYears.length > 24 ? 3 : allYears.length > 13 ? 2 : 1
-  const years = allYears.filter((y, i) => i % yearStep === 0 || i === allYears.length - 1)
+  // Sur une étendue large (beaucoup d'années), répartir un nombre limité
+  // d'étiquettes UNIFORMÉMENT sur toute la largeur (premier et dernier inclus)
+  // plutôt qu'un espacement fixe + ajout forcé du dernier — qui pouvait coller
+  // les deux dernières années l'une contre l'autre quand le pas ne tombait pas
+  // juste en fin de plage.
+  const maxLabels = allYears.length > 24 ? 8 : allYears.length > 13 ? 11 : allYears.length
+  const years = allYears.length <= maxLabels || maxLabels <= 1
+    ? allYears
+    : [...new Set(Array.from({ length: maxLabels }, (_, i) =>
+        allYears[Math.round(i * (allYears.length - 1) / (maxLabels - 1))]))]
 
   function fmt(d) { return d ? d.toLocaleDateString('fr-FR') : '—' }
 
