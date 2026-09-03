@@ -1979,6 +1979,11 @@ function mergedBailData(row) {
     Object.entries(mods).forEach(([k, v]) => {
       if (v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0) && k !== '_sources') {
         base[k] = v
+        // Un avenant qui redéfinit explicitement break_options rend cette
+        // valeur définitive — le calcul de secours (computeBreaks), basé sur
+        // la clause du bail INITIAL, ne doit plus venir y rajouter les
+        // anciennes échéances superseded par cet avenant.
+        if (k === 'break_options') base._breakOptionsFromAvenant = true
       }
     })
     // surfaces_apres (champ séparé, hors champs_modifies) reflète l'assiette
@@ -2032,9 +2037,12 @@ function EtatLocatifModal({ building, bails, onClose }) {
       }
       // Fusionne (union) les breaks déjà stockés avec le calcul déterministe —
       // rattrape à l'affichage les extractions antérieures au renforcement de
-      // computeBreaks (ex: 3e échéance triennale manquante en base).
+      // computeBreaks (ex: 3e échéance triennale manquante en base). SAUF si un
+      // avenant a explicitement redéfini break_options : dans ce cas cette
+      // valeur est définitive, le calcul basé sur la clause du bail INITIAL ne
+      // doit pas venir y rajouter les anciennes échéances superseded.
       const storedBreaks = sanitizeBreakDates(d.break_options || [])
-      const computedBreaksEL = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+      const computedBreaksEL = d._breakOptionsFromAvenant ? [] : computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
       const mergedBreaksSet = new Set(storedBreaks.map(b => b.trim()))
       computedBreaksEL.forEach(c => mergedBreaksSet.add(c))
       const mergedBreaks = [...mergedBreaksSet].sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
@@ -5182,7 +5190,32 @@ export default function App() {
         )}
 
         <main className="main">
-          {activeItem && (
+          {activeItem && (() => {
+            // Navigation bail ↔ avenants : calculée ici plutôt que dans
+            // ResultsView, qui n'a pas accès à `history` (la liste complète).
+            const toSortable = s => {
+              const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+              return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '')
+            }
+            const avKey = av => toSortable(av.data?.date_effet_avenant || av.data?.date_signature_avenant || av.created_at)
+            let avNav = null
+            if (activeItem.document_type === 'bail' && activeItem.avenants?.length > 0) {
+              const sorted = [...activeItem.avenants].sort((a, b) => avKey(a).localeCompare(avKey(b)))
+              avNav = { next: sorted[0], nextLabel: sorted.length > 1 ? `Avenant 1/${sorted.length} →` : 'Avenant →' }
+            } else if (activeItem.document_type === 'avenant' && activeItem.parent_id) {
+              const parentBail = history.find(b => b.id === activeItem.parent_id)
+              if (parentBail) {
+                const sorted = [...(parentBail.avenants || [])].sort((a, b) => avKey(a).localeCompare(avKey(b)))
+                const idx = sorted.findIndex(a => a.id === activeItem.id)
+                avNav = {
+                  prev: idx > 0 ? sorted[idx - 1] : parentBail,
+                  prevLabel: idx > 0 ? `← Avenant ${idx}/${sorted.length}` : '← Bail',
+                  next: idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null,
+                  nextLabel: idx >= 0 && idx < sorted.length - 1 ? `Avenant ${idx + 2}/${sorted.length} →` : null,
+                }
+              }
+            }
+            return (
             <div className="result-topbar">
               <div className="result-tag">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -5194,6 +5227,16 @@ export default function App() {
               {resultSub && <div className="result-sub">{resultSub}</div>}
               <div className="result-actions">
                 <button className="btn back" onClick={() => { setActiveItem(null); navigate('/') }}>← Retour au dashboard</button>
+                {avNav?.prev && (
+                  <button className="btn" onClick={() => { setActiveItem(avNav.prev); navigate(`/bail/${avNav.prev.id}`) }} title="Document précédent">
+                    {avNav.prevLabel}
+                  </button>
+                )}
+                {avNav?.next && (
+                  <button className="btn" onClick={() => { setActiveItem(avNav.next); navigate(`/bail/${avNav.next.id}`) }} title="Document suivant">
+                    {avNav.nextLabel}
+                  </button>
+                )}
                 <button className="btn primary" onClick={() => {
                   const bailParent = history.find(b => b.avenants?.some(a => a.id === activeItem.id))
                   exportToExcel(
@@ -5209,7 +5252,8 @@ export default function App() {
                 </button>
               </div>
             </div>
-          )}
+            )
+          })()}
 
           <div className="content" ref={contentRef}>
             {activeItem ? (
