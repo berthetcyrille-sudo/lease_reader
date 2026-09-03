@@ -108,6 +108,7 @@ REGLES PAR CHAMP:
   3) "renonce...triennale POUR LA DUREE FERME" ou "aura la faculte de donner conge a l'expiration de la Neme periode/echeance triennale pour la premiere fois" → premiere break = date_effet + N*3 ans. PUIS CONTINUER a intervalles de 3 ans supplementaires (N+1, N+2...) TANT QUE la date obtenue reste STRICTEMENT ANTERIEURE a date_fin — ne JAMAIS s'arreter apres la premiere date par defaut. Exemple A (plusieurs breaks): "deuxieme periode triennale pour la premiere fois", date_effet=01/01/2021, date_fin=31/12/2030 → premiere break=31/12/2026 (2*3=6 ans) ; echeance suivante=31/12/2029 (3*3=9 ans), qui est < date_fin donc AJOUTEE aussi → ["31/12/2026","31/12/2029"]. Exemple B (un seul break, car l'echeance suivante coincide avec la fin du bail): meme formulation, date_effet=30/06/2025, date_fin=29/06/2034 → premiere break=30/06/2031 (6 ans) ; echeance suivante=30/06/2034 (9 ans) qui EGALE (a 1 jour pres) date_fin donc EXCLUE → ["30/06/2031"] uniquement
   3bis) "renonce a sa faculte de resiliation triennale pour la duree ferme" avec duree_ferme exprimee en annees NON multiple de 3 (ex: 4 ou 7 ans) et le texte precise une premiere sortie explicite ("au plus tot le [date]", "a l'expiration de la Neme annee...pour la premiere fois", "soit le [date] pour la premiere fois") suivie ou non d'une reference a une echeance/periode triennale suivante SANS date explicite ("ainsi que pour la deuxieme echeance triennale", "et a chaque echeance triennale suivante") → cette premiere date (= date_effet + duree_ferme, meme si duree_ferme n'est pas un multiple de 3) est la premiere break. La ou les echeance(s) suivante(s), MEME NOMMEES "deuxieme echeance" dans le texte, se calculent TOUJOURS depuis date_effet (PROCHAIN multiple de 3 strictement superieur a duree_ferme), JAMAIS depuis la premiere break. EXEMPLE 1 (duree_ferme=7 ans): date_effet=01/09/2022, "conge au plus tot pour le 31 aout 2029" → premiere break=31/08/2029 (annee 7) ; prochain multiple de 3 apres 7 = annee 9 → echeance suivante=31/08/2031 (PAS annee 7+3=10=2032) ; date_fin=31/08/2034 (annee 12, EXCLUE) → ["31/08/2029","31/08/2031"]. EXEMPLE 2 (duree_ferme=4 ans): date_effet=01/05/2024, "conge a l'expiration de la quatrieme annee, soit le 30 avril 2028 pour la premiere fois, ainsi que pour la deuxieme echeance triennale" → premiere break=30/04/2028 (annee 4) ; prochain multiple de 3 apres 4 = annee 6 (PAS annee 4+3=7=2031, meme si le texte dit "deuxieme echeance" juste apres la premiere) → echeance suivante=30/04/2030 ; date_fin=30/04/2033 (annee 9, EXCLUE) → ["30/04/2028","30/04/2030"]
   4) "a l'expiration de la Neme annee" → date_effet + N ans
+  5) "renoncant expressement a sa faculte de donner conge a l'expiration de la Neme et de la Mieme Annee du Contrat" (ENUMERATION EXPLICITE des annees renoncees, formulation DIFFERENTE de "duree ferme" ou "Nieme fois") → calculer TOUTES les echeances triennales standard (multiples de 3 depuis date_effet: annee 3, 6, 9, 12...) jusqu'a duree_totale, PUIS RETIRER les annees explicitement nommees comme renoncees. NE JAMAIS inclure une annee que le texte nomme explicitement comme renoncee, meme si elle tombe sur un multiple de 3 par ailleurs. EXEMPLE (celui-ci est un piège frequent — l'annee renoncee est un vrai multiple de 3, ne pas l'inclure par erreur): date_effet=31/03/2021, duree_totale=12 ans (date_fin=30/03/2033), "renoncant a sa faculte de donner conge a l'expiration de la 3eme et de la 6eme Annee" → echeances triennales standard = annees 3,6,9,12 → retirer les annees 3 ET 6 (explicitement renoncees, PAS seulement la 3eme) → il ne reste QUE l'annee 9 (annee 12 de toute facon exclue car = date_fin) → break_options=["30/03/2030"] UNIQUEMENT (PAS "30/03/2027", qui correspond a l'annee 6 explicitement renoncee)
   Ne PAS inclure date_fin.
 - loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
@@ -684,6 +685,7 @@ REGLES DE CALCUL (lire attentivement la clause, ne pas appliquer mecaniquement):
 3) "renonce...triennale POUR LA DUREE FERME" OU "aura la faculte de donner conge a l'expiration de la Neme periode/echeance triennale pour la premiere fois" → premiere break = date_effet + N*3 ans. PUIS CONTINUER a intervalles de 3 ans supplementaires (N+1, N+2...) TANT QUE la date obtenue reste STRICTEMENT ANTERIEURE a date_fin — ne JAMAIS s'arreter apres la premiere date par defaut. EXEMPLE A (plusieurs breaks): "deuxieme periode triennale pour la premiere fois", date_effet=01/01/2021, date_fin=31/12/2030 → premiere break=31/12/2026 (6 ans) ; echeance suivante=31/12/2029 (9 ans) < date_fin donc AJOUTEE → ["31/12/2026","31/12/2029"]. EXEMPLE B (un seul, car l'echeance suivante coincide avec la fin du bail): meme formulation, date_effet=30/06/2025, date_fin=29/06/2034 → premiere break=30/06/2031 (6 ans) ; echeance suivante=30/06/2034 (9 ans) = date_fin (a 1 jour pres) donc EXCLUE → ["30/06/2031"] uniquement
 3bis) "renonce a sa faculte de resiliation triennale pour la duree ferme" avec duree_ferme NON multiple de 3 (ex: 4 ou 7 ans) et une premiere sortie explicite ("au plus tot", "pour la premiere fois", "a l'expiration de la Neme annee") EVENTUELLEMENT suivie d'une reference a une echeance triennale suivante SANS date explicite ("ainsi que pour la deuxieme echeance triennale") → cette premiere date (date_effet + duree_ferme) est la premiere break. La ou les echeance(s) suivante(s), MEME NOMMEE "deuxieme echeance" dans le texte juste apres, se calculent TOUJOURS depuis date_effet (PROCHAIN multiple de 3 strictement superieur a duree_ferme), JAMAIS depuis la premiere break. EXEMPLE 1 (duree_ferme=7 ans): date_effet=01/09/2022, conge au plus tot 31/08/2029 → premiere break=31/08/2029 (annee 7) ; prochain multiple de 3 apres 7 = annee 9 → echeance suivante=31/08/2031 (PAS annee 7+3=2032) ; date_fin=31/08/2034 (annee 12, EXCLUE) → ["31/08/2029","31/08/2031"]. EXEMPLE 2 (duree_ferme=4 ans): date_effet=01/05/2024, "conge a l'expiration de la 4eme annee, soit le 30/04/2028 pour la premiere fois, ainsi que pour la deuxieme echeance triennale" → premiere break=30/04/2028 (annee 4) ; prochain multiple de 3 apres 4 = annee 6 (PAS annee 4+3=2031) → echeance suivante=30/04/2030 ; date_fin=30/04/2033 (annee 9, EXCLUE) → ["30/04/2028","30/04/2030"]
 4) "a l'expiration de la Neme annee" → date_effet + N ans
+5) "renoncant expressement a sa faculte de donner conge a l'expiration de la Neme et de la Mieme Annee du Contrat" (ENUMERATION EXPLICITE des annees renoncees, formulation DIFFERENTE de "duree ferme" ou "Nieme fois") → calculer TOUTES les echeances triennales standard (multiples de 3 depuis date_effet: annee 3,6,9,12...) jusqu'a duree_totale, PUIS RETIRER les annees explicitement nommees comme renoncees — meme si une annee renoncee tombe sur un multiple de 3. EXEMPLE (piege frequent): date_effet=31/03/2021, duree_totale=12 ans (date_fin=30/03/2033), "renoncant a sa faculte de donner conge a l'expiration de la 3eme et de la 6eme Annee" → echeances standard = annees 3,6,9,12 → retirer 3 ET 6 (toutes les deux explicitement renoncees) → il ne reste que l'annee 9 (annee 12 exclue = date_fin) → break_options=["30/03/2030"] UNIQUEMENT (PAS "30/03/2027" = annee 6, explicitement renoncee)
 CP priment toujours sur CG. Trier chronologiquement. Ne PAS inclure date_fin.`
 
 const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
@@ -887,12 +889,19 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
       }
     }
 
-    // Detect Nème année patterns
+    // Detect Nème année patterns — mais JAMAIS si ce "Nème année" est mentionné
+    // dans un contexte de RENONCIATION ("renonçant... à l'expiration de la
+    // 3ème et de la 6ème Année") : dans ce cas, c'est précisément l'échéance
+    // qu'on retire, pas une option de sortie accordée. Sans ce garde-fou, ce
+    // bloc générique ajoutait à tort les années explicitement renoncées.
     const yearPattern = /(\d+)[eè][mr]?[eè]?\s+ann[eé]e/gi
     let match
     while ((match = yearPattern.exec(clauseText)) !== null) {
       const n = parseInt(match[1])
       if (n > 0 && n < 12) {
+        const contextBefore = clauseText.slice(Math.max(0, match.index - 100), match.index)
+        const isRenounced = /renonc|sans facult|ne pourra|supprim/i.test(contextBefore)
+        if (isRenounced) continue
         const d = addYearsExpiry(effet, n)
         if (d < fin) candidates.add(fmtFR(d))
       }
@@ -2260,16 +2269,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
       <div className="modal" style={{ width: '95vw', height: '95vh', maxWidth: 'none', maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="modal-title">État locatif — {building}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', color: 'var(--text3)' }}>
-              <span>Segments = périodes entre breaks</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '2px', height: '12px', background: 'var(--accent)', display: 'inline-block' }} />Aujourd'hui
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>⚠ Échéance &lt;18 mois</span>
-            </div>
-            <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
-          </div>
+          <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
         </div>
 
         <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
@@ -2616,7 +2616,7 @@ function ResultsView({ item }) {
       )}
 
       {/* Contrat */}
-      {(show('type_bail') || show('duree_totale')) && (
+      {(show('type_bail') || show('duree_totale') || show('duree_ferme')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Contrat et durée</div></div>
           <div className="gx">
