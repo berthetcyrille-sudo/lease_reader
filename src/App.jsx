@@ -4727,9 +4727,166 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   )
 }
 
+// ─── Authentification : écrans et espace admin ──────────────────────────────
+function LoginScreen() {
+  const [email, setEmail] = useState("")
+  const [sent, setSent] = useState(false)
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  async function handleSend(e) {
+    e.preventDefault()
+    if (!email.trim()) return
+    setLoading(true); setError("")
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim() })
+    setLoading(false)
+    if (error) setError(error.message)
+    else setSent(true)
+  }
+  return (
+    <div style={{minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)"}}>
+      <div style={{background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", padding: "36px 32px", width: "360px", maxWidth: "90vw", boxShadow: "0 8px 32px rgba(0,0,0,.08)"}}>
+        <div style={{fontWeight: 700, fontSize: "18px", marginBottom: "6px"}}>Lease Reader</div>
+        <div style={{fontSize: "13px", color: "var(--text3)", marginBottom: "22px"}}>Accès réservé — connecte-toi avec ton email professionnel</div>
+        {sent ? (
+          <div style={{fontSize: "13px", color: "var(--success)", background: "var(--success-bg)", padding: "12px 14px", borderRadius: "var(--r)"}}>
+            ✓ Un lien de connexion a été envoyé à <strong>{email}</strong>. Ouvre-le depuis ta boîte mail pour accéder à l'application.
+          </div>
+        ) : (
+          <form onSubmit={handleSend}>
+            <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="prenom.nom@stoureiffel.com"
+              style={{width: "100%", boxSizing: "border-box", padding: "9px 12px", fontSize: "13px", border: "1px solid var(--border2)", borderRadius: "var(--r)", marginBottom: "12px", outline: "none"}} />
+            {error && <div style={{fontSize: "12px", color: "var(--danger)", marginBottom: "10px"}}>{error}</div>}
+            <button className="btn primary" type="submit" disabled={loading} style={{width: "100%", justifyContent: "center", opacity: loading ? .6 : 1}}>
+              {loading ? "Envoi…" : "Recevoir le lien de connexion"}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function NotAuthorizedScreen({ email, onLogout }) {
+  return (
+    <div style={{minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)"}}>
+      <div style={{background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", padding: "36px 32px", width: "380px", maxWidth: "90vw", textAlign: "center"}}>
+        <div style={{fontSize: "28px", marginBottom: "10px"}}>⛔</div>
+        <div style={{fontWeight: 700, fontSize: "16px", marginBottom: "8px"}}>Accès non autorisé</div>
+        <div style={{fontSize: "13px", color: "var(--text2)", lineHeight: 1.6, marginBottom: "20px"}}>
+          Le compte <strong>{email}</strong> n'a pas (ou plus) accès à cette application. Contacte l'administrateur pour demander l'accès.
+        </div>
+        <button className="btn" onClick={onLogout} style={{width: "100%", justifyContent: "center"}}>Se déconnecter</button>
+      </div>
+    </div>
+  )
+}
+
+function AdminPanel({ onClose }) {
+  const [rows, setRows] = useState(null) // null = chargement
+  const [newEmail, setNewEmail] = useState("")
+  const [newLabel, setNewLabel] = useState("")
+  const [newIsAdmin, setNewIsAdmin] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  async function load() {
+    const { data, error } = await supabase.from("profiles").select("*").order("created_at", { ascending: true })
+    if (error) setError(error.message)
+    else { setRows(data || []); setError("") }
+  }
+  useEffect(() => { load() }, [])
+  async function addProfile(e) {
+    e.preventDefault()
+    if (!newEmail.trim()) return
+    setSaving(true); setError("")
+    const { error } = await supabase.from("profiles").insert({
+      email: newEmail.trim().toLowerCase(), label: newLabel.trim() || null, is_admin: newIsAdmin, active: true,
+    })
+    setSaving(false)
+    if (error) setError(error.message)
+    else { setNewEmail(""); setNewLabel(""); setNewIsAdmin(false); load() }
+  }
+  async function toggleField(row, field) {
+    const { error } = await supabase.from("profiles").update({ [field]: !row[field] }).eq("email", row.email)
+    if (error) setError(error.message); else load()
+  }
+  async function removeProfile(row) {
+    if (!window.confirm(`Retirer l'accès de ${row.email} définitivement ?`)) return
+    const { error } = await supabase.from("profiles").delete().eq("email", row.email)
+    if (error) setError(error.message); else load()
+  }
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{width: "620px", maxHeight: "85vh"}} onClick={e => e.stopPropagation()}>
+        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+          <div className="modal-title">Gestion des accès</div>
+          <button onClick={onClose} style={{background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: "var(--text2)"}}>✕</button>
+        </div>
+        {error && <div style={{fontSize: "12px", color: "var(--danger)", background: "var(--danger-bg)", padding: "8px 12px", borderRadius: "var(--r)"}}>{error}</div>}
+        <form onSubmit={addProfile} style={{display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center", padding: "10px 12px", background: "var(--surface2)", borderRadius: "var(--r)"}}>
+          <input type="email" required placeholder="email@stoureiffel.com" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+            style={{flex: "1 1 180px", padding: "6px 10px", fontSize: "12px", border: "1px solid var(--border2)", borderRadius: "6px"}} />
+          <input type="text" placeholder="Nom (optionnel)" value={newLabel} onChange={e => setNewLabel(e.target.value)}
+            style={{flex: "1 1 130px", padding: "6px 10px", fontSize: "12px", border: "1px solid var(--border2)", borderRadius: "6px"}} />
+          <label style={{fontSize: "11px", display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap"}}>
+            <input type="checkbox" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)} /> Admin
+          </label>
+          <button className="btn primary" type="submit" disabled={saving} style={{fontSize: "12px", padding: "6px 12px"}}>+ Ajouter</button>
+        </form>
+        <div style={{overflowY: "auto", flex: 1}}>
+          {rows === null ? (
+            <div style={{padding: "24px", textAlign: "center", color: "var(--text3)", fontSize: "13px"}}>Chargement…</div>
+          ) : rows.length === 0 ? (
+            <div style={{padding: "24px", textAlign: "center", color: "var(--text3)", fontSize: "13px"}}>Aucun compte pour le moment.</div>
+          ) : (
+            <div style={{display: "flex", flexDirection: "column", gap: "6px"}}>
+              {rows.map(row => (
+                <div key={row.email} style={{display: "flex", alignItems: "center", gap: "10px", padding: "9px 12px", border: "1px solid var(--border)", borderRadius: "var(--r)"}}>
+                  <div style={{flex: 1, minWidth: 0}}>
+                    <div style={{fontSize: "13px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"}}>{row.label || row.email}</div>
+                    {row.label && <div style={{fontSize: "11px", color: "var(--text3)"}}>{row.email}</div>}
+                  </div>
+                  {row.is_admin && <span className="pill pill-blue" style={{fontSize: "10px"}}>Admin</span>}
+                  <span onClick={() => toggleField(row, "active")} title="Activer / désactiver l'accès"
+                    style={{fontSize: "11px", fontWeight: 600, padding: "3px 9px", borderRadius: "999px", cursor: "pointer",
+                    background: row.active ? "var(--success-bg)" : "var(--danger-bg)", color: row.active ? "var(--success)" : "var(--danger)"}}>
+                    {row.active ? "✓ Actif" : "⛔ Désactivé"}
+                  </span>
+                  <button onClick={() => toggleField(row, "is_admin")} className="btn" style={{fontSize: "11px", padding: "3px 8px"}}>
+                    {row.is_admin ? "Retirer admin" : "Rendre admin"}
+                  </button>
+                  <button onClick={() => removeProfile(row)} className="dash-action-btn dash-action-del" style={{opacity: 1}} title="Supprimer l'accès">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  // ─── Auth ────────────────────────────────────────────────────────────────
+  const [session,     setSession]     = useState(null)
+  const [profile,     setProfile]     = useState(null)  // null=pas chargé, false=aucun profil
+  const [authLoading, setAuthLoading] = useState(true)
+  const [showAdminPanel, setShowAdminPanel] = useState(false)
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess))
+    return () => sub.subscription.unsubscribe()
+  }, [])
+  useEffect(() => {
+    if (!session) { setProfile(null); setAuthLoading(false); return }
+    setAuthLoading(true)
+    supabase.from("profiles").select("*").eq("email", session.user.email).maybeSingle()
+      .then(({ data }) => { setProfile(data || false); setAuthLoading(false) })
+  }, [session])
+
   const [files,        setFiles]        = useState([])
   const dirActifGroupsRef = useRef({})
   const [statuses,     setStatuses]     = useState([])
@@ -5213,8 +5370,15 @@ export default function App() {
   const shortName = s => s?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim()
   const resultSub = [shortName(d.preneur), shortName(d.bailleur), d.date_signature ? `Signé le ${d.date_signature}` : null].filter(Boolean).join(' · ')
 
+  if (authLoading) {
+    return <div style={{minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text3)", fontSize: "13px"}}>Chargement…</div>
+  }
+  if (!session) return <LoginScreen />
+  if (!profile || !profile.active) return <NotAuthorizedScreen email={session.user.email} onLogout={() => supabase.auth.signOut()} />
+
   return (
     <>
+      {showAdminPanel && <AdminPanel onClose={() => setShowAdminPanel(false)} />}
       <div className="app">
         <header className="topbar">
           <div onClick={() => { setActiveItem(null); navigate('/'); switchTab('history') }} style={{ display: 'flex', alignItems: 'center', gap: '9px', cursor: 'pointer' }}>
@@ -5276,6 +5440,36 @@ export default function App() {
             </svg>
             Contrôle qualité
           </button>
+
+          {profile?.is_admin && (
+            <button
+              onClick={() => setShowAdminPanel(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '13px', fontWeight: 600,
+                padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', marginLeft: '10px',
+              }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>
+              </svg>
+              Admin
+            </button>
+          )}
+
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>{session.user.email}</span>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              title="Se déconnecter"
+              style={{
+                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff',
+                fontSize: '13px', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer',
+              }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
+          </div>
         </header>
 
         {showQualityCheck && (
