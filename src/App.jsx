@@ -2119,7 +2119,21 @@ function EtatLocatifModal({ building, bails, onClose }) {
       const computedBreaksEL = d._breakOptionsFromAvenant ? [] : computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
       const mergedBreaksSet = new Set(storedBreaks.map(b => b.trim()))
       computedBreaksEL.forEach(c => mergedBreaksSet.add(c))
-      const mergedBreaks = [...mergedBreaksSet].sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
+      let mergedBreaks = [...mergedBreaksSet].sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
+      // Même filtre que ResultsView : si duree_ferme est renseignée, un break
+      // antérieur à date_effet + duree_ferme est forcément un résidu (ancien
+      // calcul, ou stocké avant une renonciation explicite) — sans ce filtre,
+      // il réapparaîtrait ici alors qu'il est déjà filtré dans la fiche détail.
+      if (d.duree_ferme && d.date_effet) {
+        const effetDF = parseFR(d.date_effet)
+        const dfm = String(d.duree_ferme)
+        const ymatchDF = dfm.match(/(\d+)\s*ans?/), mmatchDF = dfm.match(/(\d+)\s*mois/)
+        const yearsDF = ymatchDF ? parseInt(ymatchDF[1]) : 0, monthsDF = mmatchDF ? parseInt(mmatchDF[1]) : 0
+        if (effetDF && (yearsDF > 0 || monthsDF > 0)) {
+          const minBreakDF = new Date(effetDF.getFullYear() + yearsDF, effetDF.getMonth() + monthsDF, effetDF.getDate() - 1)
+          mergedBreaks = mergedBreaks.filter(b => { const bd = parseFR(b); return bd && bd >= minBreakDF })
+        }
+      }
 
       // Localisation : liste des niveaux distincts occupés par ce bail (issus
       // de surfaces_detail), triés du plus bas au plus haut, sinon repli sur
