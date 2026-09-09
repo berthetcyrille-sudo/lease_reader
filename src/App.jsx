@@ -1714,8 +1714,11 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
 // Fusionne franchise_periodes et abattements en une seule liste — les deux
 // champs se recoupent souvent (le modèle classe parfois la même clause de
 // franchise dans les deux), d'où une déduplication : un abattement est
-// considéré comme un doublon d'une franchise si même date de début ET
-// montant quasi identique (± 1%, pour absorber les arrondis).
+// considéré comme un doublon d'une franchise si les deux couvrent EXACTEMENT
+// la même période (même date de début ET même date de fin) — le montant
+// n'est pas un critère fiable ici, car franchise_periodes stocke souvent le
+// montant TOTAL de la période tandis qu'abattements stocke un montant ANNUEL
+// pour la même clause (deux représentations différentes du même chiffre).
 function mergeLoyerReductions(franchisePeriodes, abattements) {
   const fr = Array.isArray(franchisePeriodes) ? franchisePeriodes : []
   const ab = Array.isArray(abattements) ? abattements : []
@@ -1723,12 +1726,7 @@ function mergeLoyerReductions(franchisePeriodes, abattements) {
     const da = parseFR(a), db = parseFR(b)
     return !!(da && db && da.getTime() === db.getTime())
   }
-  const amountsClose = (a, b) => {
-    const na = parseAmount(a), nb = parseAmount(b)
-    if (na === null || nb === null) return false
-    return Math.abs(na - nb) <= Math.max(1, na * 0.01)
-  }
-  const abFiltered = ab.filter(a => !fr.some(f => sameDate(f.date_debut, a.date_debut) && amountsClose(f.montant, a.montant_annuel)))
+  const abFiltered = ab.filter(a => !fr.some(f => sameDate(f.date_debut, a.date_debut) && sameDate(f.date_fin, a.date_fin)))
   const abAsFranchiseRows = abFiltered.map(r => {
     const s = parseFR(r.date_debut), e = parseFR(r.date_fin)
     const months = (s && e) ? Math.max(1, Math.round(monthsBetweenDates(s, e))) : null
