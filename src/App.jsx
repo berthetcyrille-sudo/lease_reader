@@ -2110,7 +2110,11 @@ function auditBail(row) {
     if (!allHaveLoyer) return
     const sumRows = rows.reduce((a, r) => a + (parseAmount(r.loyer_annuel) || 0), 0)
     const gap = totalLoyerSignature - sumRows
-    if (Math.abs(gap) <= Math.max(1, totalLoyerSignature * .01)) return
+    // Tolerance resserree : un loyer contractuel doit correspondre exactement
+    // (ou a l'euro pres) a la somme de ses composantes — un ecart meme faible
+    // en % peut representer plusieurs milliers d'euros sur un bail important,
+    // et merite d'etre signale plutot que tolere.
+    if (Math.abs(gap) <= Math.max(5, totalLoyerSignature * .0005)) return
     const isPark = r => (r.categorie || '').toLowerCase().includes('station')
     const mainRows = rows.filter(r => !isPark(r))
     const parkSum = rows.filter(isPark).reduce((a, r) => a + (parseAmount(r.loyer_annuel) || 0), 0)
