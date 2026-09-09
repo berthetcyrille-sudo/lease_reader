@@ -154,7 +154,7 @@ button, input { font-family: inherit; cursor: pointer; }
 .pair-verbose { background: transparent; border-left: 3px solid var(--border2); padding: 8px 14px; }
 
 /* ── Tables ── */
-.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow-x: auto; overflow-y: hidden; }
 .indemnites-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .indemnites-table th { text-align: left; padding: 8px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text2); background: var(--surface); border-bottom: 2px solid var(--border2); white-space: nowrap; }
 .indemnites-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; line-height: 1.45; }
