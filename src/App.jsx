@@ -1726,6 +1726,7 @@ function mergeLoyerReductions(franchisePeriodes, abattements) {
     const da = parseFR(a), db = parseFR(b)
     return !!(da && db && da.getTime() === db.getTime())
   }
+  const frTagged = fr.map(r => ({ ...r, _type: 'franchise' }))
   const abFiltered = ab.filter(a => !fr.some(f => sameDate(f.date_debut, a.date_debut) && sameDate(f.date_fin, a.date_fin)))
   const abAsFranchiseRows = abFiltered.map(r => {
     const s = parseFR(r.date_debut), e = parseFR(r.date_fin)
@@ -1739,9 +1740,10 @@ function mergeLoyerReductions(franchisePeriodes, abattements) {
       indexation_incluse: null,
       condition: r.description || null,
       page: null,
+      _type: 'abattement',
     }
   })
-  return [...fr, ...abAsFranchiseRows].sort((a, b) => {
+  return [...frTagged, ...abAsFranchiseRows].sort((a, b) => {
     const da = parseFR(a.date_debut), db = parseFR(b.date_debut)
     return (da && db) ? da - db : 0
   })
@@ -1755,6 +1757,7 @@ function FranchiseTable({ periodes, item }) {
       <table className="indemnites-table">
         <thead>
           <tr>
+            <th>Type</th>
             <th>Date début</th><th>Date fin</th><th>Durée</th>
             <th>Surface assiette</th>
             <th style={{ textAlign: 'right' }}>Montant exonéré</th>
@@ -1764,6 +1767,13 @@ function FranchiseTable({ periodes, item }) {
         <tbody>
           {safe.map((row, i) => (
             <tr key={i}>
+              <td>
+                {row._type && (
+                  <span className={`pill ${row._type === 'franchise' ? 'pill-green' : 'pill-blue'}`} style={{ fontSize: '10.5px' }}>
+                    {row._type === 'franchise' ? 'Franchise' : 'Abattement'}
+                  </span>
+                )}
+              </td>
               <td>{row.date_debut || '—'}</td>
               <td>{row.date_fin || '—'}</td>
               <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{row.duree || '—'}</td>
