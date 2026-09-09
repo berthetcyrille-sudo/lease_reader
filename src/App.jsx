@@ -810,6 +810,18 @@ function addYearsExpiry(d, n) {
   return result
 }
 
+// Détecte une renonciation TOTALE au droit de résiliation triennale (art.
+// L.145-4) — par opposition à une renonciation partielle limitée à la durée
+// ferme ("renonce...triennale...pour la durée ferme"), qui n'en est pas une.
+// Extrait de computeBreaks pour être réutilisable ailleurs (ex: affichage
+// d'une durée ferme par défaut quand elle n'est pas explicitement chiffrée).
+function detectsFullTriennialWaiver(clauseTextLower) {
+  const basicWaiver = /renonce.{0,80}triennale|pas.{0,20}triennale|supprim.{0,20}triennale|faculté.{0,10}résiliation.{0,10}triennale/i.test(clauseTextLower)
+  if (!basicWaiver) return false
+  const isPartial = /pour la dur[eé]e ferme|pendant la dur[eé]e ferme|pour la p[eé]riode ferme/i.test(clauseTextLower)
+  return !isPartial
+}
+
 function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, existing, duree_ferme_str) {
   const effet = parseFR(date_effet_str)
   const fin   = parseFR(date_fin_str)
@@ -819,15 +831,7 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
 
   const candidates = new Set()
 
-  // Detect explicit waiver of ALL triennales (not partial "pour la durée ferme")
-  // Partial waiver: "renonce...triennale...pour la durée ferme" → NOT a full waiver
-  const hasWaiver = (() => {
-    const basicWaiver = /renonce.{0,80}triennale|pas.{0,20}triennale|supprim.{0,20}triennale|faculté.{0,10}résiliation.{0,10}triennale/i.test(clauseText)
-    if (!basicWaiver) return false
-    // If the waiver is limited to the firm period, it's not a full waiver
-    const isPartial = /pour la dur[eé]e ferme|pendant la dur[eé]e ferme|pour la p[eé]riode ferme/i.test(clauseText)
-    return !isPartial
-  })()
+  const hasWaiver = detectsFullTriennialWaiver(clauseText)
 
   // Parse duree_ferme into years+months
   const parseDureeFerme = (str) => {
@@ -1535,7 +1539,7 @@ function Field({ label, value, mono, verbose, full, source, item, pages, pageFie
       </div>
       <div className={`field-val${!safe ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
         {safe || 'Non renseigné'}
-        {pageField && <PageJumpIcon item={item} pages={pages} field={pageField} />}
+        {safe && pageField && <PageJumpIcon item={item} pages={pages} field={pageField} />}
       </div>
     </div>
   )
@@ -2915,7 +2919,18 @@ function ResultsView({ item }) {
           <div className="gx">
             <Field label="Type de contrat" value={simplifyTypeBail(d.type_bail)} />
             <Field label="Durée totale" value={d.duree_totale} item={item} pages={pages} pageField="duree_totale" />
-            <Field label="Durée ferme" value={d.duree_ferme} item={item} pages={pages} pageField="duree_ferme" />
+            {(() => {
+              if (d.duree_ferme) {
+                return <Field label="Durée ferme" value={d.duree_ferme} item={item} pages={pages} pageField="duree_ferme" />
+              }
+              // Pas de durée ferme explicitement chiffrée : si le bail ne
+              // contient pas de renonciation TOTALE au droit de résiliation
+              // triennale (art. L.145-4), le défaut légal de 3 ans s'applique
+              // — on l'affiche plutôt que de laisser le champ vide.
+              const hasFullWaiver = detectsFullTriennialWaiver((d.conditions_break || '').toLowerCase())
+              const legalDefault = (!isAv && d.duree_totale && !hasFullWaiver) ? '3 ans (défaut légal — art. L.145-4)' : null
+              return <Field label="Durée ferme" value={legalDefault} />
+            })()}
           </div>
         </div>
       )}
