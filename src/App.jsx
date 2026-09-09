@@ -90,7 +90,7 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent. INTERDIT: ne JAMAIS concatener une annotation, precision ou commentaire entre parentheses dans un champ date (format strict JJ/MM/AAAA, rien d'autre) ou dans un champ duree (ex: "1 an", "9 ans" — rien d'autre). Si une information complementaire existe (ex: reconduction, plafond de duree, condition), elle DOIT aller dans son champ dedie (ex: reconduction_tacite) et nulle part ailleurs — jamais annexee en texte libre dans date_fin, date_effet ou duree_totale. Exemple INTERDIT: date_fin="31/12/2023 (renouvelable, terme absolu 31/12/2034)" — la valeur correcte est date_fin="31/12/2023" avec reconduction_tacite.date_limite_absolue="31/12/2034" ; duree_totale="1 an renouvelable par tacite reconduction, duree maximale 12 ans" est egalement INTERDIT — la valeur correcte est duree_totale="1 an".
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"charges_impots_taxes":[],"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"gapd_montant":null,"gapd":null,"travaux_montant":null
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible). ATTENTION: NE JAMAIS mettre duree_ferme = duree_totale par defaut quand rien n'est explicitement restreint — un bail SANS renonciation ni restriction du droit de resiliation triennale (art. L.145-4) a en realite une duree_ferme implicite de 3 ans (premiere sortie possible), PAS une duree_ferme egale a la duree totale (ce qui reviendrait a interdire toute sortie anticipee, ce qui n'est pas ce que dit le bail dans ce cas). Si aucune duree ferme n'est explicitement chiffree ET qu'aucune renonciation totale n'est exprimee, laisser duree_ferme a null plutot que de la deviner egale a duree_totale.
@@ -118,10 +118,14 @@ REGLES PAR CHAMP:
 - indexation_indice: code de l indice parmi: "ILAT","ILC","ICC","IRL","IPC","BT01","AUTRE". null si non renseigne.
 - indexation_trimestre_base: trimestre de reference si EXPLICITEMENT indique dans le bail (ex: "3T2025"). null si le bail dit "dernier indice publie a la date de signature" sans preciser lequel.
 - indexation_valeur_base: valeur numerique de l indice si EXPLICITEMENT mentionnee (ex: "120.5"). null si non mentionnee.
+- charges_impots_taxes: liste de TOUS les impots et taxes explicitement mentionnes dans la clause de refacturation des charges (ex: taxe fonciere, taxe sur les bureaux/TSB, taxe sur les surfaces commerciales/TASCOM, CFE, taxe sur les locaux vacants), avec pour chacun s'il est refacture au Preneur ou non. Format: [{"libelle":"Taxe fonciere","refacturee":"Oui","taux":"100%","detail":null}]. refacturee: "Oui"/"Non"/"Partielle" — "Partielle" si le bail dit explicitement que seule une quote-part est refacturee. taux: le pourcentage explicite si mentionne (ex: "refacture a hauteur de 50%" -> taux="50%"), sinon null (ne pas mettre "100%" par defaut si le bail dit juste "refacturee" sans preciser de taux). detail: precision complementaire si le bail en donne une (plafond, condition, exception), sinon null. [] si le bail ne detaille aucun impot/taxe nommement (une simple clause generale "les charges sont refacturees au Preneur" sans lister d'impots precis ne suffit pas a remplir ce champ).
+- charges_vetuste: la clause du bail relative a la VETUSTE (art. 1755 du Code civil: les reparations dues a la vetuste ou a la force majeure ne sont pas, par principe legal, a la charge du preneur, sauf clause contraire du bail qui y deroge). Format: {"refacturee":"Oui","detail":"texte precisant les modalites, ex: le Preneur prend a sa charge les reparations liees a la vetuste normale des equipements"}. refacturee: "Oui" si le bail deroge au principe legal et met la vetuste a la charge du Preneur (meme partiellement), "Non" si le bail ne deroge pas ou confirme explicitement que la vetuste reste a la charge du Bailleur, "Partielle" si un partage est prevu. detail: TOUJOURS renseigner un texte resumant ce que dit le bail sur ce point (meme bref), pas seulement le statut. null (le champ entier) si le bail n'aborde pas du tout la vetuste.
+- charges_force_majeure: la clause du bail relative a la FORCE MAJEURE (meme principe de l'art. 1755 du Code civil que pour la vetuste). Format: {"refacturee":"Oui","detail":"texte precisant les modalites"}. Meme logique que charges_vetuste. null si le bail n'aborde pas la force majeure.
 - franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null,\"page\":3}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon. ATTENTION CAS INVERSE FREQUENT: quand le texte donne plusieurs montants de franchise a des DATES ANNIVERSAIRES successives (ex: "133.943 € HT/HC de franchise à compter du 15 septembre 2025 ; 133.943 € à compter du 15 septembre 2026 ; ...") SANS préciser explicitement une durée ni une date de fin pour chaque tranche, NE JAMAIS supposer que chaque tranche dure 12 mois (jusqu'à la date anniversaire suivante) — c'est presque toujours FAUX. Ces montants correspondent generalement chacun a quelques semaines/mois de loyer accordes CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an pendant 3 ans), pas une exoneration continue toute l'annee. Calculer la VRAIE duree en mois: duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), puis date_fin = date_debut + duree_mois mois - 1 jour (PAS la veille de la prochaine date anniversaire, sauf si duree_mois calculee y correspond par coincidence). N'utiliser une duree de 12 mois entre deux echeances que si le texte le dit EXPLICITEMENT (ex: "pendant les 12 mois suivants" ecrit noir sur blanc).
 - participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. libelle OBLIGATOIRE.
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
 - indemnites: UNIQUEMENT indemnites liees a une option (break, renouvellement, fin de bail). EXCLURE: honoraires, cautionnements, penalites. [{\"motif\":\"...\",\"due_par\":\"Preneur ou Bailleur\",\"montant\":\"chiffres bruts\",\"date_limite\":\"...\"}]`
+- gapd_montant / gapd: si le bail prevoit, EN COMPLEMENT du depot de garantie classique (depot_garantie_montant/depot_garantie), une GARANTIE AUTONOME A PREMIERE DEMANDE (GAPD) — une garantie bancaire distincte ou complementaire, souvent mobilisable "a premiere demande" independamment de toute contestation, generalement mise en place par un etablissement bancaire au profit du Bailleur. NE PAS confondre avec le simple depot de garantie (qui reste dans depot_garantie_montant/depot_garantie) ni avec un cautionnement personnel/solidaire (qui va dans le champ garant). gapd_montant: montant chiffre brut de la GAPD si mentionne. gapd: texte des modalites completes (etablissement emetteur si nomme, duree de validite, conditions de mobilisation, articulation avec le depot de garantie classique). null pour les deux champs si aucune GAPD n'est mentionnee — la tres grande majorite des baux n'en ont pas, ne pas en deduire une simplement parce qu'un depot de garantie classique existe.
 
 // Prompt léger pour rattraper les documents déjà extraits avant l'ajout du
 // stockage : on NE redemande PAS d'extraire les données (déjà en base, potentiellement
@@ -142,13 +146,15 @@ surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retiree
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie (ex: 2 lignes Bureaux → une seule ligne avec la surface totale). NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"gapd_montant":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
 - break_options: UNIQUEMENT si l'avenant modifie/redefinit les dates de sortie anticipee. Format: TABLEAU DE DATES PURES au format "jj/mm/aaaa" UNIQUEMENT, ex: ["31/12/2030","31/12/2033"]. JAMAIS de phrase descriptive (interdit: "Premiere faculte de conge a l'expiration de la 2e periode triennale le 31/12/2030" — mettre uniquement "31/12/2030"). Si l'avenant dit "renonciation a la resiliation triennale pour la duree ferme de N ans" ou "premier conge possible le jj/mm/aaaa", extraire la ou les date(s) exacte(s) mentionnee(s), pas le texte de la clause (le texte de la clause va dans conditions_break et _sources, pas dans break_options). null si non modifie.
 - franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant. ATTENTION: si plusieurs montants sont donnes a des dates anniversaires successives sans duree explicite, NE PAS supposer 12 mois entre deux echeances (voir regle detaillee dans le prompt d'extraction du bail) — calculer duree_mois = round(montant / (loyer_annuel_base/12)).
 - frais_redaction_actes: UNIQUEMENT si cet avenant lui-meme mentionne un montant de frais de redaction (le sien propre, et/ou une nouvelle stipulation pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. null si non aborde par cet avenant.
+- charges_impots_taxes / charges_vetuste / charges_force_majeure: UNIQUEMENT si cet avenant modifie explicitement la repartition d'un impot/taxe, de la vetuste ou de la force majeure par rapport au bail initial. Memes formats que dans le prompt d'extraction du bail. null si non aborde par cet avenant (ce champ ecrase completement l'ancien tableau/objet — pour charges_impots_taxes, reprendre TOUS les impots encore pertinents, pas seulement celui modifie).
+- gapd_montant / gapd: UNIQUEMENT si cet avenant met en place, modifie ou supprime une Garantie Autonome a Premiere Demande (GAPD), distincte du simple depot de garantie. Meme definition que dans le prompt d'extraction du bail. null si non aborde par cet avenant.
 - conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","echeance":"date limite ou null","statut":"levee/en cours/non precise"}]. Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
@@ -1210,6 +1216,7 @@ function sanitizeExtracted(data) {
   d.franchise_periodes = ensureArray(d.franchise_periodes)
   d.frais_redaction_actes = ensureArray(d.frais_redaction_actes)
   d.conditions_suspensives = ensureArray(d.conditions_suspensives)
+  d.charges_impots_taxes = ensureArray(d.charges_impots_taxes)
   d.indemnites         = ensureArray(d.indemnites)
   d.surfaces_delta          = cs(ensureArray(d.surfaces_delta))
   d.participations_travaux  = ensureArray(d.participations_travaux)
@@ -1232,6 +1239,7 @@ function sanitizeExtracted(data) {
     d.champs_modifies.franchise_periodes = ensureArray(d.champs_modifies.franchise_periodes)
     d.champs_modifies.frais_redaction_actes = ensureArray(d.champs_modifies.frais_redaction_actes)
     d.champs_modifies.conditions_suspensives = ensureArray(d.champs_modifies.conditions_suspensives)
+    d.champs_modifies.charges_impots_taxes = ensureArray(d.champs_modifies.charges_impots_taxes)
     d.champs_modifies.indemnites         = ensureArray(d.champs_modifies.indemnites)
   }
   return d
@@ -1516,11 +1524,11 @@ function Field({ label, value, mono, verbose, full, source, item, pages, pageFie
   )
 }
 
-function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue }) {
+function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue, full = true }) {
   const safeKey = safeStr(keyValue)
   const safeVerbose = safeStr(verboseValue)
   return (
-    <div className="pair-block full">
+    <div className={`pair-block${full ? ' full' : ''}`}>
       <div className="pair-key">
         <div className="field-lbl">{keyLabel}</div>
         <div className={`field-val${!safeKey ? ' empty' : keyMono ? ' mono' : ''}`}>{safeKey || 'Non renseigné'}</div>
@@ -1824,6 +1832,54 @@ function ConditionsSuspensivesBoxes({ conditions }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// Badge Oui/Non/Partielle pour tout ce qui répond à "est-ce refacturé au Preneur ?"
+function RefactureBadge({ value }) {
+  if (!value) return null
+  const s = String(value).toLowerCase()
+  const cls = s.startsWith('oui') ? 'pill-danger' : s.startsWith('non') ? 'pill-green' : 'pill-blue'
+  return <span className={`pill ${cls}`} style={{ flexShrink: 0 }}>{value}</span>
+}
+
+// Une box par impôt/taxe listé, avec statut de refacturation et taux éventuel.
+function ImpotsTaxesBoxes({ items }) {
+  const safe = Array.isArray(items) ? items : []
+  if (!safe.length) return null
+  return (
+    <div className="gx">
+      {safe.map((t, i) => (
+        <div key={i} className="field" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', flex: 1 }}>{safeStr(t.libelle) || '—'}</div>
+            <RefactureBadge value={t.refacturee} />
+          </div>
+          {t.taux && (
+            <div style={{ fontSize: '11px', color: 'var(--text3)' }}>Taux : <strong style={{ color: 'var(--text2)' }}>{safeStr(t.taux)}</strong></div>
+          )}
+          {t.detail && (
+            <div style={{ fontSize: '11.5px', color: 'var(--text2)', lineHeight: 1.5 }}>{safeStr(t.detail)}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Box unique pour la vétusté ou la force majeure (art. 1755 du Code civil).
+function ClauseArt1755Box({ label, data }) {
+  if (!data) return null
+  return (
+    <div className="field" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>{label}</div>
+        <RefactureBadge value={data.refacturee} />
+      </div>
+      {data.detail && (
+        <div style={{ fontSize: '11.5px', color: 'var(--text2)', lineHeight: 1.5 }}>{safeStr(data.detail)}</div>
+      )}
     </div>
   )
 }
@@ -2563,6 +2619,7 @@ function ResultsView({ item }) {
   if (!Array.isArray(d.franchise_periodes)) d.franchise_periodes = []
   if (!Array.isArray(d.frais_redaction_actes)) d.frais_redaction_actes = []
   if (!Array.isArray(d.conditions_suspensives)) d.conditions_suspensives = []
+  if (!Array.isArray(d.charges_impots_taxes)) d.charges_impots_taxes = []
   if (!Array.isArray(d.indemnites)) d.indemnites = d.indemnites ? [d.indemnites] : []
   if (!Array.isArray(d.surfaces_detail)) d.surfaces_detail = []
   const meta = item.data || {}
@@ -3116,17 +3173,52 @@ function ResultsView({ item }) {
         </div>
       )}
 
-      {/* Dépôt de garantie */}
+      {/* Refacturation — Impôts et taxes / Vétusté / Force majeure (art. 1755 C. civ.) */}
+      {(d.charges_impots_taxes?.length > 0 || d.charges_vetuste || d.charges_force_majeure) && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Refacturation — Impôts, taxes, vétusté & force majeure</div></div>
+          {d.charges_impots_taxes?.length > 0 && (
+            <div style={{ marginBottom: (d.charges_vetuste || d.charges_force_majeure) ? '14px' : 0 }}>
+              <div className="field-lbl" style={{ marginBottom: '8px' }}>Impôts et taxes</div>
+              <ImpotsTaxesBoxes items={d.charges_impots_taxes} />
+            </div>
+          )}
+          {(d.charges_vetuste || d.charges_force_majeure) && (
+            <div>
+              <div className="field-lbl" style={{ marginBottom: '8px' }}>Article 1755 du Code civil</div>
+              <div className="gx">
+                <ClauseArt1755Box label="Vétusté" data={d.charges_vetuste} />
+                <ClauseArt1755Box label="Force majeure" data={d.charges_force_majeure} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Dépôt de garantie + GAPD éventuelle */}
       {show('depot_garantie_montant') && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Dépôt de garantie</div></div>
-          <PairBlock
-            keyLabel="Montant"
-            keyValue={fmtEur(d.depot_garantie_montant) || d.depot_garantie_montant}
-            keyMono
-            verboseLabel="Modalités complètes"
-            verboseValue={d.depot_garantie}
-          />
+          <div className="sec-hd"><div className="sec-label">{(d.gapd_montant || d.gapd) ? 'Garanties' : 'Dépôt de garantie'}</div></div>
+          <div style={{ display: 'grid', gridTemplateColumns: (d.gapd_montant || d.gapd) ? '1fr 1fr' : '1fr', gap: '10px' }}>
+            <PairBlock
+              keyLabel="Dépôt de garantie"
+              keyValue={fmtEur(d.depot_garantie_montant) || d.depot_garantie_montant}
+              keyMono
+              verboseLabel="Modalités complètes"
+              verboseValue={d.depot_garantie}
+              full={false}
+            />
+            {(d.gapd_montant || d.gapd) && (
+              <PairBlock
+                keyLabel="GAPD (garantie à première demande)"
+                keyValue={fmtEur(d.gapd_montant) || d.gapd_montant}
+                keyMono
+                verboseLabel="Modalités complètes"
+                verboseValue={d.gapd}
+                full={false}
+              />
+            )}
+          </div>
         </div>
       )}
 
@@ -3143,42 +3235,52 @@ function ResultsView({ item }) {
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Participation travaux bailleur</div></div>
           {d.participations_travaux?.length > 0 ? (
-            <div className="table-wrap" style={{ marginBottom: '8px' }}>
-              <table className="indemnites-table">
-                <thead>
-                  <tr>
-                    <th>Locaux / Lot</th>
-                    <th style={{ textAlign: 'right' }}>Montant max. HT</th>
-                    <th>Date limite factures</th>
-                    <th>Remarque</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.participations_travaux.map((row, i) => (
-                    <tr key={i}>
-                      <td style={{ fontWeight: 500, minWidth: '200px' }}>{safeStr(row.libelle) || '—'}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                          {row.montant ? fmtEur(row.montant) : '—'}
-                          <PageJumpIcon item={item} page={row.page} />
-                        </span>
-                      </td>
-                      <td style={{ color: 'var(--text2)' }}>{safeStr(row.date_limite) || '—'}</td>
-                      <td style={{ color: 'var(--text2)', fontStyle: row.remarque ? 'normal' : 'italic' }}>{safeStr(row.remarque) || '—'}</td>
+            <>
+              {(() => {
+                const dates = [...new Set(d.participations_travaux.map(r => safeStr(r.date_limite)).filter(Boolean))]
+                if (!dates.length) return null
+                return (
+                  <div className="field" style={{ marginBottom: '10px', maxWidth: '280px' }}>
+                    <div className="field-lbl">Date limite d'engagement des travaux</div>
+                    <div className="field-val" style={{ fontWeight: 600 }}>{dates.join(' · ')}</div>
+                  </div>
+                )
+              })()}
+              <div className="table-wrap" style={{ marginBottom: '8px' }}>
+                <table className="indemnites-table">
+                  <thead>
+                    <tr>
+                      <th>Locaux / Lot</th>
+                      <th style={{ textAlign: 'right' }}>Montant max. HT</th>
+                      <th>Remarque</th>
                     </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr style={{ borderTop: '1px solid var(--border2)' }}>
-                    <td style={{ fontWeight: 700, padding: '6px 10px' }}>Total</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, padding: '6px 10px' }}>
-                      {fmtEur(d.participations_travaux.reduce((acc, r) => acc + (parseAmount(r.montant) || 0), 0))}
-                    </td>
-                    <td colSpan={2} />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {d.participations_travaux.map((row, i) => (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 500, minWidth: '200px' }}>{safeStr(row.libelle) || '—'}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                            {row.montant ? fmtEur(row.montant) : '—'}
+                            <PageJumpIcon item={item} page={row.page} />
+                          </span>
+                        </td>
+                        <td style={{ color: 'var(--text2)', fontStyle: row.remarque ? 'normal' : 'italic' }}>{safeStr(row.remarque) || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: '1px solid var(--border2)' }}>
+                      <td style={{ fontWeight: 700, padding: '6px 10px' }}>Total</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, padding: '6px 10px' }}>
+                        {fmtEur(d.participations_travaux.reduce((acc, r) => acc + (parseAmount(r.montant) || 0), 0))}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </>
           ) : (
             <div className="gx" style={{ marginBottom: '8px' }}>
               <div className="field">
