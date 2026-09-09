@@ -170,6 +170,20 @@ Regles strictes:
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// Empêche la fermeture/le rechargement accidentel pendant un traitement long
+// (extraction, réextraction...) et signale au navigateur qu'il y a une tâche
+// en cours — les gestionnaires beforeunload actifs sont l'un des signaux
+// reconnus par Chrome/Edge pour exempter un onglet de la mise en veille
+// automatique ("Économiseur de mémoire" / "Onglets en veille").
+function useBeforeUnloadGuard(active) {
+  useEffect(() => {
+    if (!active) return
+    const handler = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [active])
+}
+
 function toBase64(file) {
   return new Promise((res, rej) => {
     const r = new FileReader()
@@ -3849,6 +3863,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
   const [progress, setProgress] = useState(null) // { current, total, fileName, state }
   const [results, setResults] = useState(null) // { success, failed: [{name, msg}] }
   const inputRef = useRef()
+  useBeforeUnloadGuard(!!progress)
 
   function buildMatches(files) {
     const usedIds = new Set()
@@ -4091,6 +4106,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   const avenantInputRef = useRef(null)
   const attachInputRef = useRef(null)
   const toastTimerRef = useRef(null)
+  useBeforeUnloadGuard(!!avenantBatchProgress || !!reextractProgress)
 
   function showToast(type, message) {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
@@ -5271,6 +5287,7 @@ export default function App() {
   const dirActifGroupsRef = useRef({})
   const [statuses,     setStatuses]     = useState([])
   const [loading,      setLoading]      = useState(false)
+  useBeforeUnloadGuard(loading)
   const [activeItem,   setActiveItem]   = useState(null)
   const [history,      setHistory]      = useState([])
   const [histLoaded,   setHistLoaded]   = useState(false)
@@ -5954,6 +5971,15 @@ export default function App() {
               {resultSub && <div className="result-sub">{resultSub}</div>}
               <div className="result-actions">
                 <button className="btn back" onClick={() => { setActiveItem(null); navigate('/') }}>← Retour au dashboard</button>
+                {activeItem.storage_path && (
+                  <button className="btn" onClick={() => openSourceAtPage(activeItem, 1)} title="Ouvrir le document source (PDF/DOCX) à la première page">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    Voir le document source
+                  </button>
+                )}
                 {avNav?.prev && (
                   <button className="btn" onClick={() => { setActiveItem(avNav.prev); navigate(`/bail/${avNav.prev.id}`) }} title="Document précédent">
                     {avNav.prevLabel}
