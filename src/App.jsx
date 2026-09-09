@@ -2826,7 +2826,6 @@ function ResultsView({ item }) {
     { key: 'notice',              label: 'Préavis' },
     { key: 'date_limite_travaux', label: 'Date limite travaux preneur' },
   ].filter(f => d[f.key])
-  const extractionDateDisplay = formatExtractionDate(meta._extracted_at)
 
   const show = key => !isAv || d[key] != null
 
@@ -2910,7 +2909,7 @@ function ResultsView({ item }) {
             </div>
           )}
           {/* Rangée secondaire : signature, congé, travaux */}
-          {(secondaryDates.length > 0 || extractionDateDisplay) && (
+          {secondaryDates.length > 0 && (
             <div className="gx" style={{ marginBottom: '8px' }}>
               {secondaryDates.map(f => (
                 <div key={f.key} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 14px', minWidth: '160px' }}>
@@ -2918,12 +2917,6 @@ function ResultsView({ item }) {
                   <div className="field-val">{d[f.key]}</div>
                 </div>
               ))}
-              {extractionDateDisplay && (
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 14px', minWidth: '160px' }}>
-                  <div className="field-lbl">Dernière extraction</div>
-                  <div className="field-val" style={{ color: 'var(--text3)' }}>{extractionDateDisplay}</div>
-                </div>
-              )}
             </div>
           )}
           {show('conditions_break') && d.conditions_break && (
@@ -5820,7 +5813,14 @@ export default function App() {
               }
             }
             return (
-            <div className="result-topbar">
+            <div className="result-topbar" style={{ position: 'relative' }}>
+              {activeItem.data?._extracted_at && (
+                <div
+                  title="Date de la dernière extraction (initiale ou réextraction)"
+                  style={{ position: 'absolute', top: '18px', right: '32px', fontSize: '11px', color: 'var(--text3)' }}>
+                  Extrait le {formatExtractionDate(activeItem.data._extracted_at)}
+                </div>
+              )}
               <div className="result-tag">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
