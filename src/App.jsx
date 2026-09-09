@@ -720,7 +720,7 @@ loyer_signature: texte descriptif complet du loyer (detail par composante, prix 
 
 paliers_loyer: tableau si le loyer evolue par etapes a des dates definies (ex: loyer annuel reduit pendant N mois puis loyer plein). Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant":"123456","description":"ex: loyer reduit periode travaux"}]. [] si aucun palier.
 
-abattements: tableau de toutes les reductions temporaires de loyer DISTINCTES d'une franchise (ex: abattement RIE, reduction liee a des travaux, loyer minoré conditionnel pour un motif autre qu'une franchise commerciale). ATTENTION DOUBLON: si une clause utilise le mot "franchise" (meme partielle) ou decrit une exoneration totale de loyer sur une periode donnee, elle va UNIQUEMENT dans franchise_periodes — NE JAMAIS la dupliquer ici. IMPORTANT: renseigner ce tableau MEME SI l'information est deja decrite en texte libre ailleurs (notamment dans le champ RIE) — les deux champs sont INDEPENDANTS et doivent TOUS LES DEUX etre remplis quand l'info existe ; decrire une clause de quote-part RIE non due dans le champ RIE ne dispense JAMAIS de l'ajouter aussi ici sous forme structuree si elle correspond a une reduction temporaire chiffrable (montant/periode). Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant_annuel":"12345","description":"ex: reduction RIE jusqu a mise en service"}]. [] si aucun abattement distinct d'une franchise.
+abattements: tableau de toutes les reductions temporaires de loyer DISTINCTES d'une franchise (ex: abattement RIE, reduction liee a des travaux, loyer minoré conditionnel pour un motif autre qu'une franchise commerciale). ATTENTION DOUBLON: si une clause utilise le mot "franchise" (meme partielle) ou decrit une exoneration totale de loyer sur une periode donnee, elle va UNIQUEMENT dans franchise_periodes — NE JAMAIS la dupliquer ici. IMPORTANT: renseigner ce tableau MEME SI l'information est deja decrite en texte libre ailleurs (notamment dans le champ RIE) — les deux champs sont INDEPENDANTS et doivent TOUS LES DEUX etre remplis quand l'info existe ; decrire une clause de quote-part RIE non due dans le champ RIE ne dispense JAMAIS de l'ajouter aussi ici sous forme structuree si elle correspond a une reduction temporaire chiffrable (montant/periode). Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant_annuel":"12345","description":"ex: reduction RIE jusqu a mise en service"}]. montant_annuel = le TAUX ANNUEL normalement du qui est temporairement supprime (PAS le montant total de la periode — l'affichage se charge de proratiser selon la duree). EXEMPLE TYPE (clause RIE transitoire tres frequente): "Aucune redevance ni aucun loyer portant sur la quote-part de jouissance du RIE ne seront dus par le PRENEUR jusqu'a la date a laquelle le PRENEUR aura acces au RIE de l'Immeuble" + ailleurs dans le bail la quote-part RIE incluse dans le loyer est chiffree a X €/an → creer une ligne {"date_debut":"<date_effet>","date_fin":"<date d'acces prevue au RIE definitif, ex: 01/09/2022>","montant_annuel":"<X, le montant annuel de la quote-part RIE normalement due>","description":"Quote-part RIE non due jusqu'a l'acces au RIE de l'Immeuble"}. [] si aucun abattement distinct d'une franchise.
 
 loyer_variable: si le bail contient une clause de loyer variable ou indexe sur le CA/chiffre d affaires. Format: {"type":"CA ou autre","taux":"ex: 3%","assiette":"ex: CA TTC annuel","plancher":"montant brut ou null","plafond":"montant brut ou null","regles":"texte complet de la formule et des conditions de declenchement"}. null si pas de loyer variable.
 
@@ -1756,11 +1756,17 @@ function mergeLoyerReductions(franchisePeriodes, abattements) {
   const abAsFranchiseRows = abFiltered.map(r => {
     const s = parseFR(r.date_debut), e = parseFR(r.date_fin)
     const months = (s && e) ? Math.max(1, Math.round(monthsBetweenDates(s, e))) : null
+    // montant_annuel est un TAUX annuel (ex: 172025,40 €/an) — le montant
+    // réellement exonéré sur la période doit être proratisé selon sa durée,
+    // sinon une courte période transitoire afficherait le montant d'une
+    // année entière (fortement surestimé).
+    const annualRate = parseAmount(r.montant_annuel)
+    const proratedMontant = (annualRate !== null && months) ? Math.round(annualRate * months / 12) : r.montant_annuel
     return {
       date_debut: r.date_debut,
       date_fin: r.date_fin,
       duree: months ? `${months} mois` : null,
-      montant: r.montant_annuel,
+      montant: proratedMontant,
       surface_assiette: null,
       indexation_incluse: null,
       condition: r.description || null,
