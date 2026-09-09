@@ -90,7 +90,7 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent. INTERDIT: ne JAMAIS concatener une annotation, precision ou commentaire entre parentheses dans un champ date (format strict JJ/MM/AAAA, rien d'autre) ou dans un champ duree (ex: "1 an", "9 ans" — rien d'autre). Si une information complementaire existe (ex: reconduction, plafond de duree, condition), elle DOIT aller dans son champ dedie (ex: reconduction_tacite) et nulle part ailleurs — jamais annexee en texte libre dans date_fin, date_effet ou duree_totale. Exemple INTERDIT: date_fin="31/12/2023 (renouvelable, terme absolu 31/12/2034)" — la valeur correcte est date_fin="31/12/2023" avec reconduction_tacite.date_limite_absolue="31/12/2034" ; duree_totale="1 an renouvelable par tacite reconduction, duree maximale 12 ans" est egalement INTERDIT — la valeur correcte est duree_totale="1 an".
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"charges_impots_taxes":[],"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"gapd_montant":null,"gapd":null,"travaux_montant":null
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"charges_impots_taxes":[],"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"gapd_montant":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible). ATTENTION: NE JAMAIS mettre duree_ferme = duree_totale par defaut quand rien n'est explicitement restreint — un bail SANS renonciation ni restriction du droit de resiliation triennale (art. L.145-4) a en realite une duree_ferme implicite de 3 ans (premiere sortie possible), PAS une duree_ferme egale a la duree totale (ce qui reviendrait a interdire toute sortie anticipee, ce qui n'est pas ce que dit le bail dans ce cas). Si aucune duree ferme n'est explicitement chiffree ET qu'aucune renonciation totale n'est exprimee, laisser duree_ferme a null plutot que de la deviner egale a duree_totale.
@@ -2096,6 +2096,42 @@ function auditBail(row) {
     })
   }
 
+  // 1ter. Incohérence entre le loyer total et la somme des lignes du tableau
+  // de ventilation — signale typiquement une surface inventée au lieu d'être
+  // déduite du prix unitaire et du loyer total. Une correction automatique
+  // est proposée UNIQUEMENT quand elle est déductible avec certitude : une
+  // seule ligne non-stationnement, dont le prix unitaire est connu — dans ce
+  // cas, la vraie surface = (loyer total − part stationnement) ÷ prix unitaire.
+  ;(() => {
+    const rows = Array.isArray(d.surfaces_detail) ? d.surfaces_detail : []
+    const totalLoyerSignature = parseAmount(d.loyer_signature_montant)
+    if (!rows.length || !totalLoyerSignature) return
+    const allHaveLoyer = rows.every(r => r.loyer_annuel != null && r.loyer_annuel !== '')
+    if (!allHaveLoyer) return
+    const sumRows = rows.reduce((a, r) => a + (parseAmount(r.loyer_annuel) || 0), 0)
+    const gap = totalLoyerSignature - sumRows
+    if (Math.abs(gap) <= Math.max(1, totalLoyerSignature * .01)) return
+    const isPark = r => (r.categorie || '').toLowerCase().includes('station')
+    const mainRows = rows.filter(r => !isPark(r))
+    const parkSum = rows.filter(isPark).reduce((a, r) => a + (parseAmount(r.loyer_annuel) || 0), 0)
+    let fixInfo = null
+    if (mainRows.length === 1 && parseAmount(mainRows[0].prix_unitaire) > 0) {
+      const pu = parseAmount(mainRows[0].prix_unitaire)
+      const rowIndex = rows.indexOf(mainRows[0])
+      const newMontant = totalLoyerSignature - parkSum
+      const newSurface = Math.round((newMontant / pu) * 100) / 100
+      fixInfo = { rowIndex, newSurface, newMontant, oldSurface: mainRows[0].surface_m2, oldMontant: mainRows[0].loyer_annuel, categorie: mainRows[0].categorie || 'Bureaux' }
+    }
+    issues.push({
+      type: 'surface_loyer_incoherent',
+      severity: 'high',
+      detail: `Le loyer total du bail (${fmtEur(totalLoyerSignature)}) ne correspond pas à la somme des lignes du tableau de ventilation (${fmtEur(sumRows)}) — écart de ${fmtEur(gap)}.` + (fixInfo
+        ? ` Correction déductible avec certitude : surface "${fixInfo.categorie}" ${fixInfo.oldSurface} m² → ${fixInfo.newSurface} m² (loyer ${fmtEur(fixInfo.oldMontant)} → ${fmtEur(fixInfo.newMontant)}), à partir du prix unitaire connu.`
+        : ` Plusieurs lignes ou prix unitaire manquant — pas de correction automatique fiable, à vérifier manuellement ou réextraire.`),
+      fixInfo,
+    })
+  })()
+
   // 2ter. Champs date/durée pollués par du texte concaténé (ex: date_fin =
   // "31/12/2023 (renouvelable, terme absolu 31/12/2034)" au lieu d'une date
   // pure) — résidu d'extractions antérieures à l'ajout du champ dédié
@@ -3637,10 +3673,11 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
 }
 
 // ─── Modale de contrôle qualité ──────────────────────────────────────────────
-function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary }) {
+function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary, onFixSurfaceLoyer }) {
   const [showDismissed, setShowDismissed] = useState(false)
   const [pending, setPending] = useState({}) // { [rowId]: true } — évite double-clic pendant l'écriture
   const [fixPending, setFixPending] = useState({}) // { [rowId]: true } — pour le bouton "−1 jour"
+  const [fixSurfacePending, setFixSurfacePending] = useState({}) // { [rowId]: true } — pour le bouton de correction surface/loyer
   const allResults = useMemo(() => {
     const dupDetails = findDuplicateBails(bails)
     return bails.map(row => {
@@ -3671,6 +3708,14 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
     setFixPending(prev => ({ ...prev, [rowId]: true }))
     await onFixAnniversary?.(rowId, dates)
     setFixPending(prev => { const n = { ...prev }; delete n[rowId]; return n })
+  }
+
+  async function handleFixSurfaceLoyer(e, rowId, fixInfo) {
+    e.stopPropagation()
+    if (fixSurfacePending[rowId]) return
+    setFixSurfacePending(prev => ({ ...prev, [rowId]: true }))
+    await onFixSurfaceLoyer?.(rowId, fixInfo)
+    setFixSurfacePending(prev => { const n = { ...prev }; delete n[rowId]; return n })
   }
 
   function ResultCard({ r, dismissedCard }) {
@@ -3714,6 +3759,19 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
                     opacity: fixPending[r.row.id] ? 0.5 : 1, flexShrink: 0,
                   }}>
                   {fixPending[r.row.id] ? '…' : '−1 jour'}
+                </button>
+              )}
+              {iss.type === 'surface_loyer_incoherent' && iss.fixInfo && !dismissedCard && (
+                <button
+                  onClick={e => handleFixSurfaceLoyer(e, r.row.id, iss.fixInfo)}
+                  disabled={fixSurfacePending[r.row.id]}
+                  title="Corriger la surface et le loyer de cette ligne à partir du loyer total et du prix unitaire connus — ne touche à rien d'autre"
+                  style={{
+                    fontSize: '10.5px', fontWeight: 600, padding: '2px 8px', borderRadius: '999px', cursor: fixSurfacePending[r.row.id] ? 'default' : 'pointer',
+                    border: '1px solid var(--accent)', background: 'var(--accent-bg)', color: 'var(--accent)',
+                    opacity: fixSurfacePending[r.row.id] ? 0.5 : 1, flexShrink: 0,
+                  }}>
+                  {fixSurfacePending[r.row.id] ? '…' : 'Corriger'}
                 </button>
               )}
             </div>
@@ -5811,6 +5869,21 @@ export default function App() {
                 return b
               })
               const newData = { ...row.data, break_options: newBreaks }
+              await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
+              setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
+              if (activeItem?.id === rowId) setActiveItem(prev => ({ ...prev, data: newData }))
+            }}
+            onFixSurfaceLoyer={async (rowId, fixInfo) => {
+              const row = history.find(b => b.id === rowId)
+              if (!row || !fixInfo) return
+              const rows = Array.isArray(row.data?.surfaces_detail) ? [...row.data.surfaces_detail] : []
+              if (!rows[fixInfo.rowIndex]) return
+              rows[fixInfo.rowIndex] = {
+                ...rows[fixInfo.rowIndex],
+                surface_m2: String(fixInfo.newSurface),
+                loyer_annuel: String(fixInfo.newMontant),
+              }
+              const newData = { ...row.data, surfaces_detail: rows }
               await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
               setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
               if (activeItem?.id === rowId) setActiveItem(prev => ({ ...prev, data: newData }))
