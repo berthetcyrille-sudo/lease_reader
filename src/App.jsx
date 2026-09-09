@@ -1309,7 +1309,7 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6', max_tokens: 4096,
+        model: 'claude-sonnet-4-6', max_tokens: 8192,
         messages: [{ role: 'user', content: [
           { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
           { type: 'text', text: prompt }
