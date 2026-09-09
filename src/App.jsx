@@ -720,7 +720,7 @@ loyer_signature: texte descriptif complet du loyer (detail par composante, prix 
 
 paliers_loyer: tableau si le loyer evolue par etapes a des dates definies (ex: loyer annuel reduit pendant N mois puis loyer plein). Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant":"123456","description":"ex: loyer reduit periode travaux"}]. [] si aucun palier.
 
-abattements: tableau de toutes les reductions temporaires de loyer (ex: abattement RIE, reduction pendant franchise partielle, loyer minoré conditionnel). Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant_annuel":"12345","description":"ex: reduction RIE jusqu a mise en service"}]. [] si aucun abattement.
+abattements: tableau de toutes les reductions temporaires de loyer DISTINCTES d'une franchise (ex: abattement RIE, reduction liee a des travaux, loyer minoré conditionnel pour un motif autre qu'une franchise commerciale). ATTENTION DOUBLON: si une clause utilise le mot "franchise" (meme partielle) ou decrit une exoneration totale de loyer sur une periode donnee, elle va UNIQUEMENT dans franchise_periodes — NE JAMAIS la dupliquer ici. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant_annuel":"12345","description":"ex: reduction RIE jusqu a mise en service"}]. [] si aucun abattement distinct d'une franchise.
 
 loyer_variable: si le bail contient une clause de loyer variable ou indexe sur le CA/chiffre d affaires. Format: {"type":"CA ou autre","taux":"ex: 3%","assiette":"ex: CA TTC annuel","plancher":"montant brut ou null","plafond":"montant brut ou null","regles":"texte complet de la formule et des conditions de declenchement"}. null si pas de loyer variable.
 
@@ -1710,6 +1710,44 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   )
 }
 
+
+// Fusionne franchise_periodes et abattements en une seule liste — les deux
+// champs se recoupent souvent (le modèle classe parfois la même clause de
+// franchise dans les deux), d'où une déduplication : un abattement est
+// considéré comme un doublon d'une franchise si même date de début ET
+// montant quasi identique (± 1%, pour absorber les arrondis).
+function mergeLoyerReductions(franchisePeriodes, abattements) {
+  const fr = Array.isArray(franchisePeriodes) ? franchisePeriodes : []
+  const ab = Array.isArray(abattements) ? abattements : []
+  const sameDate = (a, b) => {
+    const da = parseFR(a), db = parseFR(b)
+    return !!(da && db && da.getTime() === db.getTime())
+  }
+  const amountsClose = (a, b) => {
+    const na = parseAmount(a), nb = parseAmount(b)
+    if (na === null || nb === null) return false
+    return Math.abs(na - nb) <= Math.max(1, na * 0.01)
+  }
+  const abFiltered = ab.filter(a => !fr.some(f => sameDate(f.date_debut, a.date_debut) && amountsClose(f.montant, a.montant_annuel)))
+  const abAsFranchiseRows = abFiltered.map(r => {
+    const s = parseFR(r.date_debut), e = parseFR(r.date_fin)
+    const months = (s && e) ? Math.max(1, Math.round(monthsBetweenDates(s, e))) : null
+    return {
+      date_debut: r.date_debut,
+      date_fin: r.date_fin,
+      duree: months ? `${months} mois` : null,
+      montant: r.montant_annuel,
+      surface_assiette: null,
+      indexation_incluse: null,
+      condition: r.description || null,
+      page: null,
+    }
+  })
+  return [...fr, ...abAsFranchiseRows].sort((a, b) => {
+    const da = parseFR(a.date_debut), db = parseFR(b.date_debut)
+    return (da && db) ? da - db : 0
+  })
+}
 
 function FranchiseTable({ periodes, item }) {
   const safe = Array.isArray(periodes) ? periodes : []
@@ -3169,17 +3207,20 @@ function ResultsView({ item }) {
               <Field label="Loyer à la signature — détail complet" value={d.loyer_signature} verbose />
             </div>
           )}
-          {(d.franchise_periodes?.length > 0 || d.franchise) && (
-            <div style={{ marginTop: '8px' }}>
-              {d.franchise_periodes?.length > 0 && (
-                <div style={{ marginBottom: '4px' }}>
-                  <div className="field-lbl" style={{ marginBottom: '6px', marginTop: '24px' }}>Franchise — périodes</div>
-                  <FranchiseTable periodes={d.franchise_periodes} item={item} />
-                </div>
-              )}
-              {d.franchise && <Field label="Franchise — modalités complètes" value={d.franchise} verbose />}
-            </div>
-          )}
+          {(() => {
+            const merged = mergeLoyerReductions(d.franchise_periodes, d.abattements)
+            return (merged.length > 0 || d.franchise) && (
+              <div style={{ marginTop: '8px' }}>
+                {merged.length > 0 && (
+                  <div style={{ marginBottom: '4px' }}>
+                    <div className="field-lbl" style={{ marginBottom: '6px', marginTop: '24px' }}>Franchises & abattements de loyer</div>
+                    <FranchiseTable periodes={merged} item={item} />
+                  </div>
+                )}
+                {d.franchise && <Field label="Franchise — modalités complètes" value={d.franchise} verbose />}
+              </div>
+            )
+          })()}
           <div className="gx" style={{ marginTop: '8px' }}>
           </div>
         </div>
@@ -3335,32 +3376,6 @@ function ResultsView({ item }) {
                     <td>{safeStr(row.date_debut) || '—'}</td>
                     <td>{safeStr(row.date_fin) || '—'}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
-                    <td style={{ color: 'var(--text2)' }}>{safeStr(row.description) || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Abattements temporaires */}
-      {d.abattements?.length > 0 && (
-        <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Abattements et réductions temporaires de loyer</div></div>
-          <div className="table-wrap">
-            <table className="indemnites-table">
-              <thead><tr>
-                <th>Date début</th><th>Date fin</th>
-                <th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th>
-                <th>Description</th>
-              </tr></thead>
-              <tbody>
-                {d.abattements.map((row, i) => (
-                  <tr key={i}>
-                    <td>{safeStr(row.date_debut) || '—'}</td>
-                    <td>{safeStr(row.date_fin) || '—'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.montant_annuel ? fmtEur(row.montant_annuel) : '—'}</td>
                     <td style={{ color: 'var(--text2)' }}>{safeStr(row.description) || '—'}</td>
                   </tr>
                 ))}
