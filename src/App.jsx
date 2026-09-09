@@ -4723,8 +4723,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                       }
                     </span>
                     {!isAv && row._avCount > 0 && (
-                      <span style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '99px', background: 'var(--surface2)', color: 'var(--text3)', flexShrink: 0 }}>
-                        {row._avCount} av.
+                      <span
+                        title={`${row._avCount} avenant${row._avCount > 1 ? 's' : ''} rattaché${row._avCount > 1 ? 's' : ''}`}
+                        style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '99px', background: 'var(--surface2)', color: 'var(--text3)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                        {row._avCount} avenant{row._avCount > 1 ? 's' : ''}
                       </span>
                     )}
                   </div>
