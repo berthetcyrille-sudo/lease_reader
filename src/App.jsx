@@ -822,6 +822,23 @@ function detectsFullTriennialWaiver(clauseTextLower) {
   return !isPartial
 }
 
+// Retire d'une liste de breaks (dates "jj/mm/aaaa") celles antérieures à
+// date_effet + duree_ferme — un résidu frequent : soit un calcul triennal
+// generique renvoye par l'IA malgre une renonciation explicite pour la duree
+// ferme, soit un ancien residu de calcul avant correction. Centralise ici
+// pour etre applique de facon identique partout (extraction, tableau de bord,
+// fiche detail, etat locatif) plutot que reimplemente a chaque endroit.
+function filterBreaksByDureeFerme(breaks, date_effet_str, duree_ferme_str) {
+  if (!Array.isArray(breaks) || !breaks.length || !duree_ferme_str || !date_effet_str) return breaks
+  const effet = parseFR(date_effet_str)
+  const dfm = String(duree_ferme_str)
+  const ymatch = dfm.match(/(\d+)\s*ans?/), mmatch = dfm.match(/(\d+)\s*mois/)
+  const years = ymatch ? parseInt(ymatch[1]) : 0, months = mmatch ? parseInt(mmatch[1]) : 0
+  if (!effet || (years === 0 && months === 0)) return breaks
+  const minBreak = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
+  return breaks.filter(b => { const bd = parseFR(b); return bd && bd >= minBreak })
+}
+
 function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, existing, duree_ferme_str) {
   const effet = parseFR(date_effet_str)
   const fin   = parseFR(date_fin_str)
@@ -1231,6 +1248,10 @@ function sanitizeExtracted(data) {
     } else if (!d.break_options || d.break_options.length === 0) {
       d.break_options = []
     }
+    // Nettoyage a la source : un break anterieur a date_effet + duree_ferme
+    // (souvent un calcul triennal generique renvoye par l'IA malgre une
+    // renonciation explicite pour la duree ferme) ne doit jamais etre stocke.
+    d.break_options = filterBreaksByDureeFerme(d.break_options, d.date_effet, d.duree_ferme)
   }
   const cs = rows => cleanSurfaces(normalizeSurfaces(rows))
   d.surfaces_detail    = cs(ensureArray(d.surfaces_detail))
@@ -2388,16 +2409,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
       // antérieur à date_effet + duree_ferme est forcément un résidu (ancien
       // calcul, ou stocké avant une renonciation explicite) — sans ce filtre,
       // il réapparaîtrait ici alors qu'il est déjà filtré dans la fiche détail.
-      if (d.duree_ferme && d.date_effet) {
-        const effetDF = parseFR(d.date_effet)
-        const dfm = String(d.duree_ferme)
-        const ymatchDF = dfm.match(/(\d+)\s*ans?/), mmatchDF = dfm.match(/(\d+)\s*mois/)
-        const yearsDF = ymatchDF ? parseInt(ymatchDF[1]) : 0, monthsDF = mmatchDF ? parseInt(mmatchDF[1]) : 0
-        if (effetDF && (yearsDF > 0 || monthsDF > 0)) {
-          const minBreakDF = new Date(effetDF.getFullYear() + yearsDF, effetDF.getMonth() + monthsDF, effetDF.getDate() - 1)
-          mergedBreaks = mergedBreaks.filter(b => { const bd = parseFR(b); return bd && bd >= minBreakDF })
-        }
-      }
+      mergedBreaks = filterBreaksByDureeFerme(mergedBreaks, d.date_effet, d.duree_ferme)
 
       // Localisation : liste des niveaux distincts occupés par ce bail (issus
       // de surfaces_detail), triés du plus bas au plus haut, sinon repli sur
@@ -2805,24 +2817,12 @@ function ResultsView({ item }) {
   }
 
   // Si duree_ferme est renseignée, supprimer les breaks AVANT date_effet + duree_ferme
-  if (d.duree_ferme && d.date_effet) {
-    const effet = parseFR(d.date_effet)
-    const dfm = String(d.duree_ferme)
-    const ymatch = dfm.match(/(\d+)\s*ans?/), mmatch = dfm.match(/(\d+)\s*mois/)
-    const years = ymatch ? parseInt(ymatch[1]) : 0, months = mmatch ? parseInt(mmatch[1]) : 0
-    if (effet && (years > 0 || months > 0)) {
-      const minBreak = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
-      breaks = breaks.filter(b => {
-        const bd = parseFR(b)
-        return bd && bd >= minBreak
-      })
-      // Dédoublonner (ex: 29/06/2031 et 30/06/2031 = même date à 1 jour près)
-      breaks = [...new Map(breaks.map(b => {
-        const bd = parseFR(b)
-        return [bd ? `${bd.getFullYear()}-${bd.getMonth()}` : b, b]
-      })).values()]
-    }
-  }
+  breaks = filterBreaksByDureeFerme(breaks, d.date_effet, d.duree_ferme)
+  // Dédoublonner (ex: 29/06/2031 et 30/06/2031 = même date à 1 jour près)
+  breaks = [...new Map(breaks.map(b => {
+    const bd = parseFR(b)
+    return [bd ? `${bd.getFullYear()}-${bd.getMonth()}` : b, b]
+  })).values()]
 
   // Clean surfaces at display time too (for data already in DB)
   const cs = rows => cleanSurfaces(normalizeSurfaces(Array.isArray(rows) ? rows : []))
@@ -4799,7 +4799,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
             const isAv = row.document_type === 'avenant'
             const isOrphan = isAv && !row.parent_id && row._level === 0
             const isExtractionError = d.extraction_error === true
-            const breaks = Array.isArray(d.break_options) ? d.break_options : []
+            const breaks = filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
             return (
               <div
                 key={row.id}
