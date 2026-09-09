@@ -98,12 +98,12 @@ REGLES PAR CHAMP:
 - reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle","date_limite_absolue":null}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. date_limite_absolue: certains baux plafonnent la duree totale possible de la reconduction tacite par une clause du type "en tout etat de cause, la Convention/le Contrat ne pourra exceder N (en toutes lettres) annees et prendra automatiquement fin le [date], sans formalite". Si une telle clause EXPLICITE existe, reporter cette date exacte (format JJ/MM/AAAA) dans date_limite_absolue — c'est un plafond contractuel dur, distinct du preavis de conge habituel. Sinon (reconduction tacite sans limite de duree totale exprimee), laisser date_limite_absolue a null. null pour le champ reconduction_tacite entier si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
 - type_bail: reste CONCIS — un libelle court du type de contrat (ex: "Bail commercial", "Convention d'occupation precaire", "Bail derogatoire", "Bail professionnel"). NE JAMAIS recopier la liste des articles du Code de commerce ou une citation legale complete (ex: "soumis aux articles L.145-1 a L.145-60...") meme si le bail les mentionne explicitement — ces references legales n'apportent rien a un libelle de type de contrat et doivent etre omises.
 - frais_redaction_actes: si le bail (ou les CG/CP) mentionne des frais forfaitaires de redaction d'actes — typiquement une clause du type "les frais de redaction du present bail sont fixes forfaitairement a la somme de X euros HT" et/ou, separement, une clause anticipant les avenants futurs du type "les frais de redaction de chaque avenant ulterieur seront fixes forfaitairement a Y euros". Extraire TOUS les montants distincts mentionnes (souvent DEUX: un pour le bail lui-meme, un autre — generalement plus faible — prevu pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. type doit etre "bail" ou "avenant" selon ce a quoi le montant s'applique. due_par: "Preneur" ou "Bailleur" selon qui supporte les frais (souvent le Preneur). [] si aucune mention de frais de redaction d'actes.
-- conditions_suspensives: liste de TOUTES les conditions suspensives auxquelles l'entree en vigueur du bail (ou certains de ses effets) est subordonnee — typiquement une clause "Condition(s) Suspensive(s)" prevoyant que le bail ne devient definitif/ne prend effet que si un evenement determine se realise (ex: obtention d'un permis de construire purge de tout recours, obtention d'une autorisation administrative, levee d'une clause de non-recours, achevement de travaux, obtention d'un financement, non-exercice d'un droit de preemption). Format: [{"libelle":"texte concis de la condition","echeance":"date limite si mentionnee, sinon null","statut":"levee/en cours/non precise si le document l'indique, sinon null"}]. Une condition deja explicitement levee/realisee au moment de la signature (mention "la presente condition est levee/realisee") doit quand meme etre listee, avec statut="levee". [] si le bail ne prevoit aucune condition suspensive.
+- conditions_suspensives: liste de TOUTES les conditions suspensives auxquelles l'entree en vigueur du bail (ou certains de ses effets) est subordonnee — typiquement une clause "Condition(s) Suspensive(s)" prevoyant que le bail ne devient definitif/ne prend effet que si un evenement determine se realise (ex: obtention d'un permis de construire purge de tout recours, obtention d'une autorisation administrative, levee d'une clause de non-recours, achevement de travaux, obtention d'un financement, non-exercice d'un droit de preemption). Format: [{"libelle":"texte concis de la condition","echeance":"date limite si mentionnee, sinon null","statut":"levee/en cours/non precise si le document l'indique, sinon null","page":2}]. Une condition deja explicitement levee/realisee au moment de la signature (mention "la presente condition est levee/realisee") doit quand meme etre listee, avec statut="levee". [] si le bail ne prevoit aucune condition suspensive.
 - surface_totale_m2: la surface de reference du bail. REGLE: si le bail utilise le terme "Surface Exploitee" (ou variante proche) pour designer la surface globale des locaux, UTILISER CETTE VALEUR pour surface_totale_m2, meme si elle inclut une quote-part des parties communes — c'est la convention de reference dans ce bail. Ne descendre au sous-composant individuel (ex: "Surface de bureaux") QUE si aucune "Surface Exploitee"/surface globale n'est mentionnee. Exemple: "la Surface Exploitee... est de 584,50 m²... les Locaux se decomposent: Surface de bureaux (lot n°11): 510,20 m²" → surface_totale_m2 = 584.50 (la Surface Exploitee), PAS 510.20.
 - surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple avec ventilation de loyer (toutes les lignes ont un loyer_annuel): [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. IMPORTANT POUR LES LIGNES STATIONNEMENT: pour une ligne categorie="Stationnement", le champ surface_m2 doit contenir le NOMBRE DE PLACES (pas une surface en m²) — reporter ce chiffre meme s'il n'est mentionne que dans une clause separee du bail (souvent la meme clause qui alimente le champ parking_nb_places, ex: "35 emplacements numerotes...1500 €/place/an"). NE JAMAIS laisser surface_m2 vide pour une ligne Stationnement si un nombre de places est identifiable ailleurs dans le document, meme si la clause de loyer stationnement (ligne du tableau) et la clause descriptive du nombre de places (champ parking_nb_places) sont physiquement separees dans le bail. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
-- _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ SIMPLE (non-tableau) dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_totale":1,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes (duree_totale et duree_ferme sont presque toujours dans la meme clause, ne pas en oublier un des deux), meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null. IMPORTANT: pour les champs qui sont des TABLEAUX (franchise_periodes, participations_travaux, indemnites_restitution, indemnites_break), la page se met DIRECTEMENT dans chaque objet de la liste (cle "page", voir leurs formats respectifs ci-dessous) — PAS dans cet objet _pages global, qui reste reserve aux champs simples.
+- _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ SIMPLE (non-tableau) dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_totale":1,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes (duree_totale et duree_ferme sont presque toujours dans la meme clause, ne pas en oublier un des deux), meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null. IMPORTANT: pour les champs qui sont des TABLEAUX (franchise_periodes, participations_travaux, indemnites_restitution, indemnites_break, conditions_suspensives), la page se met DIRECTEMENT dans chaque objet de la liste (cle "page", voir leurs formats respectifs ci-dessous) — PAS dans cet objet _pages global, qui reste reserve aux champs simples.
 - mise_a_disposition: si le bail prevoit une mise a disposition anticipee des locaux (avant la date d'effet officielle du bail). Format: {"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","loyer_paye":"Oui/Non/Partiel","charges_payees":"Oui/Non/Partiel","conditions":"texte libre des conditions financieres pendant cette periode"}. null si aucune mise a disposition anticipee.
 - break_options: liste COMPLETE et EXHAUSTIVE de toutes les dates auxquelles le PRENEUR peut effectivement sortir avant le terme. Format: ["31/08/2028","31/08/2031"]. REGLE CRITIQUE: les CP priment TOUJOURS sur les CG — SAUF si les CP renvoient EXPRESSEMENT a un article des CG pour les modalites de conge/duree (ex: "le PRENEUR pourra delivrer conge selon les modalites convenues a l'article CG2.2 DUREE CONGE du Bail") : dans ce cas, c'est CET ARTICLE DES CG qu'il faut lire et appliquer, pas l'ignorer sous pretexte que les CP priment en general — les CP eux-memes designent les CG comme source de la regle. REGLE ABSOLUE CONVENTION DE DATE: toute date calculee par addition d'un nombre entier d'annees a date_effet (breaks, ou date_fin si elle doit etre calculee) s'exprime au JOUR ANNIVERSAIRE MOINS 1 JOUR — convention standard des baux commerciaux francais. Exemple: date_effet=15/10/2020, echeance a 6 ans → 15/10/2020 + 6 ans = 15/10/2026, MOINS 1 JOUR = 14/10/2026 (PAS 15/10/2026). Cette regle s'applique a TOUTE date calculee dans break_options ET a date_fin lorsqu'elle doit etre deduite de duree_totale (mais PAS si le bail donne une date de fin EXPLICITE en toutes lettres — dans ce cas utiliser cette date telle quelle, meme si elle ne suit pas cette convention). REGLE ABSOLUE (s'applique a TOUTES les regles ci-dessous, quelle que soit la formulation du bail: "periode triennale", "echeance triennale", "faculte triennale", etc.): les echeances triennales SUCCESSIVES se calculent TOUJOURS comme des multiples de 3 ANS DEPUIS DATE_EFFET (annees 3, 6, 9, 12...), JAMAIS en ajoutant 3 ans a la date de la break precedente. Meme si le bail nomme une premiere sortie a une annee qui n'est pas un multiple de 3 (ex: annee 4, ou annee 7, en fin de duree ferme), l'echeance suivante reste le PROCHAIN multiple de 3 depuis date_effet strictement superieur a cette annee — PAS cette annee + 3. REGLES DE CALCUL:
   1) "a l'expiration de chaque periode triennale" → date_effet + 3 ans, + 6 ans, + 9 ans (si < date_fin)
@@ -155,7 +155,7 @@ REGLES PAR CHAMP (champs_modifies):
 - frais_redaction_actes: UNIQUEMENT si cet avenant lui-meme mentionne un montant de frais de redaction (le sien propre, et/ou une nouvelle stipulation pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. null si non aborde par cet avenant.
 - charges_impots_taxes / charges_vetuste / charges_force_majeure: UNIQUEMENT si cet avenant modifie explicitement la repartition d'un impot/taxe, de la vetuste ou de la force majeure par rapport au bail initial. Memes formats que dans le prompt d'extraction du bail. null si non aborde par cet avenant (ce champ ecrase completement l'ancien tableau/objet — pour charges_impots_taxes, reprendre TOUS les impots encore pertinents, pas seulement celui modifie).
 - gapd_montant / gapd: UNIQUEMENT si cet avenant met en place, modifie ou supprime une Garantie Autonome a Premiere Demande (GAPD), distincte du simple depot de garantie. Meme definition que dans le prompt d'extraction du bail. null si non aborde par cet avenant.
-- conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","echeance":"date limite ou null","statut":"levee/en cours/non precise"}]. Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
+- conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","echeance":"date limite ou null","statut":"levee/en cours/non precise","page":2}]. Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
 - _pages: objet AU MEME NIVEAU que champs_modifies (pas dedans) avec le numero de PAGE du PDF ou se trouve chaque champ RENSEIGNE (non-null) de champs_modifies, plus objet_avenant, date_effet_avenant et date_signature_avenant si applicable. Format: {"loyer_signature_montant":2,"date_effet_avenant":1,"objet_avenant":1}. Ne pas inclure les champs restes null.`
@@ -317,6 +317,15 @@ function normalizeDate(val) {
 function formatDate(iso) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+// Date + heure, pour l'horodatage d'extraction (plusieurs extractions le même
+// jour sont possibles, l'heure permet de les distinguer).
+function formatExtractionDate(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) + ' à ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 }
 
 // Parse a raw montant string to a float number (strips currency symbols, spaces)
@@ -1189,6 +1198,14 @@ function sanitizeBreakDates(arr) {
   }).filter(Boolean)
 }
 
+// Horodate une extraction (ou réextraction) avec la date/heure exacte du
+// traitement — stocké DANS le JSON `data` plutôt que dans une colonne dédiée,
+// pour n'exiger aucune migration de la table Supabase. Toujours appelé juste
+// avant chaque sauvegarde (insert ou update) d'un résultat d'extraction.
+function stampExtractionDate(extracted) {
+  return { ...extracted, _extracted_at: new Date().toISOString() }
+}
+
 function sanitizeExtracted(data) {
   if (!data || typeof data !== 'object') return data
   const d = { ...data }
@@ -1807,7 +1824,7 @@ function FraisActesTable({ frais }) {
   )
 }
 
-function ConditionsSuspensivesBoxes({ conditions }) {
+function ConditionsSuspensivesBoxes({ conditions, item }) {
   const safe = Array.isArray(conditions) ? conditions : []
   if (!safe.length) return null
   const statutStyle = (statut) => {
@@ -1823,7 +1840,10 @@ function ConditionsSuspensivesBoxes({ conditions }) {
         return (
           <div key={i} className="field full" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
-              <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5, flex: 1 }}>{safeStr(c.libelle) || '—'}</div>
+              <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5, flex: 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {safeStr(c.libelle) || '—'}
+                <PageJumpIcon item={item} page={c.page} />
+              </div>
               {st && <span className={`pill ${st.cls}`} style={{ flexShrink: 0 }}>{st.label}</span>}
             </div>
             {c.echeance && (
@@ -2806,6 +2826,7 @@ function ResultsView({ item }) {
     { key: 'notice',              label: 'Préavis' },
     { key: 'date_limite_travaux', label: 'Date limite travaux preneur' },
   ].filter(f => d[f.key])
+  const extractionDateDisplay = formatExtractionDate(meta._extracted_at)
 
   const show = key => !isAv || d[key] != null
 
@@ -2838,7 +2859,7 @@ function ResultsView({ item }) {
       {d.conditions_suspensives?.length > 0 && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Conditions suspensives</div></div>
-          <ConditionsSuspensivesBoxes conditions={d.conditions_suspensives} />
+          <ConditionsSuspensivesBoxes conditions={d.conditions_suspensives} item={item} />
         </div>
       )}
 
@@ -2889,7 +2910,7 @@ function ResultsView({ item }) {
             </div>
           )}
           {/* Rangée secondaire : signature, congé, travaux */}
-          {secondaryDates.length > 0 && (
+          {(secondaryDates.length > 0 || extractionDateDisplay) && (
             <div className="gx" style={{ marginBottom: '8px' }}>
               {secondaryDates.map(f => (
                 <div key={f.key} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 14px', minWidth: '160px' }}>
@@ -2897,6 +2918,12 @@ function ResultsView({ item }) {
                   <div className="field-val">{d[f.key]}</div>
                 </div>
               ))}
+              {extractionDateDisplay && (
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 14px', minWidth: '160px' }}>
+                  <div className="field-lbl">Dernière extraction</div>
+                  <div className="field-val" style={{ color: 'var(--text3)' }}>{extractionDateDisplay}</div>
+                </div>
+              )}
             </div>
           )}
           {show('conditions_break') && d.conditions_break && (
@@ -3817,7 +3844,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
         } catch (_) { /* non bloquant */ }
 
         await uploadSourceFile(row.id, prepared)
-        const { error } = await supabase.from('extractions').update({ data: extracted }).eq('id', row.id)
+        const { error } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
         if (error) throw error
         success++
       } catch (err) {
@@ -4062,7 +4089,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
 
         const { data: saved, error } = await supabase.from('extractions').insert({
           file_name: file.name,
-          data: extracted,
+          data: stampExtractionDate(extracted),
           document_type: 'avenant',
           parent_id: bailRow.id,
           actif_group: bailRow.actif_group || null,
@@ -4198,7 +4225,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
       } catch (_) { /* non bloquant */ }
 
       await uploadSourceFile(row.id, prepared) // attache le fichier + renseigne storage_path
-      const { error: updateErr } = await supabase.from('extractions').update({ data: extracted }).eq('id', row.id)
+      const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
       if (updateErr) throw updateErr
 
       setReextractProgress(null)
@@ -4282,7 +4309,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
 
       // On garde l'id, le parent_id, l'actif_group et le storage_path déjà en
       // place — seul le contenu extrait (data) est remplacé.
-      const { error: updateErr } = await supabase.from('extractions').update({ data: extracted }).eq('id', row.id)
+      const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
       if (updateErr) throw updateErr
 
       setReextractProgress(null)
@@ -4724,6 +4751,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                       return etage ? `${loc} · ${etage}` : loc
                     })()}
                   </div>
+                  {row.data?._extracted_at && (
+                    <div style={{ fontSize: '10px', color: 'var(--text3)', opacity: .75 }} title="Date de la dernière extraction (initiale ou réextraction)">
+                      Extrait le {formatDate(row.data._extracted_at)}
+                    </div>
+                  )}
                   {!isAv && (
                     <div style={{ position: 'relative', marginTop: '2px' }}>
                       <span
@@ -5308,7 +5340,7 @@ export default function App() {
 
   async function saveExtraction(file, extracted, docType, parentId, actifGroup = null) {
     const { data: saved } = await supabase.from('extractions')
-      .insert({ file_name: file.name, data: extracted, document_type: docType, parent_id: parentId || null, actif_group: actifGroup || null })
+      .insert({ file_name: file.name, data: stampExtractionDate(extracted), document_type: docType, parent_id: parentId || null, actif_group: actifGroup || null })
       .select().single()
     if (saved?.id) await uploadSourceFile(saved.id, file) // on attend la fin pour éviter un rafraîchissement prématuré du dashboard
     return saved
