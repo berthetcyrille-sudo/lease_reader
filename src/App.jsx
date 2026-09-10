@@ -5127,29 +5127,29 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                     </span>
                   )}
                   {!isAv && (
-                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); openAvenantPicker(row) }} title="Ajouter un avenant à ce bail">
+                    <button className="dash-action-btn" onClick={e => { e.stopPropagation(); openAvenantPicker(row) }} title="Ajouter un avenant à ce bail">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     </button>
                   )}
                   {row.storage_path ? (
-                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); viewSourceFile(row) }} title="Voir le fichier source">
+                    <button className="dash-action-btn" onClick={e => { e.stopPropagation(); viewSourceFile(row) }} title="Voir le fichier source">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     </button>
                   ) : (
-                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); setConfirmAttachReextract(row) }} title="Joindre le fichier source et réextraire (remplace les données avec le prompt actuel)">
+                    <button className="dash-action-btn" onClick={e => { e.stopPropagation(); setConfirmAttachReextract(row) }} title="Joindre le fichier source et réextraire (remplace les données avec le prompt actuel)">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                     </button>
                   )}
                   {row.storage_path && (
-                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); setConfirmReextract(row) }} title="Réextraire (remplace les données à partir du fichier source, sans toucher aux avenants)">
+                    <button className="dash-action-btn" onClick={e => { e.stopPropagation(); setConfirmReextract(row) }} title="Réextraire (remplace les données à partir du fichier source, sans toucher aux avenants)">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02" /><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/></svg>
                     </button>
                   )}
-                  <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); onSelect(row) }} title="Voir le détail">
+                  <button className="dash-action-btn" onClick={e => { e.stopPropagation(); onSelect(row) }} title="Voir le détail">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   </button>
                   {!isAv && (
-                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => onArchive(row, e)} title={row.data?._archived ? 'Désarchiver' : 'Archiver'}>
+                    <button className="dash-action-btn" onClick={e => onArchive(row, e)} title={row.data?._archived ? 'Désarchiver' : 'Archiver'}>
                       {row.data?._archived ? (
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><path d="M10 12h4"/></svg>
                       ) : (
