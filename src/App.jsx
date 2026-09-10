@@ -4439,6 +4439,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
   const [renamingGroup, setRenamingGroup] = useState(null) // group name
+  const [showToolsMenu, setShowToolsMenu] = useState(false)
 
   // Close picker on outside click
   useEffect(() => {
@@ -4447,6 +4448,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [editingActif])
+
+  // Ferme le menu "Actions" au clic extérieur
+  useEffect(() => {
+    if (!showToolsMenu) return
+    const handler = () => setShowToolsMenu(false)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [showToolsMenu])
 
   // Derive all existing actif groups from tree
   const existingGroups = [...new Set(tree.map(b => b.actif_group).filter(Boolean))].sort()
@@ -4972,39 +4981,62 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           ))}
         </div>
         {tree.length > 0 && (
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
             <button
               className="btn"
-              style={{
-                width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px',
-                background: showArchived ? 'var(--accent)' : undefined, color: showArchived ? '#fff' : undefined, borderColor: showArchived ? 'var(--accent)' : undefined,
-              }}
-              onClick={() => setShowArchived(v => !v)}
-              title={showArchived ? 'Revenir aux baux actifs' : 'Voir les baux archivés'}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>
-              </svg>
-              {showArchived ? 'Retour aux actifs' : 'Archivés'}
+              style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              onClick={() => setShowToolsMenu(v => !v)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+              Actions
+              {showArchived && <span className="pill pill-blue" style={{ fontSize: '10px' }}>Archivés</span>}
             </button>
-            <button className="btn" style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }} onClick={() => setShowBulkAttach(true)}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-              </svg>
-              Attacher un dossier
-            </button>
-            <button className="btn" style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }} onClick={() => setShowBulkReextract(true)} title="Relancer l'extraction sur plusieurs documents à la fois">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/>
-              </svg>
-              Réextraction en masse
-            </button>
-            <button className="btn" style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }} onClick={onExportAll}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-              Exporter tout
-            </button>
-            <button className="btn-clear" style={{ width: 'auto', padding: '5px 12px' }} onClick={() => setConfirmClear(true)}>Vider</button>
+            {showToolsMenu && (
+              <div style={{
+                position: 'absolute', top: '100%', right: 0, marginTop: '6px', zIndex: 500,
+                background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
+                boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '230px', overflow: 'hidden',
+              }}>
+                {[
+                  {
+                    icon: <><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></>,
+                    label: showArchived ? 'Retour aux actifs' : 'Voir les archivés',
+                    onClick: () => { setShowArchived(v => !v); setShowToolsMenu(false) },
+                  },
+                  {
+                    icon: <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>,
+                    label: 'Attacher un dossier',
+                    onClick: () => { setShowBulkAttach(true); setShowToolsMenu(false) },
+                  },
+                  {
+                    icon: <><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/></>,
+                    label: 'Réextraction en masse',
+                    onClick: () => { setShowBulkReextract(true); setShowToolsMenu(false) },
+                  },
+                  {
+                    icon: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
+                    label: 'Exporter tout',
+                    onClick: () => { onExportAll(); setShowToolsMenu(false) },
+                  },
+                ].map((item, i) => (
+                  <div key={i}
+                    onClick={item.onClick}
+                    style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', fontSize: '13px', cursor: 'pointer', color: 'var(--text)', borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, color: 'var(--text3)' }}>{item.icon}</svg>
+                    {item.label}
+                  </div>
+                ))}
+                <div
+                  onClick={() => { setConfirmClear(true); setShowToolsMenu(false) }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', fontSize: '13px', cursor: 'pointer', color: 'var(--danger)', borderTop: '1px solid var(--border)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--danger-bg)'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                  Vider
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
