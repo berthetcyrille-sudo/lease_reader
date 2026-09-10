@@ -5893,10 +5893,11 @@ export default function App() {
     // Retrait automatique des pages d'annexes (K-bis, plans, diagnostics...)
     // pour tous les PDF déposés — avant compression, pour réduire le travail
     // de cette dernière et rester sous la limite de 100 pages sans y penser.
+    // Le résultat (pages retirées ou non) s'affiche ensuite par fichier dans
+    // la file d'attente (ligne "📄 X → Y pages") — pas besoin d'une popup en plus.
     const pdfFiles = arr.filter(f => f.name.toLowerCase().endsWith('.pdf'))
     const annexInfoLocal = arr.map(() => null) // aligné sur `arr`, rempli ci-dessous pour les PDF
     if (pdfFiles.length > 0) {
-      const strippedSummary = []
       for (const f of pdfFiles) {
         const idx = arr.indexOf(f)
         setStrippingAnnexes({ name: f.name, current: 0, total: 0 })
@@ -5905,10 +5906,8 @@ export default function App() {
         })
         arr[idx] = stripped
         annexInfoLocal[idx] = { originalPages, keptPages, removedCount, detectedPage }
-        if (removedCount > 0) strippedSummary.push(`${f.name} : ${removedCount} page${removedCount > 1 ? 's' : ''} d'annexes retirée${removedCount > 1 ? 's' : ''}`)
       }
       setStrippingAnnexes(null)
-      if (strippedSummary.length > 0) alert(`Annexes retirées automatiquement avant extraction :\n\n${strippedSummary.join('\n')}`)
     }
 
     // Compression préventive des PDF volumineux (scans / "Print to PDF")
