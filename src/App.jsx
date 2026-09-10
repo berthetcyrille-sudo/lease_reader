@@ -5095,7 +5095,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 </div>
 
                 {/* Actions */}
-                <div className="dash-td dash-td-actions" onClick={e => e.stopPropagation()}>
+                <div className="dash-td dash-td-actions" style={{ alignItems: 'flex-end', paddingBottom: '10px' }} onClick={e => e.stopPropagation()}>
                   {!isAv && avenantUpload[row.id] && (
                     <span
                       title={avenantUpload[row.id].state === 'error' ? avenantUpload[row.id].error : ''}
