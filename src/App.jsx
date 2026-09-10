@@ -884,6 +884,32 @@ function addYearsExpiry(d, n) {
 // ferme ("renonce...triennale...pour la durée ferme"), qui n'en est pas une.
 // Extrait de computeBreaks pour être réutilisable ailleurs (ex: affichage
 // d'une durée ferme par défaut quand elle n'est pas explicitement chiffrée).
+// Extrait les "breaks conditionnelles" d'un bail : des sommes/conditions
+// décrites dans indemnites_break dont la break_date ne correspond à aucune
+// break "propre" déjà connue — typiquement une échéance de sortie qui ne
+// s'active QUE si une condition se réalise (ex: non-renouvellement d'un
+// contrat tiers). Centralisé pour être utilisé à l'identique dans la fiche
+// détail ET dans la frise de l'État locatif.
+function extractConditionalBreaks(d, cleanBreaksArr) {
+  const cleanBreakParsedDates = (cleanBreaksArr || []).map(b => parseFR(b)).filter(Boolean)
+  return (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
+    .map(ib => ({ date: ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null, condition: safeStr(ib.motif) || safeStr(ib.calcul) }))
+    // Filet de sécurité : une clause de CESSION n'est pas une vraie option de
+    // sortie du preneur — jamais une "break conditionnelle", même si l'IA lui
+    // a par erreur attribué une break_date.
+    .filter(cb => !/cession/i.test(cb.condition || ''))
+    .filter(cb => cb.date && /^\d{2}\/\d{2}\/\d{4}$/.test(cb.date))
+    .filter(cb => {
+      // Exclure si une break "propre" tombe à quelques jours près de cette
+      // date — c'est très probablement LA MÊME échéance triennale, juste
+      // calculée deux fois par l'IA, pas une échéance véritablement en plus.
+      const cbParsed = parseFR(cb.date)
+      if (!cbParsed) return false
+      const isDuplicateOfClean = cleanBreakParsedDates.some(bd => Math.abs(bd - cbParsed) <= 3 * 24 * 60 * 60 * 1000)
+      return !isDuplicateOfClean
+    })
+}
+
 function detectsFullTriennialWaiver(clauseTextLower) {
   const basicWaiver = /renonce.{0,80}triennale|pas.{0,20}triennale|supprim.{0,20}triennale|faculté.{0,10}résiliation.{0,10}triennale/i.test(clauseTextLower)
   if (!basicWaiver) return false
@@ -2486,6 +2512,13 @@ function EtatLocatifModal({ building, bails, onClose }) {
       // il réapparaîtrait ici alors qu'il est déjà filtré dans la fiche détail.
       mergedBreaks = filterBreaksByDureeFerme(mergedBreaks, d.date_effet, d.duree_ferme)
 
+      // Breaks conditionnelles (voir extractConditionalBreaks) — remontées
+      // dans la frise avec un repère visuel distinct, puisqu'elles ne sont
+      // pas des échéances certaines comme les segments colorés.
+      const conditionalBreaksRaw = extractConditionalBreaks(d, mergedBreaks)
+        .map(cb => ({ date: parseFrDate(cb.date), condition: cb.condition }))
+        .filter(cb => cb.date)
+
       // Localisation : liste des niveaux distincts occupés par ce bail (issus
       // de surfaces_detail), triés du plus bas au plus haut, sinon repli sur
       // l'adresse/l'immeuble.
@@ -2525,6 +2558,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
           name: shortPartyName(d.preneur) || row.file_name,
           start, end, estimated, estimatedField,
           breaks: mergedBreaks.map(parseFrDate).filter(Boolean),
+          conditionalBreaks: conditionalBreaksRaw,
           loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
           reconductionTacite: d.reconduction_tacite?.applicable ? {
             preavis: d.reconduction_tacite.preavis || null,
@@ -2790,6 +2824,22 @@ function EtatLocatifModal({ building, bails, onClose }) {
                           </div>
                         )
                       })()}
+                      {t.conditionalBreaks && t.conditionalBreaks.map((cb, i) => {
+                        const pct = ((cb.date - domainStart) / domainMs) * 100
+                        if (pct < 0 || pct > 100) return null
+                        return (
+                          <div key={`cb-${i}`}
+                            title={`Break conditionnelle — ${fmt(cb.date)}${cb.condition ? ` : ${cb.condition}` : ''}`}
+                            style={{ position: 'absolute', left: `${pct}%`, top: '10px', bottom: 0, width: 0, borderLeft: '1.5px dashed #B8860B', zIndex: 3, cursor: 'help' }}>
+                            <span style={{
+                              position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)',
+                              fontSize: '11px', lineHeight: 1, background: '#FAEEDA', color: '#B8860B',
+                              borderRadius: '50%', width: '15px', height: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              border: '1px solid #B8860B',
+                            }}>⚠</span>
+                          </div>
+                        )
+                      })}
                       <div title={`Aujourd'hui : ${fmt(today)}`} style={{
                         position: 'absolute', left: `${((today - domainStart) / domainMs) * 100}%`, top: 0, bottom: 0,
                         width: 0, borderLeft: '1.5px dashed var(--accent)', opacity: 0.55, zIndex: 2,
@@ -2926,26 +2976,7 @@ function ResultsView({ item }) {
   // déjà dans break_options) — jusqu'ici visibles seulement dans le texte libre
   // "Détail échéances", on les fait remonter dans la frise principale avec leur
   // condition, plutôt que de les laisser noyées dans un paragraphe.
-  const cleanBreakParsedDates = breaks.map(b => parseFR(b)).filter(Boolean)
-  const condBreakEntries = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
-    .map(ib => ({ date: ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null, condition: safeStr(ib.motif) || safeStr(ib.calcul) }))
-    // Filet de sécurité : une clause de CESSION (remboursement si cession du
-    // bail/fonds à un tiers hors groupe) n'est pas une vraie option de sortie
-    // du preneur — elle ne doit jamais apparaître comme une "break conditionnelle",
-    // même si l'IA lui a par erreur attribué une break_date (cas d'exclusion déjà
-    // prévu au prompt, mais pas toujours respecté).
-    .filter(cb => !/cession/i.test(cb.condition || ''))
-    .filter(cb => cb.date && /^\d{2}\/\d{2}\/\d{4}$/.test(cb.date))
-    .filter(cb => {
-      // Exclure si une break "propre" tombe à quelques jours près de cette
-      // date — c'est très probablement LA MÊME échéance triennale, juste
-      // calculée deux fois par l'IA (deux appels distincts, conventions de
-      // jour légèrement différentes), pas une échéance véritablement en plus.
-      const cbParsed = parseFR(cb.date)
-      if (!cbParsed) return false
-      const isDuplicateOfClean = cleanBreakParsedDates.some(bd => Math.abs(bd - cbParsed) <= 3 * 24 * 60 * 60 * 1000)
-      return !isDuplicateOfClean
-    })
+  const condBreakEntries = extractConditionalBreaks(d, breaks)
 
   // Pour chaque break "propre", rattacher la condition/indemnité éventuellement
   // décrite dans indemnites_break pour la MÊME échéance (à quelques jours près)
