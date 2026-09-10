@@ -4182,7 +4182,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
   )
 }
 
-function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch }) {
+function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
   const [extractionErrors, setExtractionErrors] = useState(null) // null or array of {name, reason}
@@ -4545,6 +4545,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
   // Build display rows based on filter and expanded state
   const displayRows = []
   tree.forEach(bail => {
+    // N'afficher que les bails correspondant au mode courant (actifs par
+    // défaut, archivés uniquement si le bouton "Archivés" est activé).
+    if (!!bail.data?._archived !== !!showArchived) return
     const bailRow = { ...bail, _level: 0, _parentName: null, _bailData: bail.data }
     // Trier avenants par date de signature puis numéroter
     function toSortable(dateStr) {
@@ -4576,10 +4579,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
     }
   })
   if (filter === 'avenant') {
-    // orphan avenants
-    tree.filter(r => r.document_type === 'avenant').forEach(av => {
-      displayRows.push({ ...av, _level: 0, _parentName: null, _bailData: null })
-    })
+    // orphan avenants — jamais "archivés" en tant que tels, donc uniquement
+    // visibles dans la vue par défaut (pas dans la vue "Archivés").
+    if (!showArchived) {
+      tree.filter(r => r.document_type === 'avenant').forEach(av => {
+        displayRows.push({ ...av, _level: 0, _parentName: null, _bailData: null })
+      })
+    }
   }
 
   // Apply search filter
@@ -4752,13 +4758,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
             let bailCount = 0, avenantCount = 0, orphanCount = 0
             tree.forEach(node => {
               if (node.document_type === 'bail') {
+                if (!!node.data?._archived !== !!showArchived) return
                 if (filter !== 'avenant' && rowMatchesSearch({ data: node.data, file_name: node.file_name, actif_group: node.actif_group }, q)) bailCount++
                 if (filter !== 'bail') {
                   ;(node.avenants || []).forEach(av => {
                     if (rowMatchesSearch({ data: av.data, file_name: av.file_name, actif_group: av.actif_group, _bailData: node.data }, q)) avenantCount++
                   })
                 }
-              } else if (filter !== 'bail') {
+              } else if (filter !== 'bail' && !showArchived) {
                 if (rowMatchesSearch({ data: node.data, file_name: node.file_name, actif_group: node.actif_group }, q)) { avenantCount++; orphanCount++ }
               }
             })
@@ -4812,6 +4819,19 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
         </div>
         {tree.length > 0 && (
           <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              className="btn"
+              style={{
+                width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px',
+                background: showArchived ? 'var(--accent)' : undefined, color: showArchived ? '#fff' : undefined, borderColor: showArchived ? 'var(--accent)' : undefined,
+              }}
+              onClick={() => setShowArchived(v => !v)}
+              title={showArchived ? 'Revenir aux baux actifs' : 'Voir les baux archivés'}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>
+              </svg>
+              {showArchived ? 'Retour aux actifs' : 'Archivés'}
+            </button>
             <button className="btn" style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }} onClick={() => setShowBulkAttach(true)}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
@@ -5128,6 +5148,15 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
                   <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); onSelect(row) }} title="Voir le détail">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   </button>
+                  {!isAv && (
+                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => onArchive(row, e)} title={row.data?._archived ? 'Désarchiver ce bail' : 'Archiver ce bail échu — masqué des totaux et de l\'État locatif, reste accessible via le bouton "Archivés"'}>
+                      {row.data?._archived ? (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><path d="M10 12h4"/></svg>
+                      ) : (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+                      )}
+                    </button>
+                  )}
                   <button className="dash-action-btn dash-action-del" onClick={e => { e.stopPropagation(); setConfirmDelete(row) }} title="Supprimer">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
                   </button>
@@ -5419,6 +5448,7 @@ export default function App() {
   // pour survivre à la navigation vers une fiche détail et retour.
   const [dashSearch, setDashSearch] = useState('')
   const [dashFilter, setDashFilter] = useState('all')
+  const [dashShowArchived, setDashShowArchived] = useState(false)
   const [docTypes,     setDocTypes]     = useState([])     // 'bail'|'avenant'|'' per file
   const [fileOrder,    setFileOrder]    = useState([])     // indices ordonnés
   const [detecting,    setDetecting]    = useState(false)  // détection en cours
@@ -5454,7 +5484,8 @@ export default function App() {
 
   async function fetchTotalCounts() {
     const [bailRes, avenantRes, orphanRes] = await Promise.all([
-      supabase.from('extractions').select('*', { count: 'exact', head: true }).eq('document_type', 'bail'),
+      supabase.from('extractions').select('*', { count: 'exact', head: true }).eq('document_type', 'bail')
+        .or('data->>_archived.is.null,data->>_archived.eq.false'),
       supabase.from('extractions').select('*', { count: 'exact', head: true }).eq('document_type', 'avenant'),
       supabase.from('extractions').select('*', { count: 'exact', head: true }).eq('document_type', 'avenant').is('parent_id', null),
     ])
@@ -5540,7 +5571,7 @@ export default function App() {
   const buildingGroups = useMemo(() => {
     const map = {}
     history.forEach(row => {
-      if (row.document_type !== 'bail' || !row.actif_group) return
+      if (row.document_type !== 'bail' || !row.actif_group || row.data?._archived) return
       map[row.actif_group] = (map[row.actif_group] || 0) + 1
     })
     return Object.entries(map).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name))
@@ -5884,6 +5915,21 @@ export default function App() {
     setHistory(prev => prev.filter(b => b.id !== item.id).map(b => ({ ...b, avenants: (b.avenants || []).filter(a => a.id !== item.id) })))
   }
 
+  // Archive un bail échu — stocké dans data._archived (pas de colonne dédiée
+  // à ajouter). Un bail archivé disparaît des totaux, de l'État locatif et du
+  // dashboard courant, mais reste consultable via le bouton "Archivés".
+  async function handleToggleArchive(item, e) {
+    e.stopPropagation()
+    const newData = { ...item.data, _archived: !item.data?._archived }
+    const { error } = await supabase.from('extractions').update({ data: newData }).eq('id', item.id)
+    if (error) { console.error('Archivage échoué', error); return }
+    setHistory(prev => prev.map(b => b.id === item.id ? { ...b, data: newData } : b))
+    if (activeItem?.id === item.id) setActiveItem(prev => ({ ...prev, data: newData }))
+    // Le comptage exact vient d'une requête serveur séparée (fetchTotalCounts) —
+    // on la relance pour refléter immédiatement le changement dans les totaux.
+    fetchTotalCounts().then(setTotalCounts)
+  }
+
   async function handleClearHistory() {
     await supabase.from('extractions').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     setHistory([])
@@ -6070,7 +6116,7 @@ export default function App() {
         {etatLocatifBuilding && (
           <EtatLocatifModal
             building={etatLocatifBuilding}
-            bails={history.filter(row => row.document_type === 'bail' && row.actif_group === etatLocatifBuilding)}
+            bails={history.filter(row => row.document_type === 'bail' && row.actif_group === etatLocatifBuilding && !row.data?._archived)}
             onClose={() => { setEtatLocatifBuilding(null); navigate('/') }}
           />
         )}
@@ -6167,6 +6213,7 @@ export default function App() {
                   totalCounts={totalCounts}
                   onSelect={item => { setActiveItem(item); navigate(`/bail/${item.id}`) }}
                   onDelete={handleDeleteItem}
+                  onArchive={handleToggleArchive}
                   onClear={handleClearHistory}
                   onExportAll={() => exportAllToExcel(history, setExportErrors)}
                   newIds={newIds}
@@ -6176,6 +6223,8 @@ export default function App() {
                   setFilter={setDashFilter}
                   search={dashSearch}
                   setSearch={setDashSearch}
+                  showArchived={dashShowArchived}
+                  setShowArchived={setDashShowArchived}
                   onUpdateActif={(id, value) => {
                     setHistory(prev => prev.map(b => {
                       if (b.id === id) return { ...b, actif_group: value || null }
