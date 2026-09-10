@@ -316,6 +316,56 @@ async function compressPdfIfNeeded(file, onProgress) {
   }
 }
 
+// ─── Retrait automatique des pages d'annexes ────────────────────────────────
+// Cherche une page contenant une liste "ANNEXES :" numérotée (ex: "Annexe 1
+// Extrait K-bis", "Annexe 2 Plans des Locaux"...) — motif très stable dans les
+// baux commerciaux, toujours situé juste après la page de signature. Tout ce
+// qui suit cette page (les annexes elles-mêmes : K-bis, plans, diagnostics...)
+// est alors retiré avant extraction, pour éviter d'avoir à le faire à la main
+// et pour rester sous la limite de 100 pages. PRUDENCE: si le motif n'est pas
+// détecté avec une certitude suffisante, on ne retire RIEN plutôt que de
+// risquer de couper du vrai contenu du bail.
+async function stripAnnexPages(file, onProgress) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) return { file, removedCount: 0, originalPages: null, keptPages: null, detectedPage: null }
+  try {
+    const arrayBuffer = await file.arrayBuffer()
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+    const numPages = pdf.numPages
+    if (numPages < 3) return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null }
+
+    let annexListPage = null // index 0-based de la page qui liste les annexes
+    for (let i = 0; i < numPages; i++) {
+      onProgress?.(i + 1, numPages)
+      const page = await pdf.getPage(i + 1)
+      const textContent = await page.getTextContent()
+      const text = textContent.items.map(it => it.str).join(' ')
+      // Signal principal, robuste aux variations de mise en forme du titre :
+      // la page liste au moins "Annexe 1" ET "Annexe 2" à la suite — bien plus
+      // fiable que de dépendre du rendu exact de "ANNEXES :" (police, espaces,
+      // deux-points parfois absents/différents selon le générateur du PDF).
+      const hasFirstEntry = /ANNEXE\s*(N\s*°?\s*)?1\b/i.test(text)
+      const hasSecondEntry = /ANNEXE\s*(N\s*°?\s*)?2\b/i.test(text)
+      if (hasFirstEntry && hasSecondEntry) { annexListPage = i; break }
+    }
+    if (annexListPage === null) return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null }
+
+    const keepCount = annexListPage + 1
+    if (keepCount >= numPages) return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: annexListPage + 1 }
+
+    const srcDoc = await PDFDocument.load(arrayBuffer)
+    const newDoc = await PDFDocument.create()
+    const indices = Array.from({ length: keepCount }, (_, i) => i)
+    const copiedPages = await newDoc.copyPages(srcDoc, indices)
+    copiedPages.forEach(p => newDoc.addPage(p))
+    const outBytes = await newDoc.save()
+    const stripped = new File([outBytes], file.name, { type: 'application/pdf' })
+    return { file: stripped, removedCount: numPages - keepCount, originalPages: numPages, keptPages: keepCount, detectedPage: annexListPage + 1 }
+  } catch (e) {
+    console.error('Détection des annexes échouée pour', file.name, e)
+    return { file, removedCount: 0, originalPages: null, keptPages: null, detectedPage: null }
+  }
+}
+
 function normalizeDate(val) {
   if (!val) return null
   const v = String(val)
@@ -5324,6 +5374,9 @@ export default function App() {
   const [lastError,    setLastError]    = useState('')
   const [newIds,       setNewIds]       = useState([])   // ids extraits dans le batch courant
   const [compressing,  setCompressing]  = useState(null) // { name, current, total } | null
+  const [strippingAnnexes, setStrippingAnnexes] = useState(null) // { name, current, total } | null
+  const [annexInfo, setAnnexInfo] = useState([]) // { originalPages, keptPages, removedCount, detectedPage } | null, indexé comme `files`
+  useBeforeUnloadGuard(!!compressing || !!strippingAnnexes)
 
   function buildTree(rows) {
     const bails    = rows.filter(r => r.document_type === 'bail')
@@ -5552,6 +5605,27 @@ export default function App() {
   async function handleFiles(newFiles, dirAutoLinks = {}, dirActifGroups = {}) {
     let arr = Array.from(newFiles)
 
+    // Retrait automatique des pages d'annexes (K-bis, plans, diagnostics...)
+    // pour tous les PDF déposés — avant compression, pour réduire le travail
+    // de cette dernière et rester sous la limite de 100 pages sans y penser.
+    const pdfFiles = arr.filter(f => f.name.toLowerCase().endsWith('.pdf'))
+    const annexInfoLocal = arr.map(() => null) // aligné sur `arr`, rempli ci-dessous pour les PDF
+    if (pdfFiles.length > 0) {
+      const strippedSummary = []
+      for (const f of pdfFiles) {
+        const idx = arr.indexOf(f)
+        setStrippingAnnexes({ name: f.name, current: 0, total: 0 })
+        const { file: stripped, removedCount, originalPages, keptPages, detectedPage } = await stripAnnexPages(f, (current, total) => {
+          setStrippingAnnexes({ name: f.name, current, total })
+        })
+        arr[idx] = stripped
+        annexInfoLocal[idx] = { originalPages, keptPages, removedCount, detectedPage }
+        if (removedCount > 0) strippedSummary.push(`${f.name} : ${removedCount} page${removedCount > 1 ? 's' : ''} d'annexes retirée${removedCount > 1 ? 's' : ''}`)
+      }
+      setStrippingAnnexes(null)
+      if (strippedSummary.length > 0) alert(`Annexes retirées automatiquement avant extraction :\n\n${strippedSummary.join('\n')}`)
+    }
+
     // Compression préventive des PDF volumineux (scans / "Print to PDF")
     // avant toute détection ou extraction — évite les erreurs de taille en aval.
     const heavy = arr.filter(f => f.name.toLowerCase().endsWith('.pdf') && f.size > PDF_COMPRESS_THRESHOLD)
@@ -5575,6 +5649,7 @@ export default function App() {
       setStatuses(ps => [...ps, ...arr.map(() => ({}))])
       setPertinents(pp => [...pp, ...arr.map(() => null)])
       setRaisons(pr => [...pr, ...arr.map(() => '')])
+      setAnnexInfo(ai => [...ai, ...annexInfoLocal])
       setLastError('')
       // Apply directory-based auto-links (relative indices → absolute)
       if (Object.keys(dirAutoLinks).length > 0) {
@@ -5765,7 +5840,7 @@ export default function App() {
 
   function handleClear() {
     setFiles([]); setStatuses([]); setActiveItem(null); setDocTypes([])
-    setLastError(''); setFileOrder([]); setAvenantLinks({}); setPertinents([]); setRaisons([])
+    setLastError(''); setFileOrder([]); setAvenantLinks({}); setPertinents([]); setRaisons([]); setAnnexInfo([])
   }
 
   const d = activeItem?.data || {}
@@ -6088,21 +6163,21 @@ export default function App() {
                 {/* Modale d'ajout — regroupe dépôt, détection et extraction */}
                 {showAddModal && (
                   <div className="modal-overlay" onClick={() => {
-                    if (loading || detecting || compressing) return // fermeture bloquée pendant traitement
+                    if (loading || detecting || compressing || strippingAnnexes) return // fermeture bloquée pendant traitement
                     setShowAddModal(false)
                   }}>
                     <div className="modal" style={{ width: '95vw', height: '95vh', maxWidth: 'none', maxHeight: '95vh' }} onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div className="modal-title">Ajouter un bail ou un avenant</div>
                         <button
-                          onClick={() => { if (!(loading || detecting || compressing)) setShowAddModal(false) }}
-                          disabled={loading || detecting || !!compressing}
-                          title={loading || detecting || compressing ? 'Traitement en cours…' : 'Fermer'}
+                          onClick={() => { if (!(loading || detecting || compressing || strippingAnnexes)) setShowAddModal(false) }}
+                          disabled={loading || detecting || !!compressing || !!strippingAnnexes}
+                          title={(loading || detecting || compressing || strippingAnnexes) ? 'Traitement en cours…' : 'Fermer'}
                           style={{
                             background: 'none', border: 'none', fontSize: '20px', lineHeight: 1,
-                            cursor: (loading || detecting || compressing) ? 'not-allowed' : 'pointer',
-                            color: (loading || detecting || compressing) ? 'var(--text3)' : 'var(--text2)',
-                            padding: '4px', opacity: (loading || detecting || compressing) ? 0.4 : 1,
+                            cursor: (loading || detecting || compressing || strippingAnnexes) ? 'not-allowed' : 'pointer',
+                            color: (loading || detecting || compressing || strippingAnnexes) ? 'var(--text3)' : 'var(--text2)',
+                            padding: '4px', opacity: (loading || detecting || compressing || strippingAnnexes) ? 0.4 : 1,
                           }}>
                           ✕
                         </button>
@@ -6112,7 +6187,18 @@ export default function App() {
 
                           {/* ── Queue principale ── */}
                           <>
-                              <DropZone onFiles={handleFiles} disabled={loading || detecting || !!compressing} />
+                              <DropZone onFiles={handleFiles} disabled={loading || detecting || !!compressing || !!strippingAnnexes} />
+                    {strippingAnnexes && (
+                      <div className="warning-box" style={{ background: 'var(--accent-bg)', borderColor: 'rgba(26,95,168,.2)' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent)' }}>
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                        </svg>
+                        <span>
+                          Recherche des pages d'annexes dans <strong>{strippingAnnexes.name}</strong>
+                          {strippingAnnexes.total > 0 ? ` — page ${strippingAnnexes.current}/${strippingAnnexes.total}` : '…'}
+                        </span>
+                      </div>
+                    )}
                     {compressing && (
                       <div className="warning-box" style={{ background: 'var(--accent-bg)', borderColor: 'rgba(26,95,168,.2)' }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent)' }}>
@@ -6171,12 +6257,27 @@ export default function App() {
 
                                 {/* Nom */}
                                 <div style={{ minWidth: 0 }}>
-                                  <div style={{ fontWeight: 500, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                                  <div style={{ fontWeight: 500, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                                    <span
+                                      onClick={() => window.open(URL.createObjectURL(f), '_blank')}
+                                      title="Voir le fichier tel qu'il sera envoyé à l'extraction (après retrait des annexes / compression)"
+                                      style={{ flexShrink: 0, cursor: 'pointer', color: 'var(--accent)', fontSize: '11px', border: '1px solid rgba(26,95,168,.3)', borderRadius: '4px', padding: '0 5px', background: 'var(--accent-bg)' }}>
+                                      👁 Voir
+                                    </span>
+                                  </div>
                                   <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{(f.size/1024).toFixed(0)} Ko
                                     {st.state === 'loading' && <span style={{ color: 'var(--accent)', marginLeft: '6px' }}>En cours…</span>}
                                     {st.state === 'done'    && <span style={{ color: 'var(--success)', marginLeft: '6px' }}>✓ Extrait</span>}
                                     {st.state === 'error'   && <span style={{ color: 'var(--danger)', marginLeft: '6px' }} title={st.error}>✕ Erreur</span>}
                                   </div>
+                                  {annexInfo[fileIdx]?.originalPages != null && (
+                                    <div style={{ fontSize: '10.5px', color: annexInfo[fileIdx].removedCount > 0 ? 'var(--success)' : 'var(--text3)', marginTop: '1px' }}>
+                                      {annexInfo[fileIdx].removedCount > 0
+                                        ? `📄 ${annexInfo[fileIdx].originalPages} → ${annexInfo[fileIdx].keptPages} pages (annexes retirées à la page ${annexInfo[fileIdx].detectedPage})`
+                                        : `📄 ${annexInfo[fileIdx].originalPages} pages (annexes non détectées)`}
+                                    </div>
+                                  )}
                                 </div>
 
                                 {/* Pertinent */}
@@ -6267,6 +6368,7 @@ export default function App() {
                                   setStatuses(p => p.filter((_,j) => j !== fileIdx))
                                   setPertinents(p => p.filter((_,j) => j !== fileIdx))
                                   setRaisons(p => p.filter((_,j) => j !== fileIdx))
+                                  setAnnexInfo(p => p.filter((_,j) => j !== fileIdx))
                                   setFileOrder(fo => fo.filter(x => x !== fileIdx).map(x => x > fileIdx ? x-1 : x))
                                   setAvenantLinks(prev => { const n = {...prev}; delete n[fileIdx]; return n })
                                 }}>✕</button>
