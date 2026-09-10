@@ -3964,7 +3964,12 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
       const isAv = row.document_type === 'avenant'
       setProgress({ current: i + 1, total: toRun.length, fileName: file.name, state: 'compressing' })
       try {
-        const prepared = await compressPdfIfNeeded(file, (c, t) => {
+        setProgress(p => ({ ...p, state: 'stripping' }))
+        const { file: strippedFile } = await stripAnnexPages(file, (c, t) => {
+          setProgress(p => ({ ...p, state: 'stripping', progCurrent: c, progTotal: t }))
+        })
+        setProgress(p => ({ ...p, state: 'compressing', progCurrent: null, progTotal: null }))
+        const prepared = await compressPdfIfNeeded(strippedFile, (c, t) => {
           setProgress(p => ({ ...p, state: 'compressing', progCurrent: c, progTotal: t }))
         })
         if (prepared.size > 30 * 1024 * 1024) {
@@ -4057,7 +4062,9 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
                 {progress.fileName}
               </div>
               <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
-                {progress.state === 'compressing'
+                {progress.state === 'stripping'
+                  ? `Recherche des annexes${progress.progTotal ? ` (page ${progress.progCurrent}/${progress.progTotal})` : '…'}`
+                  : progress.state === 'compressing'
                   ? `Compression${progress.progTotal ? ` (page ${progress.progCurrent}/${progress.progTotal})` : '…'}`
                   : 'Extraction en cours…'}
               </div>
@@ -4242,9 +4249,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
 
     for (let idx = 0; idx < validFiles.length; idx++) {
       const file = validFiles[idx]
-      setAvenantBatchProgress({ bailLabel: label, current: idx + 1, total: validFiles.length, fileName: file.name, state: 'compressing' })
+      setAvenantBatchProgress({ bailLabel: label, current: idx + 1, total: validFiles.length, fileName: file.name, state: 'stripping' })
       try {
-        const prepared = await compressPdfIfNeeded(file, (current, total) => {
+        const { file: strippedFile } = await stripAnnexPages(file, (current, total) => {
+          setAvenantBatchProgress(prev => ({ ...prev, state: 'stripping', progCurrent: current, progTotal: total }))
+        })
+        setAvenantBatchProgress(prev => ({ ...prev, state: 'compressing', progCurrent: null, progTotal: null }))
+        const prepared = await compressPdfIfNeeded(strippedFile, (current, total) => {
           setAvenantBatchProgress(prev => ({ ...prev, state: 'compressing', progCurrent: current, progTotal: total }))
         })
 
@@ -4342,9 +4353,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
     // la foulée, plutôt que de se limiter à la localisation de pages.
     const isAv = row.document_type === 'avenant'
     const label = row.data?.immeuble || row.data?.adresse || row.file_name
-    setReextractProgress({ label, state: 'compressing' })
+    setReextractProgress({ label, state: 'stripping' })
     try {
-      const prepared = await compressPdfIfNeeded(file, (current, total) => {
+      const { file: strippedFile } = await stripAnnexPages(file, (current, total) => {
+        setReextractProgress(prev => ({ ...prev, state: 'stripping', progCurrent: current, progTotal: total }))
+      })
+      setReextractProgress(prev => ({ ...prev, state: 'compressing', progCurrent: null, progTotal: null }))
+      const prepared = await compressPdfIfNeeded(strippedFile, (current, total) => {
         setReextractProgress(prev => ({ ...prev, state: 'compressing', progCurrent: current, progTotal: total }))
       })
       if (prepared.size > 30 * 1024 * 1024) {
@@ -4424,7 +4439,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
       const blob = await fileRes.blob()
       let file = new File([blob], row.file_name || row.storage_path.split('/').pop(), { type: blob.type })
 
-      setReextractProgress(prev => ({ ...prev, state: 'compressing' }))
+      setReextractProgress(prev => ({ ...prev, state: 'stripping' }))
+      const strippedResult = await stripAnnexPages(file, (current, total) => {
+        setReextractProgress(prev => ({ ...prev, state: 'stripping', progCurrent: current, progTotal: total }))
+      })
+      file = strippedResult.file
+      setReextractProgress(prev => ({ ...prev, state: 'compressing', progCurrent: null, progTotal: null }))
       file = await compressPdfIfNeeded(file, (current, total) => {
         setReextractProgress(prev => ({ ...prev, state: 'compressing', progCurrent: current, progTotal: total }))
       })
@@ -5122,7 +5142,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
               Fichier {avenantBatchProgress.current}/{avenantBatchProgress.total} : {avenantBatchProgress.fileName}
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
-              {avenantBatchProgress.state === 'compressing'
+              {avenantBatchProgress.state === 'stripping'
+                ? `Recherche des annexes${avenantBatchProgress.progTotal ? ` (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : '…'}`
+                : avenantBatchProgress.state === 'compressing'
                 ? `Compression${avenantBatchProgress.progTotal ? ` (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : '…'}`
                 : 'Extraction en cours…'}
             </div>
@@ -5149,6 +5171,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onClear, onExportAll
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
               {reextractProgress.state === 'downloading' && 'Téléchargement du fichier source…'}
+              {reextractProgress.state === 'stripping' && `Recherche des annexes${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`}
               {reextractProgress.state === 'compressing' && `Compression${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`}
               {reextractProgress.state === 'loading' && 'Extraction en cours…'}
             </div>
