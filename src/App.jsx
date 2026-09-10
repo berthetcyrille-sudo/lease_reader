@@ -5990,6 +5990,7 @@ export default function App() {
     const bailIndices    = order.filter(i => (docTypes[i] || 'bail') === 'bail' && pertinent(i))
     const avenantIndices = order.filter(i => docTypes[i] === 'avenant' && pertinent(i))
     const availableBails = [...history.filter(h => h.document_type === 'bail')]
+    const extractionErrorsList = [] // accumule les erreurs sur toute la durée de l'extraction (baux + avenants)
 
     // 1. Extraire les baux d'abord (max 4 en parallèle)
     await runWithConcurrency(bailIndices, 4, async (i) => {
@@ -6038,7 +6039,6 @@ export default function App() {
 
     // 2. Extraire les avenants et sauvegarder directement avec le bail lié choisi
     let lastSaved = null
-    const extractionErrorsList = [] // accumulate errors during extraction
     await runWithConcurrency(avenantIndices, 3, async (i) => {
       try {
         setStatus(i, 'loading')
