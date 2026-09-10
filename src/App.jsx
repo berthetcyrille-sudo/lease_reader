@@ -307,6 +307,7 @@ async function compressPdfIfNeeded(file, onProgress) {
 
     const outBytes = await outDoc.save()
     const compressed = new File([outBytes], file.name, { type: 'application/pdf' })
+    await pdf.destroy() // libère le worker pdf.js avant tout appel suivant sur le même fichier
     // Garde-fou : si jamais la compression ne suffit pas (cas extrême), on renvoie
     // quand même le résultat compressé, qui sera toujours plus léger que l'original.
     return compressed.size < file.size ? compressed : file
@@ -331,7 +332,7 @@ async function stripAnnexPages(file, onProgress) {
     const arrayBuffer = await file.arrayBuffer()
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
     const numPages = pdf.numPages
-    if (numPages < 3) return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null }
+    if (numPages < 3) { await pdf.destroy(); return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null } }
 
     let annexListPage = null // index 0-based de la page qui liste les annexes
     for (let i = 0; i < numPages; i++) {
@@ -347,15 +348,16 @@ async function stripAnnexPages(file, onProgress) {
       const hasSecondEntry = /ANNEXE\s*(N\s*°?\s*)?2\b/i.test(text)
       if (hasFirstEntry && hasSecondEntry) { annexListPage = i; break }
     }
-    if (annexListPage === null) return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null }
+    if (annexListPage === null) { await pdf.destroy(); return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null } }
 
     const keepCount = annexListPage + 1
-    if (keepCount >= numPages) return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: annexListPage + 1 }
+    if (keepCount >= numPages) { await pdf.destroy(); return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: annexListPage + 1 } }
 
     // pdf.js transfère (et donc "détache") le buffer qu'on lui donne pour le
     // lire — il devient inutilisable ensuite. On relit un buffer frais depuis
     // le fichier pour pdf-lib, plutôt que de réutiliser `arrayBuffer` déjà
     // consommé par la boucle de détection ci-dessus.
+    await pdf.destroy() // libère le worker pdf.js avant l'étape pdf-lib / compression qui suit
     const arrayBufferForPdfLib = await file.arrayBuffer()
     const srcDoc = await PDFDocument.load(arrayBufferForPdfLib)
     const newDoc = await PDFDocument.create()
