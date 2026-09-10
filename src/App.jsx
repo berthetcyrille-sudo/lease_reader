@@ -352,7 +352,12 @@ async function stripAnnexPages(file, onProgress) {
     const keepCount = annexListPage + 1
     if (keepCount >= numPages) return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: annexListPage + 1 }
 
-    const srcDoc = await PDFDocument.load(arrayBuffer)
+    // pdf.js transfère (et donc "détache") le buffer qu'on lui donne pour le
+    // lire — il devient inutilisable ensuite. On relit un buffer frais depuis
+    // le fichier pour pdf-lib, plutôt que de réutiliser `arrayBuffer` déjà
+    // consommé par la boucle de détection ci-dessus.
+    const arrayBufferForPdfLib = await file.arrayBuffer()
+    const srcDoc = await PDFDocument.load(arrayBufferForPdfLib)
     const newDoc = await PDFDocument.create()
     const indices = Array.from({ length: keepCount }, (_, i) => i)
     const copiedPages = await newDoc.copyPages(srcDoc, indices)
@@ -3942,6 +3947,83 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
 }
 
 // ─── Modale d'attache en masse (dossier → correspondance par nom de fichier) ─
+// Réextraction d'un document à partir de son fichier source déjà attaché —
+// logique commune à la réextraction individuelle (bouton 🔄 sur une ligne) et
+// à la réextraction en masse (plusieurs documents à la suite). Ne touche à
+// aucun état d'interface : `onProgress(state, current, total)` est appelé à
+// chaque étape pour que l'appelant affiche ce qu'il veut.
+async function reextractOne(row, onProgress) {
+  const isAv = row.document_type === 'avenant'
+  try {
+    if (!row.storage_path) throw new Error("Aucun fichier source attaché à ce document.")
+    onProgress?.('downloading')
+    const { data: signedData, error: signErr } = await supabase.storage
+      .from('lease-sources').createSignedUrl(row.storage_path, 300)
+    if (signErr) throw signErr
+    const fileRes = await fetch(signedData.signedUrl)
+    if (!fileRes.ok) throw new Error('Téléchargement du fichier source échoué')
+    const blob = await fileRes.blob()
+    let file = new File([blob], row.file_name || row.storage_path.split('/').pop(), { type: blob.type })
+
+    onProgress?.('stripping')
+    const strippedResult = await stripAnnexPages(file, (c, t) => onProgress?.('stripping', c, t))
+    file = strippedResult.file
+    onProgress?.('compressing')
+    file = await compressPdfIfNeeded(file, (c, t) => onProgress?.('compressing', c, t))
+    if (file.size > 30 * 1024 * 1024) {
+      throw new Error(`Fichier trop volumineux (${Math.round(file.size / 1024 / 1024)} Mo > 30 Mo)`)
+    }
+
+    onProgress?.('loading')
+    const base64 = await toBase64(file)
+    const mediaType = getMediaType(file)
+    const extracted = await callClaude(base64, mediaType, isAv ? AVENANT_PROMPT : EXTRACTION_PROMPT)
+
+    try {
+      if (!isAv) {
+        const [breakResult, financialResult] = await Promise.all([
+          callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
+          callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
+        ])
+        if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
+        if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
+        if (financialResult) {
+          const f = financialResult
+          if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
+          if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
+          if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
+          if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
+          if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
+          if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
+          if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
+        }
+      } else {
+        const financialResult = await callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null)
+        if (financialResult) {
+          const f = financialResult
+          const mods = extracted.champs_modifies || {}
+          if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
+          if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
+          if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
+          if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
+          if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
+          if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
+          if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) mods.indemnites_break = f.indemnites_break
+          extracted.champs_modifies = mods
+        }
+      }
+    } catch (_) { /* non bloquant */ }
+
+    const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
+    if (updateErr) throw updateErr
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err.message || 'Erreur inconnue' }
+  }
+}
+
 function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
   const [dragging, setDragging] = useState(false)
   const [scanning, setScanning] = useState(false)
@@ -4182,6 +4264,148 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
   )
 }
 
+// ─── Réextraction en masse (large périmètre) ────────────────────────────────
+// Réutilise reextractOne sur un ensemble de documents choisi par l'utilisateur
+// (tous / baux / avenants, avec ou sans les archivés), en parallèle limité,
+// avec un résumé final des échecs plutôt qu'un blocage complet en cas de souci
+// sur un document isolé. Pensée pour le jour où les règles d'extraction seront
+// stabilisées et où il faudra tout repasser d'un coup.
+function BulkReextractModal({ tree, onClose, onRefresh }) {
+  const allRows = useMemo(() => tree.flatMap(b => [b, ...(b.avenants || [])]), [tree])
+  const [scope, setScope] = useState('all') // 'all' | 'bail' | 'avenant'
+  const [excludeArchived, setExcludeArchived] = useState(true)
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState(null) // { current, total, fileName, state }
+  const [results, setResults] = useState(null) // { success, failed: [{name, msg}], stopped }
+  const stopRef = useRef(false)
+  useBeforeUnloadGuard(running)
+
+  const rowLabel = r => r.data?.immeuble || r.data?.adresse || r.file_name
+
+  const matchesScope = r => {
+    if (scope === 'bail' && r.document_type !== 'bail') return false
+    if (scope === 'avenant' && r.document_type !== 'avenant') return false
+    if (excludeArchived && r.data?._archived) return false
+    return true
+  }
+  const targetRows = allRows.filter(r => r.storage_path && matchesScope(r))
+  const noSourceCount = allRows.filter(r => !r.storage_path && matchesScope(r)).length
+
+  async function runBulkReextract() {
+    setRunning(true)
+    stopRef.current = false
+    let success = 0
+    const failed = []
+    const queue = [...targetRows]
+    let completed = 0
+    async function worker() {
+      while (queue.length > 0 && !stopRef.current) {
+        const row = queue.shift()
+        if (!row) break
+        setProgress({ current: completed + 1, total: targetRows.length, fileName: rowLabel(row), state: 'loading' })
+        const result = await reextractOne(row, (state) => {
+          setProgress(p => p ? { ...p, state } : p)
+        })
+        completed++
+        if (result.success) success++
+        else failed.push({ name: rowLabel(row), msg: result.error })
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(3, targetRows.length) }, worker))
+    setRunning(false)
+    setProgress(null)
+    setResults({ success, failed, stopped: stopRef.current })
+    onRefresh?.()
+  }
+
+  const stateLabel = { downloading: 'Téléchargement…', stripping: 'Recherche des annexes…', compressing: 'Compression…', loading: 'Extraction en cours…' }
+
+  return (
+    <div className="modal-overlay" onClick={() => { if (!running) onClose() }}>
+      <div className="modal" style={{ width: '580px', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div className="modal-title">Réextraction en masse</div>
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
+              Relance l'extraction sur plusieurs documents à la fois, à partir de leur fichier source déjà attaché.
+            </div>
+          </div>
+          {!running && (
+            <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
+          )}
+        </div>
+
+        {results ? (
+          <div style={{ padding: '10px 4px' }}>
+            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '10px' }}>
+              {results.success > 0 && <span style={{ color: 'var(--success)' }}>✓ {results.success} réextrait{results.success > 1 ? 's' : ''} avec succès</span>}
+              {results.success > 0 && results.failed.length > 0 && ' · '}
+              {results.failed.length > 0 && <span style={{ color: 'var(--danger)' }}>✕ {results.failed.length} échec{results.failed.length > 1 ? 's' : ''}</span>}
+              {results.stopped && <span style={{ color: 'var(--text3)', fontStyle: 'italic' }}> — arrêté manuellement</span>}
+            </div>
+            {results.failed.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px', maxHeight: '260px', overflowY: 'auto' }}>
+                {results.failed.map((f, i) => (
+                  <div key={i} style={{ fontSize: '12px', padding: '8px 12px', background: 'var(--danger-bg)', borderRadius: '6px' }}>
+                    <strong>{f.name}</strong> — {f.msg}
+                  </div>
+                ))}
+              </div>
+            )}
+            <button className="btn primary" onClick={onClose} style={{ width: '100%' }}>Fermer</button>
+          </div>
+        ) : running ? (
+          <div style={{ padding: '30px 10px', textAlign: 'center' }}>
+            <div style={{ width: '36px', height: '36px', margin: '0 auto 16px', borderRadius: '50%', border: '3px solid var(--border2)', borderTopColor: 'var(--accent)', animation: 'spin 0.8s linear infinite' }} />
+            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '6px' }}>
+              Document {progress?.current}/{progress?.total}
+            </div>
+            <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {progress?.fileName}
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
+              {stateLabel[progress?.state] || 'Traitement…'}
+            </div>
+            <div className="progress-track" style={{ margin: '0 40px 18px' }}><div className="progress-bar active" /></div>
+            <button className="btn" onClick={() => { stopRef.current = true }}>Arrêter après ce document</button>
+          </div>
+        ) : (
+          <div>
+            <div className="field-lbl" style={{ marginBottom: '8px' }}>Périmètre</div>
+            <div style={{ display: 'flex', gap: '2px', marginBottom: '14px', border: '1px solid var(--border2)', borderRadius: '6px', overflow: 'hidden', width: 'fit-content' }}>
+              {['all', 'bail', 'avenant'].map(s => (
+                <button key={s} onClick={() => setScope(s)} style={{
+                  padding: '6px 14px', fontSize: '12.5px', fontWeight: 600, border: 'none', cursor: 'pointer',
+                  background: scope === s ? 'var(--accent)' : 'transparent', color: scope === s ? '#fff' : 'var(--text2)',
+                }}>
+                  {s === 'all' ? 'Tout' : s === 'bail' ? 'Baux' : 'Avenants'}
+                </button>
+              ))}
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '16px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={excludeArchived} onChange={e => setExcludeArchived(e.target.checked)} />
+              Exclure les baux archivés
+            </label>
+            <div className="warning-box" style={{ marginBottom: '18px' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px' }}>
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span>
+                <strong>{targetRows.length} document{targetRows.length > 1 ? 's' : ''}</strong> {targetRows.length > 1 ? 'seront réextraits' : 'sera réextrait'} à partir de leur fichier source déjà attaché.
+                Ceci remplace les données actuelles, y compris toute correction manuelle. Ça peut prendre du temps (plusieurs appels par document).
+                {noSourceCount > 0 && ` ${noSourceCount} document${noSourceCount > 1 ? 's' : ''} sans fichier source attaché ${noSourceCount > 1 ? 'seront ignorés' : 'sera ignoré'}.`}
+              </span>
+            </div>
+            <button className="btn primary" disabled={targetRows.length === 0} onClick={runBulkReextract} style={{ width: '100%', opacity: targetRows.length === 0 ? 0.5 : 1 }}>
+              Lancer la réextraction {targetRows.length > 0 ? `(${targetRows.length})` : ''}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
@@ -4194,6 +4418,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [confirmReextract, setConfirmReextract] = useState(null) // row en attente de confirmation de réextraction
   const [confirmAttachReextract, setConfirmAttachReextract] = useState(null) // row sans fichier source, en attente de confirmation attache+réextraction
   const [showBulkAttach, setShowBulkAttach] = useState(false)
+  const [showBulkReextract, setShowBulkReextract] = useState(false)
   const [reextractProgress, setReextractProgress] = useState(null) // { label, state } — bloquant
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
   const avenantInputRef = useRef(null)
@@ -4457,88 +4682,17 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // ─── Réextraction en place (garde l'id, ne touche pas aux avenants) ────────
   async function handleReextract(row) {
     setConfirmReextract(null)
-    const isAv = row.document_type === 'avenant'
     const label = row.data?.immeuble || row.data?.adresse || row.file_name
     setReextractProgress({ label, state: 'downloading' })
-    try {
-      if (!row.storage_path) throw new Error('Aucun fichier source attaché à ce document.')
-      const { data: signedData, error: signErr } = await supabase.storage
-        .from('lease-sources').createSignedUrl(row.storage_path, 300)
-      if (signErr) throw signErr
-      const fileRes = await fetch(signedData.signedUrl)
-      if (!fileRes.ok) throw new Error('Téléchargement du fichier source échoué')
-      const blob = await fileRes.blob()
-      let file = new File([blob], row.file_name || row.storage_path.split('/').pop(), { type: blob.type })
-
-      setReextractProgress(prev => ({ ...prev, state: 'stripping' }))
-      const strippedResult = await stripAnnexPages(file, (current, total) => {
-        setReextractProgress(prev => ({ ...prev, state: 'stripping', progCurrent: current, progTotal: total }))
-      })
-      file = strippedResult.file
-      setReextractProgress(prev => ({ ...prev, state: 'compressing', progCurrent: null, progTotal: null }))
-      file = await compressPdfIfNeeded(file, (current, total) => {
-        setReextractProgress(prev => ({ ...prev, state: 'compressing', progCurrent: current, progTotal: total }))
-      })
-      if (file.size > 30 * 1024 * 1024) {
-        throw new Error(`Fichier trop volumineux (${Math.round(file.size / 1024 / 1024)} Mo > 30 Mo)`)
-      }
-
-      setReextractProgress(prev => ({ ...prev, state: 'loading' }))
-      const base64 = await toBase64(file)
-      const mediaType = getMediaType(file)
-      const extracted = await callClaude(base64, mediaType, isAv ? AVENANT_PROMPT : EXTRACTION_PROMPT)
-
-      // Appels dédiés en parallèle : breaks + financier — mêmes enrichissements
-      // que lors d'une extraction initiale, pour ne pas produire un résultat
-      // moins complet qu'une première extraction.
-      try {
-        if (!isAv) {
-          const [breakResult, financialResult] = await Promise.all([
-            callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
-            callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
-          ])
-          if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
-          if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
-          if (financialResult) {
-            const f = financialResult
-            if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
-            if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
-            if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
-            if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
-            if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
-            if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
-            if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
-            if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
-          }
-        } else {
-          const financialResult = await callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null)
-          if (financialResult) {
-            const f = financialResult
-            const mods = extracted.champs_modifies || {}
-            if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
-            if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
-            if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
-            if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
-            if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
-            if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
-            if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
-            if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) mods.indemnites_break = f.indemnites_break
-            extracted.champs_modifies = mods
-          }
-        }
-      } catch (_) { /* non bloquant */ }
-
-      // On garde l'id, le parent_id, l'actif_group et le storage_path déjà en
-      // place — seul le contenu extrait (data) est remplacé.
-      const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
-      if (updateErr) throw updateErr
-
-      setReextractProgress(null)
+    const result = await reextractOne(row, (state, current, total) => {
+      setReextractProgress(prev => ({ ...prev, state, progCurrent: current ?? null, progTotal: total ?? null }))
+    })
+    setReextractProgress(null)
+    if (result.success) {
       showToast('success', `« ${label} » réextrait avec succès`)
       onRefresh?.()
-    } catch (err) {
-      setReextractProgress(null)
-      showToast('error', `Échec de la réextraction : ${err.message || 'Erreur inconnue'}`)
+    } else {
+      showToast('error', `Échec de la réextraction : ${result.error}`)
     }
   }
 
@@ -4838,6 +4992,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
               </svg>
               Attacher un dossier
             </button>
+            <button className="btn" style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }} onClick={() => setShowBulkReextract(true)} title="Relancer l'extraction sur plusieurs documents à la fois">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/>
+              </svg>
+              Réextraction en masse
+            </button>
             <button className="btn" style={{ width: 'auto', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }} onClick={onExportAll}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -4854,6 +5014,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           candidateRows={tree.flatMap(b => [b, ...(b.avenants || [])]).filter(r => !r.storage_path)}
           allRows={tree.flatMap(b => [b, ...(b.avenants || [])])}
           onClose={() => setShowBulkAttach(false)}
+          onRefresh={onRefresh}
+        />
+      )}
+
+      {showBulkReextract && (
+        <BulkReextractModal
+          tree={tree}
+          onClose={() => setShowBulkReextract(false)}
           onRefresh={onRefresh}
         />
       )}
