@@ -5149,7 +5149,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   </button>
                   {!isAv && (
-                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => onArchive(row, e)} title={row.data?._archived ? 'Désarchiver ce bail' : 'Archiver ce bail échu — masqué des totaux et de l\'État locatif, reste accessible via le bouton "Archivés"'}>
+                    <button className="dash-action-btn" style={{ opacity: 1 }} onClick={e => onArchive(row, e)} title={row.data?._archived ? 'Désarchiver' : 'Archiver'}>
                       {row.data?._archived ? (
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><path d="M10 12h4"/></svg>
                       ) : (
