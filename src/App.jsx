@@ -5900,29 +5900,18 @@ export default function App() {
   const d = activeItem?.data || {}
 
   const contentRef = useRef()
-  const scrollSaveTimer = useRef(null)
+  // Toujours remonter en haut à l'OUVERTURE d'un bail/avenant (changement de
+  // activeItem?.id = vraie nouvelle navigation). Le vrai bug qui remontait le
+  // scroll au moindre changement d'onglet/fenêtre (même sans navigation) a été
+  // corrigé à la racine ailleurs (rafraîchissement de session Supabase qui
+  // démontait toute l'appli) — pas besoin ici de mémoriser/restaurer quoi que
+  // ce soit, un simple reset à 0 suffit et évite tout effet de bord.
   useEffect(() => {
-    const id = activeItem?.id
     requestAnimationFrame(() => {
-      if (contentRef.current) {
-        // Restaure la position de défilement mémorisée pour ce document
-        // (survit à un rechargement d'onglet par le navigateur en arrière-plan,
-        // ex. "Économiseur de mémoire" / "Onglets en veille") — sinon on
-        // repart du haut, comme pour une vraie nouvelle navigation.
-        const saved = id ? sessionStorage.getItem(`scrollpos:${id}`) : null
-        contentRef.current.scrollTop = saved ? parseInt(saved, 10) : 0
-      }
+      if (contentRef.current) contentRef.current.scrollTop = 0
       window.scrollTo(0, 0)
     })
   }, [activeItem?.id])
-  function handleContentScroll() {
-    const id = activeItem?.id
-    if (!id || !contentRef.current) return
-    clearTimeout(scrollSaveTimer.current)
-    scrollSaveTimer.current = setTimeout(() => {
-      sessionStorage.setItem(`scrollpos:${id}`, String(contentRef.current.scrollTop))
-    }, 200)
-  }
   const resultTitle = d.immeuble || d.adresse || activeItem?.file_name || ''
   const shortName = s => s?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim()
   const resultSub = [shortName(d.preneur), shortName(d.bailleur), d.date_signature ? `Signé le ${d.date_signature}` : null].filter(Boolean).join(' · ')
@@ -6168,7 +6157,7 @@ export default function App() {
             )
           })()}
 
-          <div className="content" ref={contentRef} onScroll={handleContentScroll}>
+          <div className="content" ref={contentRef}>
             {activeItem ? (
               <ResultsView item={activeItem} />
             ) : (
