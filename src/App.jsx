@@ -6100,8 +6100,6 @@ export default function App() {
     setTab('history')
     setShowAddModal(false)
     handleClear()
-    // Modale erreurs d'extraction
-    if (extractionErrorsList.length > 0) setExtractionErrors(extractionErrorsList)
   }
 
 
