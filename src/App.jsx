@@ -531,7 +531,7 @@ const MAX_PALIERS   = 4
 const MAX_ABAT      = 4
 const MAX_IB        = 4
 
-function buildExcelHeaders() {
+function buildExcelColumnGroups() {
   const breakCols     = Array.from({ length: MAX_BREAKS },    (_, i) => `Break option ${i+1}`)
   const franchiseCols = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
     `Franchise P${i+1} - Debut`, `Franchise P${i+1} - Fin`, `Franchise P${i+1} - Duree`,
@@ -555,37 +555,35 @@ function buildExcelHeaders() {
   const ibCols        = Array.from({ length: MAX_IB },        (_, i) => [
     `Indem.break ${i+1} - Date break`, `Indem.break ${i+1} - Motif`, `Indem.break ${i+1} - Montant`, `Indem.break ${i+1} - Formule`,
   ]).flat()
+  // L'ordre des groupes ci-dessous détermine l'ordre final des colonnes dans
+  // le fichier Excel (identique à l'ordre historique) — buildExcelHeaders()
+  // les met simplement bout à bout. Ce découpage sert aussi de base au
+  // sélecteur de colonnes à l'export (chaque groupe = une section cochable).
   return [
-    'ID', 'Bail lié (ID)',
-    'Type', 'Actif / Immeuble', 'Adresse', 'Ville',
-    'Preneur', 'Bailleur',
-    'Type de bail', 'Duree totale', 'Duree ferme',
-    'Date effet', 'Date signature', 'Date fin', 'Date conge limite', 'Preavis', 'Date limite travaux preneur',
-    ...breakCols,
-    'Conditions break',
-    'Surface totale m2', 'Parking nb places', 'Parking loyer unitaire (€/place/an)', 'RIE',
-    ...surfCols,
-    'Loyer HT/HC annuel signature', 'Loyer de base annuel', 'Indexation', 'Indice base - Code', 'Indice base - Trimestre', 'Indice base - Valeur', 'Indice base - Source', 'Loyer signature detail',
-    ...franchiseCols,
-    'Franchise modalites',
-    'Charges TEOM',
-    'Depot garantie montant', 'Depot garantie modalites',
-    'Travaux montant unique', 'Travaux date limite', 'Travaux modalites',
-    ...travCols,
-    ...indemnCols,
-    'Article 606', 'Conformite', 'Remise en etat', 'Sous-location', 'Cession', 'Destination', 'Maintenance', 'Accession',
-    // Loyer variable
-    'Loyer variable - Type', 'Loyer variable - Taux', 'Loyer variable - Assiette', 'Loyer variable - Plancher', 'Loyer variable - Plafond', 'Loyer variable - Formule',
-    ...palierCols,
-    ...abatCols,
-    ...ibCols,
-    // Indemnites restitution
-    'Indem.restitution 1 - Terme', 'Indem.restitution 1 - Due par', 'Indem.restitution 1 - Motif', 'Indem.restitution 1 - Montant', 'Indem.restitution 1 - Calcul',
-    'Indem.restitution 2 - Terme', 'Indem.restitution 2 - Due par', 'Indem.restitution 2 - Motif', 'Indem.restitution 2 - Montant', 'Indem.restitution 2 - Calcul',
-    'Indem.restitution 3 - Terme', 'Indem.restitution 3 - Due par', 'Indem.restitution 3 - Motif', 'Indem.restitution 3 - Montant', 'Indem.restitution 3 - Calcul',
-    // Avenant-specific
-    'Objet avenant', 'Date effet avenant', 'Date signature avenant', 'Bail lie', 'Modif surfaces type',
+    { label: 'Identification', cols: ['ID', 'Bail lié (ID)', 'Type', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur'] },
+    { label: 'Contrat et durée', cols: ['Type de bail', 'Duree totale', 'Duree ferme'] },
+    { label: 'Dates clés', cols: ['Date effet', 'Date signature', 'Date fin', 'Date conge limite', 'Preavis', 'Date limite travaux preneur'] },
+    { label: 'Break options', cols: [...breakCols, 'Conditions break'] },
+    { label: 'Surfaces et parking', cols: ['Surface totale m2', 'Parking nb places', 'Parking loyer unitaire (€/place/an)', 'RIE', ...surfCols] },
+    { label: 'Loyer', cols: ['Loyer HT/HC annuel signature', 'Loyer de base annuel', 'Indexation', 'Indice base - Code', 'Indice base - Trimestre', 'Indice base - Valeur', 'Indice base - Source', 'Loyer signature detail'] },
+    { label: 'Franchises', cols: [...franchiseCols, 'Franchise modalites'] },
+    { label: 'Charges et dépôt de garantie', cols: ['Charges TEOM', 'Depot garantie montant', 'Depot garantie modalites'] },
+    { label: 'Travaux', cols: ['Travaux montant unique', 'Travaux date limite', 'Travaux modalites', ...travCols] },
+    { label: 'Indemnités', cols: [...indemnCols] },
+    { label: 'Clauses diverses', cols: ['Article 606', 'Conformite', 'Remise en etat', 'Sous-location', 'Cession', 'Destination', 'Maintenance', 'Accession'] },
+    { label: 'Loyer variable, paliers et abattements', cols: ['Loyer variable - Type', 'Loyer variable - Taux', 'Loyer variable - Assiette', 'Loyer variable - Plancher', 'Loyer variable - Plafond', 'Loyer variable - Formule', ...palierCols, ...abatCols] },
+    { label: 'Indemnités de break', cols: [...ibCols] },
+    { label: 'Indemnités de restitution', cols: [
+      'Indem.restitution 1 - Terme', 'Indem.restitution 1 - Due par', 'Indem.restitution 1 - Motif', 'Indem.restitution 1 - Montant', 'Indem.restitution 1 - Calcul',
+      'Indem.restitution 2 - Terme', 'Indem.restitution 2 - Due par', 'Indem.restitution 2 - Motif', 'Indem.restitution 2 - Montant', 'Indem.restitution 2 - Calcul',
+      'Indem.restitution 3 - Terme', 'Indem.restitution 3 - Due par', 'Indem.restitution 3 - Motif', 'Indem.restitution 3 - Montant', 'Indem.restitution 3 - Calcul',
+    ] },
+    { label: 'Avenant (spécifique)', cols: ['Objet avenant', 'Date effet avenant', 'Date signature avenant', 'Bail lie', 'Modif surfaces type'] },
   ]
+}
+
+function buildExcelHeaders() {
+  return buildExcelColumnGroups().flatMap(g => g.cols)
 }
 
 function buildExcelRow(item, bailParentName, bailParentData) {
@@ -717,7 +715,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     bailParentName || '', v(meta.surface_change_type),
   ]
 }
-function exportToExcel(items, fileName) {
+function exportToExcel(items, fileName, selectedCols = null) {
   let rows, statuts
   if (Array.isArray(items)) {
     rows = items.map(({ item, parentName, parentData }) => buildExcelRow(item, parentName, parentData))
@@ -728,8 +726,18 @@ function exportToExcel(items, fileName) {
     statuts = ['OK']
   }
 
-  const headers = ['Statut', ...buildExcelHeaders()]
-  const dataRows = rows.map((row, i) => [statuts[i], ...row])
+  let headers = ['Statut', ...buildExcelHeaders()]
+  let dataRows = rows.map((row, i) => [statuts[i], ...row])
+
+  // Filtrage optionnel des colonnes (sélecteur à l'export) — 'Statut' reste
+  // toujours présent quel que soit le choix, c'est une information système,
+  // pas une donnée du bail.
+  if (selectedCols) {
+    const keep = new Set(['Statut', ...selectedCols])
+    const keptIdx = headers.map((_, i) => i).filter(i => keep.has(headers[i]))
+    headers = keptIdx.map(i => headers[i])
+    dataRows = dataRows.map(row => keptIdx.map(i => row[i]))
+  }
   const wb = XLSX.utils.book_new()
   const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows])
 
@@ -779,7 +787,7 @@ function exportToExcel(items, fileName) {
   }
 }
 
-function exportAllToExcel(tree, onErrors) {
+function exportAllToExcel(tree, onErrors, selectedCols = null) {
   const rows = []
   const errors = [] // { name, reason }
 
@@ -808,7 +816,7 @@ function exportAllToExcel(tree, onErrors) {
     rows.push({ item: av, parentName: '', parentData: null, statut: '⚠ Bail parent manquant' })
   })
 
-  exportToExcel(rows, 'lease_abstract_complet')
+  exportToExcel(rows, 'lease_abstract_complet', selectedCols)
   if (errors.length > 0) onErrors?.(errors)
 }
 
@@ -3979,6 +3987,107 @@ function RowActionsMenu({ anchorRect, items, onClose }) {
   )
 }
 
+// ─── Sélecteur de colonnes à l'export Excel ─────────────────────────────────
+const EXCEL_COL_SELECTION_KEY = 'leaseReader.excelColumnSelection'
+
+function ExcelColumnPickerModal({ onClose, onConfirm }) {
+  const groups = useMemo(() => buildExcelColumnGroups(), [])
+  const allCols = useMemo(() => groups.flatMap(g => g.cols), [groups])
+  const [selected, setSelected] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(EXCEL_COL_SELECTION_KEY) || 'null')
+      if (Array.isArray(saved) && saved.length) {
+        const savedSet = new Set(saved)
+        // On ne garde que les colonnes encore valides (au cas où le format ait changé) —
+        // et on part de tout coché si la sauvegarde est vide/invalide.
+        return new Set(allCols.filter(c => savedSet.has(c)))
+      }
+    } catch (_) {}
+    return new Set(allCols) // par défaut : tout coché
+  })
+
+  function toggleCol(col) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(col) ? next.delete(col) : next.add(col)
+      return next
+    })
+  }
+  function toggleGroup(group, checked) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      group.cols.forEach(c => checked ? next.add(c) : next.delete(c))
+      return next
+    })
+  }
+  function toggleAll(checked) {
+    setSelected(checked ? new Set(allCols) : new Set())
+  }
+
+  function handleConfirm() {
+    const arr = allCols.filter(c => selected.has(c)) // conserve l'ordre d'origine
+    try { localStorage.setItem(EXCEL_COL_SELECTION_KEY, JSON.stringify(arr)) } catch (_) {}
+    onConfirm(arr)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ width: '640px', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div className="modal-title">Colonnes à exporter</div>
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
+              {selected.size} / {allCols.length} colonnes sélectionnées — votre choix est mémorisé pour le prochain export.
+            </div>
+          </div>
+          <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', margin: '4px 0 10px' }}>
+          <button className="btn" style={{ fontSize: '12px', padding: '5px 10px' }} onClick={() => toggleAll(true)}>Tout cocher</button>
+          <button className="btn" style={{ fontSize: '12px', padding: '5px 10px' }} onClick={() => toggleAll(false)}>Tout décocher</button>
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {groups.map(group => {
+            const checkedCount = group.cols.filter(c => selected.has(c)).length
+            const allChecked = checkedCount === group.cols.length
+            const someChecked = checkedCount > 0 && !allChecked
+            return (
+              <div key={group.label} style={{ border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 10px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', marginBottom: '6px' }}>
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    ref={el => { if (el) el.indeterminate = someChecked }}
+                    onChange={e => toggleGroup(group, e.target.checked)}
+                  />
+                  {group.label} <span style={{ fontWeight: 400, color: 'var(--text3)' }}>({checkedCount}/{group.cols.length})</span>
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', paddingLeft: '4px' }}>
+                  {group.cols.map(col => (
+                    <label key={col} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: 'var(--text2)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      <input type="checkbox" checked={selected.has(col)} onChange={() => toggleCol(col)} />
+                      {col}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '12px' }}>
+          <button className="btn" onClick={onClose}>Annuler</button>
+          <button className="btn primary" disabled={selected.size === 0} onClick={handleConfirm}>
+            Exporter ({selected.size} colonne{selected.size !== 1 ? 's' : ''})
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Modale de contrôle qualité ──────────────────────────────────────────────
 function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary, onFixSurfaceLoyer }) {
   const [showDismissed, setShowDismissed] = useState(false)
@@ -4613,6 +4722,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [confirmAttachReextract, setConfirmAttachReextract] = useState(null) // row sans fichier source, en attente de confirmation attache+réextraction
   const [showBulkAttach, setShowBulkAttach] = useState(false)
   const [showBulkReextract, setShowBulkReextract] = useState(false)
+  const [showExcelPicker, setShowExcelPicker] = useState(false)
   const [reextractProgress, setReextractProgress] = useState(null) // { label, state } — bloquant
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
   const avenantInputRef = useRef(null)
@@ -5228,7 +5338,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   {
                     icon: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
                     label: 'Exporter tout',
-                    onClick: () => { onExportAll(); setShowToolsMenu(false) },
+                    onClick: () => { setShowExcelPicker(true); setShowToolsMenu(false) },
                   },
                 ].map((item, i) => (
                   <div key={i}
@@ -5268,6 +5378,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           tree={tree}
           onClose={() => setShowBulkReextract(false)}
           onRefresh={onRefresh}
+        />
+      )}
+
+      {showExcelPicker && (
+        <ExcelColumnPickerModal
+          onClose={() => setShowExcelPicker(false)}
+          onConfirm={(selectedCols) => { onExportAll(selectedCols); setShowExcelPicker(false) }}
         />
       )}
 
@@ -6710,7 +6827,7 @@ export default function App() {
                   onDelete={handleDeleteItem}
                   onArchive={handleToggleArchive}
                   onClear={handleClearHistory}
-                  onExportAll={() => exportAllToExcel(history, setExportErrors)}
+                  onExportAll={(selectedCols) => exportAllToExcel(history, setExportErrors, selectedCols)}
                   newIds={newIds}
                   onRefresh={refreshHistoryNow}
                   onNewAvenant={id => setNewIds(prev => [...prev, id])}
