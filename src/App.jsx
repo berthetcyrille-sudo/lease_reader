@@ -934,8 +934,18 @@ function extractConditionalBreaks(d, cleanBreaksArr) {
 function detectsFullTriennialWaiver(clauseTextLower) {
   const basicWaiver = /renonce.{0,80}triennale|pas.{0,20}triennale|supprim.{0,20}triennale|faculté.{0,10}résiliation.{0,10}triennale/i.test(clauseTextLower)
   if (!basicWaiver) return false
-  const isPartial = /pour la dur[eé]e ferme|pendant la dur[eé]e ferme|pour la p[eé]riode ferme/i.test(clauseTextLower)
-  return !isPartial
+  // Renonciation PARTIELLE (donc pas une renonciation totale) : soit exprimée
+  // via "durée/période ferme", soit limitée explicitement à la seule première
+  // période triennale — MAIS on n'assouplit ce second cas que si la clause
+  // mentionne EN PLUS, explicitement, une échéance ultérieure précise (ex:
+  // "6ème année", "9ème année"). Une vraie renonciation totale ne contiendrait
+  // jamais une telle mention (ce serait contradictoire), donc ce double
+  // critère est un signal sûr qui ne doit rien changer pour les renonciations
+  // réellement totales déjà extraites sur les autres baux.
+  const isPartialDureeFerme = /pour la dur[eé]e ferme|pendant la dur[eé]e ferme|pour la p[eé]riode ferme/i.test(clauseTextLower)
+  const waivesFirstPeriodOnly = /premi[eè]re\s+p[eé]riode\s+triennale|premi[eè]re\s+triennale/i.test(clauseTextLower)
+  const mentionsLaterYear = /\d\s*[eè]me\s+ann[eé]e/i.test(clauseTextLower)
+  return !(isPartialDureeFerme || (waivesFirstPeriodOnly && mentionsLaterYear))
 }
 
 // Retire d'une liste de breaks (dates "jj/mm/aaaa") celles antérieures à
