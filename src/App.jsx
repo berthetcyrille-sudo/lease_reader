@@ -4743,6 +4743,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           document_type: 'avenant',
           parent_id: bailRow.id,
           actif_group: bailRow.actif_group || null,
+          created_by: session?.user?.email || null,
         }).select().single()
         if (error) throw error
         if (saved?.id) await uploadSourceFile(saved.id, prepared) // on attend la fin pour éviter un rafraîchissement prématuré du dashboard
@@ -5766,6 +5767,7 @@ function NotAuthorizedScreen({ email, onLogout }) {
 
 function AdminPanel({ onClose }) {
   const [rows, setRows] = useState(null) // null = chargement
+  const [uploadCounts, setUploadCounts] = useState({}) // { email: nombre de baux déposés }
   const [newEmail, setNewEmail] = useState("")
   const [newLabel, setNewLabel] = useState("")
   const [newIsAdmin, setNewIsAdmin] = useState(false)
@@ -5776,7 +5778,16 @@ function AdminPanel({ onClose }) {
     if (error) setError(error.message)
     else { setRows(data || []); setError("") }
   }
-  useEffect(() => { load() }, [])
+  // Compte les baux déposés par utilisateur (colonne created_by, disponible
+  // uniquement pour les dépôts effectués depuis l'ajout de ce suivi — les
+  // dépôts antérieurs n'ont pas d'auteur enregistré et ne comptent pas).
+  async function loadUploadCounts() {
+    const { data } = await supabase.from("extractions").select("created_by").eq("document_type", "bail")
+    const counts = {}
+    ;(data || []).forEach(r => { if (r.created_by) counts[r.created_by] = (counts[r.created_by] || 0) + 1 })
+    setUploadCounts(counts)
+  }
+  useEffect(() => { load(); loadUploadCounts() }, [])
   async function addProfile(e) {
     e.preventDefault()
     if (!newEmail.trim()) return
@@ -5829,6 +5840,10 @@ function AdminPanel({ onClose }) {
                     {row.label && <div style={{fontSize: "11px", color: "var(--text3)"}}>{row.email}</div>}
                   </div>
                   {row.is_admin && <span className="pill pill-blue" style={{fontSize: "10px"}}>Admin</span>}
+                  <span title="Baux déposés depuis la mise en place de ce suivi (les dépôts antérieurs ne sont pas comptés)"
+                    style={{fontSize: "11px", color: "var(--text3)", whiteSpace: "nowrap", cursor: "help"}}>
+                    {uploadCounts[row.email] || 0} bail{(uploadCounts[row.email] || 0) !== 1 ? "s" : ""}
+                  </span>
                   <span onClick={() => toggleField(row, "active")} title="Activer / désactiver l'accès"
                     style={{fontSize: "11px", fontWeight: 600, padding: "3px 9px", borderRadius: "999px", cursor: "pointer",
                     background: row.active ? "var(--success-bg)" : "var(--danger-bg)", color: row.active ? "var(--success)" : "var(--danger)"}}>
@@ -6059,7 +6074,7 @@ export default function App() {
 
   async function saveExtraction(file, extracted, docType, parentId, actifGroup = null) {
     const { data: saved } = await supabase.from('extractions')
-      .insert({ file_name: file.name, data: stampExtractionDate(extracted), document_type: docType, parent_id: parentId || null, actif_group: actifGroup || null })
+      .insert({ file_name: file.name, data: stampExtractionDate(extracted), document_type: docType, parent_id: parentId || null, actif_group: actifGroup || null, created_by: session?.user?.email || null })
       .select().single()
     if (saved?.id) await uploadSourceFile(saved.id, file) // on attend la fin pour éviter un rafraîchissement prématuré du dashboard
     return saved
@@ -6279,7 +6294,7 @@ export default function App() {
         setStatus(i, 'error', e.message); setLastError(e.message)
         extractionErrorsList.push({ name: files[i]?.name || `Fichier ${i+1}`, reason: e.message || 'Erreur inconnue' })
         try {
-          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'bail', parent_id: null, actif_group: dirActifGroupsRef.current[i] || null })
+          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'bail', parent_id: null, actif_group: dirActifGroupsRef.current[i] || null, created_by: session?.user?.email || null })
         } catch (_) {}
       }
     })
@@ -6332,7 +6347,7 @@ export default function App() {
         setStatus(i, 'error', e.message); setLastError(e.message)
         extractionErrorsList.push({ name: files[i]?.name || `Fichier ${i+1}`, reason: e.message || 'Erreur inconnue' })
         try {
-          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'avenant', parent_id: null, actif_group: dirActifGroupsRef.current[i] || null })
+          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'avenant', parent_id: null, actif_group: dirActifGroupsRef.current[i] || null, created_by: session?.user?.email || null })
         } catch (_) {}
       }
     })
