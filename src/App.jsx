@@ -6279,29 +6279,26 @@ export default function App() {
   // Édition manuelle de la date d'effet — pour le cas où une condition
   // suspensive conditionnant la prise d'effet a été levée dans la réalité
   // sans qu'aucun avenant/document ne le formalise (l'appli ne peut alors
-  // jamais le déduire toute seule d'une extraction). On recalcule date_fin
-  // (si elle dépendait elle-même de la date d'effet inconnue) puis les
-  // breaks, à partir de duree_totale / conditions_break / duree_ferme tels
-  // que relevés lors de l'extraction — même logique que lorsqu'un avenant
-  // confirme une date d'effet auparavant conditionnelle.
+  // jamais le déduire toute seule d'une extraction). date_fin et break_options
+  // déjà en base ont pu être calculés (ou devinés) à une époque où date_effet
+  // était encore inconnu/conditionnel — donc potentiellement FAUX, pas
+  // seulement absents. On les RECALCULE ENTIÈREMENT (et on les remplace, pas
+  // fusionne) à partir de la date maintenant confirmée, de duree_totale,
+  // conditions_break et duree_ferme tels que relevés à l'extraction — même
+  // logique que lorsqu'un avenant confirme une date d'effet auparavant
+  // conditionnelle.
   async function handleManualDateEffet(row, newDateEffetStr) {
     const newData = { ...row.data, date_effet: newDateEffetStr, date_effet_condition: null }
     const startConfirmed = parseFR(newDateEffetStr)
     if (startConfirmed) {
-      if (!newData.date_fin) {
-        const m = String(newData.duree_totale || '').match(/(\d+)\s*ans?/i)
-        if (m) {
-          const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
-          newData.date_fin = fmtFR(end)
-        }
+      const m = String(newData.duree_totale || '').match(/(\d+)\s*ans?/i)
+      if (m) {
+        const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
+        newData.date_fin = fmtFR(end)
       }
       if (newData.date_fin) {
         const computed = computeBreaks(newData.date_effet, newData.date_fin, newData.conditions_break, [], newData.duree_ferme)
-        const existing = new Set((newData.break_options || []).map(b => String(b).trim()))
-        const merged = [...(newData.break_options || [])]
-        computed.forEach(c => { if (!existing.has(c)) { merged.push(c); existing.add(c) } })
-        merged.sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
-        newData.break_options = filterBreaksByDureeFerme(merged, newData.date_effet, newData.duree_ferme)
+        newData.break_options = filterBreaksByDureeFerme(computed, newData.date_effet, newData.duree_ferme)
       }
     }
     const { error } = await supabase.from('extractions').update({ data: newData }).eq('id', row.id)
