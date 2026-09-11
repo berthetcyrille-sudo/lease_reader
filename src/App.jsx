@@ -6749,7 +6749,7 @@ export default function App() {
                               <DropZone onFiles={handleFiles} disabled={loading || detecting || !!compressing || !!strippingAnnexes} />
                     {strippingAnnexes && (
                       <div className="warning-box" style={{ background: 'var(--accent-bg)', borderColor: 'rgba(26,95,168,.2)' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent)' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent)', animation: 'spin 0.8s linear infinite', transformOrigin: '50% 50%' }}>
                           <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
                         </svg>
                         <span>
@@ -6764,7 +6764,7 @@ export default function App() {
                     )}
                     {compressing && (
                       <div className="warning-box" style={{ background: 'var(--accent-bg)', borderColor: 'rgba(26,95,168,.2)' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent)' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent)', animation: 'spin 0.8s linear infinite', transformOrigin: '50% 50%' }}>
                           <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
                         </svg>
                         <span>
