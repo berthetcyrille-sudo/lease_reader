@@ -5968,7 +5968,7 @@ function AdminPanel({ onClose }) {
                   {row.is_admin && <span className="pill pill-blue" style={{fontSize: "10px"}}>Admin</span>}
                   <span title="Baux déposés depuis la mise en place de ce suivi (les dépôts antérieurs ne sont pas comptés)"
                     style={{fontSize: "11px", color: "var(--text3)", whiteSpace: "nowrap", cursor: "help"}}>
-                    {uploadCounts[row.email] || 0} bail{(uploadCounts[row.email] || 0) !== 1 ? "s" : ""}
+                    {uploadCounts[row.email] || 0} {(uploadCounts[row.email] || 0) === 1 ? "bail" : "baux"}
                   </span>
                   <span onClick={() => toggleField(row, "active")} title="Activer / désactiver l'accès"
                     style={{fontSize: "11px", fontWeight: 600, padding: "3px 9px", borderRadius: "999px", cursor: "pointer",
@@ -6931,6 +6931,11 @@ export default function App() {
 
                     {files.length > 0 && (
                       <div style={{ marginTop: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+                          <button onClick={handleClear} style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline', padding: '2px 4px' }}>
+                            Tout effacer
+                          </button>
+                        </div>
                         {/* En-tête colonnes */}
                         <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 100px 120px 220px 32px', gap: '8px', padding: '0 4px 6px', borderBottom: '1px solid var(--border)', marginBottom: '4px' }}>
                           <div/>
@@ -7103,7 +7108,6 @@ export default function App() {
                           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 3l14 9-14 9V3z"/></svg>
                           Extraire
                         </button>
-                        <button className="btn" onClick={handleClear}>Tout effacer</button>
                       </div>
                     )}
 
