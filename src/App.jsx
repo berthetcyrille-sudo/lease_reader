@@ -5553,7 +5553,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   <div style={{ position: 'relative' }}>
                     <button
                       className="dash-action-btn"
-                      style={{ opacity: 1, position: 'static' }}
+                      style={{ opacity: 1, position: 'static', background: 'var(--surface2)', borderRadius: '50%' }}
                       onClick={e => {
                         e.stopPropagation()
                         if (openRowMenu === row.id) { setOpenRowMenu(null); setOpenRowMenuRect(null) }
