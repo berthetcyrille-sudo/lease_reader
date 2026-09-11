@@ -2808,7 +2808,12 @@ function EtatLocatifModal({ building, bails, onClose }) {
                 <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
                   {years.map(y => {
                     const yd = new Date(y, 0, 1)
-                    const pct = ((yd - domainStart) / domainMs) * 100
+                    const rawPct = ((yd - domainStart) / domainMs) * 100
+                    // Cadrer entre 0 et 100 : sans ça, la toute première (ou
+                    // dernière) année peut tomber légèrement hors du cadre
+                    // (ex: -1%), et comme le conteneur a overflow:hidden, le
+                    // début du texte se fait couper (ex: "2012" affiché "12").
+                    const pct = Math.min(100, Math.max(0, rawPct))
                     // Éviter que l'étiquette de bord (première/dernière année)
                     // ne dépasse du cadre et se fasse couper/chevaucher — on la
                     // cale contre son trait plutôt que de la centrer dessus.
