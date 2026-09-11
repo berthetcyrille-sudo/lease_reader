@@ -337,11 +337,13 @@ async function stripAnnexPages(file, onProgress) {
     if (numPages < 3) { await pdf.destroy(); return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null } }
 
     let annexListPage = null // index 0-based de la page qui liste les annexes
+    let totalTextLength = 0
     for (let i = 0; i < numPages; i++) {
       onProgress?.(i + 1, numPages)
       const page = await pdf.getPage(i + 1)
       const textContent = await page.getTextContent()
       const text = textContent.items.map(it => it.str).join(' ')
+      totalTextLength += text.trim().length
       // Signal principal, robuste aux variations de mise en forme du titre :
       // la page liste au moins "Annexe 1" ET "Annexe 2" à la suite — bien plus
       // fiable que de dépendre du rendu exact de "ANNEXES :" (police, espaces,
@@ -350,16 +352,36 @@ async function stripAnnexPages(file, onProgress) {
       const hasSecondEntry = /ANNEXE\s*(N\s*°?\s*)?2\b/i.test(text)
       if (hasFirstEntry && hasSecondEntry) { annexListPage = i; break }
     }
-    if (annexListPage === null) { await pdf.destroy(); return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null } }
+    await pdf.destroy() // libère le worker pdf.js avant l'étape pdf-lib / compression / repli Claude qui suit
+
+    // Repli pour les documents SCANNÉS (photocopies) : quasiment aucun texte
+    // n'a pu être extrait, donc la détection ci-dessus ne pouvait rien
+    // trouver — pas parce que le document n'a pas de liste d'annexes, mais
+    // parce qu'il n'y a rien à lire. On demande alors à Claude de repérer
+    // VISUELLEMENT cette page, plutôt que d'abandonner silencieusement. On ne
+    // tente ce repli que si le document est réellement vide de texte (sinon
+    // la détection locale, gratuite et instantanée, aurait déjà fonctionné) et
+    // assez long pour que ça vaille la peine (un document court n'a de toute
+    // façon pas besoin d'être découpé).
+    if (annexListPage === null && totalTextLength < 200 && numPages > 15) {
+      try {
+        const base64 = await toBase64(file)
+        const detected = await detectAnnexPageViaClaude(base64)
+        if (Number.isInteger(detected) && detected > 0 && detected < numPages) annexListPage = detected - 1
+      } catch (e) {
+        console.error('Repli Claude (détection annexes sur scan) échoué pour', file.name, e)
+      }
+    }
+
+    if (annexListPage === null) { return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null } }
 
     const keepCount = annexListPage + 1
-    if (keepCount >= numPages) { await pdf.destroy(); return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: annexListPage + 1 } }
+    if (keepCount >= numPages) { return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: annexListPage + 1 } }
 
     // pdf.js transfère (et donc "détache") le buffer qu'on lui donne pour le
     // lire — il devient inutilisable ensuite. On relit un buffer frais depuis
     // le fichier pour pdf-lib, plutôt que de réutiliser `arrayBuffer` déjà
     // consommé par la boucle de détection ci-dessus.
-    await pdf.destroy() // libère le worker pdf.js avant l'étape pdf-lib / compression qui suit
     const arrayBufferForPdfLib = await file.arrayBuffer()
     const srcDoc = await PDFDocument.load(arrayBufferForPdfLib)
     const newDoc = await PDFDocument.create()
@@ -373,6 +395,21 @@ async function stripAnnexPages(file, onProgress) {
     console.error('Détection des annexes échouée pour', file.name, e)
     return { file, removedCount: 0, originalPages: null, keptPages: null, detectedPage: null }
   }
+}
+
+// Repli pour documents scannés sans texte exploitable : demande à Claude de
+// repérer VISUELLEMENT la page listant les annexes (Claude lit nativement les
+// images/scans, contrairement à la détection par texte ci-dessus). Appel
+// volontairement minimal — seul le numéro de page nous intéresse, pas le
+// contenu du bail — pour limiter le coût de ce repli.
+async function detectAnnexPageViaClaude(base64) {
+  const prompt = `Ce PDF est un bail commercial ou un avenant, scanné (photocopié). Il se termine typiquement, juste après la page de signature, par une page listant les documents annexés, au format "Annexe 1 : ...", "Annexe 2 : ...", etc. (parfois "Annexe n°1", numérotation possiblement différente). Après cette page viennent les annexes elles-mêmes (K-bis, plans, diagnostics, RIB, devis, relevés de charges, etc.).
+
+Indique UNIQUEMENT le numéro de la page (en comptant à partir de 1 pour la toute première page du fichier PDF, page de garde incluse) sur laquelle se trouve cette liste des annexes.
+
+Réponds UNIQUEMENT avec un objet JSON strict, sans aucun texte autour ni balises markdown, au format exact : {"annex_list_page": <nombre entier, ou null si aucune liste de ce type n'existe dans le document>}`
+  const result = await callClaude(base64, 'application/pdf', prompt, 90000)
+  return result?.annex_list_page ?? null
 }
 
 function normalizeDate(val) {
