@@ -5353,12 +5353,6 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                       ⚠ Bail manquant
                     </span>
                   )}
-                  {effetCondOverdue && !isExtractionError && (
-                    <span title={`Prise d'effet conditionnée à : ${effetCond.libelle || 'condition suspensive'}${effetCond.date_limite ? ` — échéance du ${effetCond.date_limite} dépassée` : ''}. À vérifier / saisir manuellement dès que connue.`}
-                      style={{ fontSize: '10px', background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid #DEBB70', borderRadius: '4px', padding: '1px 5px', fontWeight: 600, marginTop: '2px', display: 'block', cursor: 'help' }}>
-                      ⚠ CS en retard
-                    </span>
-                  )}
                 </div>
 
                 {/* Surface */}
