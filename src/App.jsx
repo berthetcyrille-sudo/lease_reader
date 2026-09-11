@@ -1671,7 +1671,7 @@ function PageLimitWarning() {
         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
         <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
       </svg>
-      <span><strong>Limite : 100 pages maximum par fichier.</strong> Retirez les annexes (plans, états des lieux, catalogue de charges) si nécessaire.</span>
+      <span><strong>Limite : 100 pages maximum par fichier.</strong> L'app retire automatiquement les annexes quand elle les repère ; si l'extraction échoue quand même (document trop long), retirez-les manuellement avant de redéposer.</span>
     </div>
   )
 }
@@ -5558,7 +5558,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   <div style={{ position: 'relative' }}>
                     <button
                       className="dash-action-btn"
-                      style={{ opacity: 1, position: 'static', background: 'var(--surface2)', borderRadius: '50%' }}
+                      style={{ opacity: 1, position: 'static', background: 'var(--surface2)', borderRadius: '50%', marginRight: '8px' }}
                       onClick={e => {
                         e.stopPropagation()
                         if (openRowMenu === row.id) { setOpenRowMenu(null); setOpenRowMenuRect(null) }
