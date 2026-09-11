@@ -83,7 +83,7 @@ button, input { font-family: inherit; cursor: pointer; }
 .queue-status.err { color: var(--danger); cursor: help; }
 .queue-remove { margin-left: auto; background: none; border: none; color: var(--text3); font-size: 14px; padding: 0 4px; }
 .queue-remove:hover { color: var(--danger); }
-.extract-bar { display: flex; gap: 8px; margin-top: 14px; }
+.extract-bar { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 18px; }
 .progress-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin: 14px 0 5px; }
 .progress-bar { height: 100%; width: 0; background: var(--accent); }
 .progress-bar.active { animation: prog 14s ease-out forwards; }
