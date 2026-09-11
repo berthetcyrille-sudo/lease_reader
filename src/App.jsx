@@ -879,6 +879,16 @@ function parseFR(s) {
   if (!m) return null
   return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]))
 }
+// Une date jj/mm/aaaa est-elle strictement dans le passé (par rapport à aujourd'hui, à minuit) ?
+// Utilisé pour signaler les conditions suspensives (ou la prise d'effet conditionnée à l'une
+// d'elles) dont l'échéance est dépassée sans qu'une date ferme n'ait jamais été renseignée.
+function isDatePast(s) {
+  const parsed = parseFR(s)
+  if (!parsed) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return parsed < today
+}
 // Format Date → dd/mm/yyyy
 function fmtFR(d) {
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
@@ -2881,7 +2891,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-function ResultsView({ item }) {
+function ResultsView({ item, onSaveManualDateEffet }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
@@ -2896,6 +2906,13 @@ function ResultsView({ item }) {
 
   const [inseeIndex, setInseeIndex] = useState(null)
   const [inseeLoading, setInseeLoading] = useState(false)
+  // Édition manuelle de la date d'effet — utile quand une condition suspensive
+  // conditionnant la prise d'effet a été levée dans la réalité (ex: signature
+  // d'un Acte de Vente) sans qu'aucun avenant ne le formalise dans un document
+  // que l'appli pourrait extraire. Permet de saisir la date directement.
+  const [editingEffet, setEditingEffet] = useState(false)
+  const [effetInput, setEffetInput] = useState('')
+  const [savingEffet, setSavingEffet] = useState(false)
   useEffect(() => {
     setInseeIndex(null)
     const indice = d.indexation_indice
@@ -3126,8 +3143,47 @@ function ResultsView({ item }) {
                     {' '}{f.label}
                   </div>
                   <div className={`date-val${(f.type === 'break' || isCondBreak || isEffetCond) ? ' break' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', color: (isCondBreak || isEffetCond) ? '#B8860B' : undefined }}>
-                    {isEffetCond ? 'Non connue' : (f.val || d[f.key])}
-                    <PageJumpIcon item={item} pages={pages} field={pageField} />
+                    {isEffetCond && editingEffet ? (
+                      <>
+                        <input
+                          type="text"
+                          value={effetInput}
+                          onChange={e => setEffetInput(e.target.value)}
+                          placeholder="jj/mm/aaaa"
+                          autoFocus
+                          style={{ width: '92px', fontSize: '13px', padding: '3px 6px', border: '1px solid var(--border2)', borderRadius: '5px' }}
+                        />
+                        <button
+                          disabled={savingEffet || !/^\d{2}\/\d{2}\/\d{4}$/.test(effetInput.trim())}
+                          onClick={async () => {
+                            setSavingEffet(true)
+                            const ok = await onSaveManualDateEffet?.(item, effetInput.trim())
+                            setSavingEffet(false)
+                            if (ok) setEditingEffet(false)
+                          }}
+                          title="Enregistrer"
+                          style={{ background: 'var(--success)', color: '#fff', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                          {savingEffet ? '…' : '✓'}
+                        </button>
+                        <button onClick={() => setEditingEffet(false)} title="Annuler"
+                          style={{ background: 'var(--surface2)', color: 'var(--text3)', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                          ✕
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {isEffetCond ? 'Non connue' : (f.val || d[f.key])}
+                        <PageJumpIcon item={item} pages={pages} field={pageField} />
+                        {isEffetCond && !isAv && onSaveManualDateEffet && (
+                          <button
+                            onClick={() => { setEffetInput(''); setEditingEffet(true) }}
+                            title="Saisir la date d'effet manuellement, dès qu'elle est connue"
+                            style={{ background: 'none', border: '1px solid #EF9F27', color: '#B8860B', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                            ✎
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                   {f.type === 'break' && d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
                   {f.type === 'break' && f.indemnite && <div style={{ fontSize: '11px', color: '#B8860B', marginTop: '4px' }}>Indemnité si exercée : {f.indemnite}</div>}
@@ -4466,6 +4522,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
   const [renamingGroup, setRenamingGroup] = useState(null) // group name
   const [showToolsMenu, setShowToolsMenu] = useState(false)
+  const [openRowMenu, setOpenRowMenu] = useState(null) // id de la ligne dont le menu "Actions" est ouvert
 
   // Close picker on outside click
   useEffect(() => {
@@ -4482,6 +4539,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [showToolsMenu])
+
+  // Ferme le menu "Actions" d'une ligne au clic extérieur
+  useEffect(() => {
+    if (!openRowMenu) return
+    const handler = () => setOpenRowMenu(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [openRowMenu])
 
   // Derive all existing actif groups from tree
   const existingGroups = [...new Set(tree.map(b => b.actif_group).filter(Boolean))].sort()
@@ -4944,11 +5009,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           {(() => {
             // Réactif à la recherche et au filtre Tous/Baux/Avenants — reflète
             // ce qui est effectivement affiché, pas le total global de la base.
-            let bailCount = 0, avenantCount = 0, orphanCount = 0
+            let bailCount = 0, avenantCount = 0, orphanCount = 0, csOverdueCount = 0
             tree.forEach(node => {
               if (node.document_type === 'bail') {
                 if (!!node.data?._archived !== !!showArchived) return
-                if (filter !== 'avenant' && rowMatchesSearch({ data: node.data, file_name: node.file_name, actif_group: node.actif_group }, q)) bailCount++
+                if (filter !== 'avenant' && rowMatchesSearch({ data: node.data, file_name: node.file_name, actif_group: node.actif_group }, q)) {
+                  bailCount++
+                  if (!node.data?.date_effet && node.data?.date_effet_condition && isDatePast(node.data.date_effet_condition.date_limite)) csOverdueCount++
+                }
                 if (filter !== 'bail') {
                   ;(node.avenants || []).forEach(av => {
                     if (rowMatchesSearch({ data: av.data, file_name: av.file_name, actif_group: av.actif_group, _bailData: node.data }, q)) avenantCount++
@@ -4966,6 +5034,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 {orphanCount > 0 && (
                   <span className="dash-stat" style={{ color: 'var(--danger)' }} title="Avenants sans bail parent rattaché">
                     dont {orphanCount} orphelin{orphanCount !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {csOverdueCount > 0 && (
+                  <span className="dash-stat" style={{ color: 'var(--amber)' }} title="Prise d'effet conditionnée à une condition suspensive dont l'échéance de levée est dépassée — à vérifier">
+                    dont {csOverdueCount} CS en retard
                   </span>
                 )}
                 {isFiltered && (
@@ -5173,6 +5246,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             const isAv = row.document_type === 'avenant'
             const isOrphan = isAv && !row.parent_id && row._level === 0
             const isExtractionError = d.extraction_error === true
+            const effetCond = (!isAv && !d.date_effet) ? d.date_effet_condition : null
+            const effetCondOverdue = !!(effetCond && isDatePast(effetCond.date_limite))
             const breaks = filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
             return (
               <div
@@ -5278,6 +5353,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                       ⚠ Bail manquant
                     </span>
                   )}
+                  {effetCondOverdue && !isExtractionError && (
+                    <span title={`Prise d'effet conditionnée à : ${effetCond.libelle || 'condition suspensive'}${effetCond.date_limite ? ` — échéance du ${effetCond.date_limite} dépassée` : ''}. À vérifier / saisir manuellement dès que connue.`}
+                      style={{ fontSize: '10px', background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid #DEBB70', borderRadius: '4px', padding: '1px 5px', fontWeight: 600, marginTop: '2px', display: 'block', cursor: 'help' }}>
+                      ⚠ CS en retard
+                    </span>
+                  )}
                 </div>
 
                 {/* Surface */}
@@ -5289,7 +5370,22 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
                 {/* Date effet */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{normalizeDate(d.date_effet) || '—'}</span>
+                  {d.date_effet ? (
+                    <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{normalizeDate(d.date_effet)}</span>
+                  ) : effetCond ? (
+                    <span
+                      title={`À la levée de : ${effetCond.libelle || 'condition suspensive'}${effetCond.date_limite ? ` — au plus tard le ${effetCond.date_limite}` : ''}`}
+                      style={{
+                        fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', cursor: 'help',
+                        background: effetCondOverdue ? 'var(--danger-bg)' : 'var(--amber-bg)',
+                        color: effetCondOverdue ? 'var(--danger)' : 'var(--amber)',
+                        border: `1px solid ${effetCondOverdue ? 'rgba(176,42,42,.2)' : '#DEBB70'}`,
+                      }}>
+                      {effetCondOverdue ? '⚠ CS en retard' : 'Conditionnée'}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>—</span>
+                  )}
                 </div>
 
                 {/* Date fin */}
@@ -5321,7 +5417,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 </div>
 
                 {/* Actions */}
-                <div className="dash-td dash-td-actions" style={{ alignItems: 'flex-end', paddingBottom: '10px' }} onClick={e => e.stopPropagation()}>
+                <div className="dash-td dash-td-actions" style={{ alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                   {!isAv && avenantUpload[row.id] && (
                     <span
                       title={avenantUpload[row.id].state === 'error' ? avenantUpload[row.id].error : ''}
@@ -5352,40 +5448,69 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                         : '❌ Erreur'}
                     </span>
                   )}
-                  {!isAv && (
-                    <button className="dash-action-btn" onClick={e => { e.stopPropagation(); openAvenantPicker(row) }} title="Ajouter un avenant à ce bail">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      className="btn"
+                      style={{ width: 'auto', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}
+                      onClick={e => { e.stopPropagation(); setOpenRowMenu(v => v === row.id ? null : row.id) }}
+                      title="Actions">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                      Actions
                     </button>
-                  )}
-                  {row.storage_path ? (
-                    <button className="dash-action-btn" onClick={e => { e.stopPropagation(); viewSourceFile(row) }} title="Voir le fichier source">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    </button>
-                  ) : (
-                    <button className="dash-action-btn" onClick={e => { e.stopPropagation(); setConfirmAttachReextract(row) }} title="Joindre le fichier source et réextraire (remplace les données avec le prompt actuel)">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                    </button>
-                  )}
-                  {row.storage_path && (
-                    <button className="dash-action-btn" onClick={e => { e.stopPropagation(); setConfirmReextract(row) }} title="Réextraire (remplace les données à partir du fichier source, sans toucher aux avenants)">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02" /><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/></svg>
-                    </button>
-                  )}
-                  <button className="dash-action-btn" onClick={e => { e.stopPropagation(); onSelect(row) }} title="Voir le détail">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  </button>
-                  {!isAv && (
-                    <button className="dash-action-btn" onClick={e => onArchive(row, e)} title={row.data?._archived ? 'Désarchiver' : 'Archiver'}>
-                      {row.data?._archived ? (
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><path d="M10 12h4"/></svg>
-                      ) : (
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-                      )}
-                    </button>
-                  )}
-                  <button className="dash-action-btn dash-action-del" onClick={e => { e.stopPropagation(); setConfirmDelete(row) }} title="Supprimer">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-                  </button>
+                    {openRowMenu === row.id && (
+                      <div style={{
+                        position: 'absolute', top: '100%', right: 0, marginTop: '4px', zIndex: 500,
+                        background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
+                        boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '230px', overflow: 'hidden',
+                      }}>
+                        {[
+                          !isAv && {
+                            icon: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+                            label: 'Ajouter un avenant', onClick: () => openAvenantPicker(row),
+                          },
+                          row.storage_path ? {
+                            icon: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>,
+                            label: 'Voir le fichier source', onClick: () => viewSourceFile(row),
+                          } : {
+                            icon: <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>,
+                            label: 'Joindre le fichier source et réextraire', onClick: () => setConfirmAttachReextract(row),
+                          },
+                          row.storage_path && {
+                            icon: <><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/></>,
+                            label: 'Réextraire', onClick: () => setConfirmReextract(row),
+                          },
+                          {
+                            icon: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
+                            label: 'Voir le détail', onClick: () => onSelect(row),
+                          },
+                          !isAv && {
+                            icon: row.data?._archived
+                              ? <><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><path d="M10 12h4"/></>
+                              : <><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></>,
+                            label: row.data?._archived ? 'Désarchiver' : 'Archiver', onClick: e => onArchive(row, e),
+                          },
+                          {
+                            icon: <><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></>,
+                            label: 'Supprimer', danger: true, onClick: () => setConfirmDelete(row),
+                          },
+                        ].filter(Boolean).map((it, i) => (
+                          <button
+                            key={i}
+                            onClick={e => { e.stopPropagation(); setOpenRowMenu(null); it.onClick(e) }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '9px', width: '100%', padding: '9px 12px',
+                              background: 'none', border: 'none', fontSize: '13px', fontWeight: 500,
+                              color: it.danger ? 'var(--danger)' : 'var(--text)', cursor: 'pointer', textAlign: 'left',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = it.danger ? 'var(--danger-bg)' : 'var(--surface2)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{it.icon}</svg>
+                            {it.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )
@@ -6127,6 +6252,43 @@ export default function App() {
   }
 
 
+  // Édition manuelle de la date d'effet — pour le cas où une condition
+  // suspensive conditionnant la prise d'effet a été levée dans la réalité
+  // sans qu'aucun avenant/document ne le formalise (l'appli ne peut alors
+  // jamais le déduire toute seule d'une extraction). On recalcule date_fin
+  // (si elle dépendait elle-même de la date d'effet inconnue) puis les
+  // breaks, à partir de duree_totale / conditions_break / duree_ferme tels
+  // que relevés lors de l'extraction — même logique que lorsqu'un avenant
+  // confirme une date d'effet auparavant conditionnelle.
+  async function handleManualDateEffet(row, newDateEffetStr) {
+    const newData = { ...row.data, date_effet: newDateEffetStr, date_effet_condition: null }
+    const startConfirmed = parseFR(newDateEffetStr)
+    if (startConfirmed) {
+      if (!newData.date_fin) {
+        const m = String(newData.duree_totale || '').match(/(\d+)\s*ans?/i)
+        if (m) {
+          const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
+          newData.date_fin = fmtFR(end)
+        }
+      }
+      if (newData.date_fin) {
+        const computed = computeBreaks(newData.date_effet, newData.date_fin, newData.conditions_break, [], newData.duree_ferme)
+        const existing = new Set((newData.break_options || []).map(b => String(b).trim()))
+        const merged = [...(newData.break_options || [])]
+        computed.forEach(c => { if (!existing.has(c)) { merged.push(c); existing.add(c) } })
+        merged.sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
+        newData.break_options = filterBreaksByDureeFerme(merged, newData.date_effet, newData.duree_ferme)
+      }
+    }
+    const { error } = await supabase.from('extractions').update({ data: newData }).eq('id', row.id)
+    if (error) { console.error('Mise à jour de la date d\'effet échouée', error); return false }
+    setHistory(prev => prev.map(b => b.id === row.id
+      ? { ...b, data: newData }
+      : { ...b, avenants: (b.avenants || []).map(a => a.id === row.id ? { ...a, data: newData } : a) }))
+    if (activeItem?.id === row.id) setActiveItem(prev => ({ ...prev, data: newData }))
+    return true
+  }
+
   async function handleDeleteItem(item, e) {
     e.stopPropagation()
     // Si bail : supprimer aussi les avenants liés en base
@@ -6428,7 +6590,7 @@ export default function App() {
 
           <div className="content" ref={contentRef}>
             {activeItem ? (
-              <ResultsView item={activeItem} />
+              <ResultsView item={activeItem} onSaveManualDateEffet={handleManualDateEffet} />
             ) : (
               <>
                 <Dashboard
