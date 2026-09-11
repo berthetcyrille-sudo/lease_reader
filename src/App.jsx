@@ -5384,7 +5384,16 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       {showExcelPicker && (
         <ExcelColumnPickerModal
           onClose={() => setShowExcelPicker(false)}
-          onConfirm={(selectedCols) => { onExportAll(selectedCols); setShowExcelPicker(false) }}
+          onConfirm={(selectedCols) => {
+            setShowExcelPicker(false)
+            try {
+              onExportAll(selectedCols)
+              showToast('success', `Export lancé (${selectedCols.length} colonne${selectedCols.length !== 1 ? 's' : ''}) — vérifiez vos téléchargements.`)
+            } catch (e) {
+              console.error('Export Excel échoué', e)
+              showToast('error', `Échec de l'export : ${e.message || e}`)
+            }
+          }}
         />
       )}
 
