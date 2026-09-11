@@ -365,6 +365,7 @@ async function stripAnnexPages(file, onProgress) {
     // façon pas besoin d'être découpé).
     if (annexListPage === null && totalTextLength < 200 && numPages > 15) {
       try {
+        onProgress?.(-1, numPages) // -1 = signal spécial : repli IA en cours (pas un numéro de page)
         const base64 = await toBase64(file)
         const detected = await detectAnnexPageViaClaude(base64)
         if (Number.isInteger(detected) && detected > 0 && detected < numPages) annexListPage = detected - 1
@@ -408,7 +409,7 @@ async function detectAnnexPageViaClaude(base64) {
 Indique UNIQUEMENT le numéro de la page (en comptant à partir de 1 pour la toute première page du fichier PDF, page de garde incluse) sur laquelle se trouve cette liste des annexes.
 
 Réponds UNIQUEMENT avec un objet JSON strict, sans aucun texte autour ni balises markdown, au format exact : {"annex_list_page": <nombre entier, ou null si aucune liste de ce type n'existe dans le document>}`
-  const result = await callClaude(base64, 'application/pdf', prompt, 90000)
+  const result = await callClaude(base64, 'application/pdf', prompt, 180000)
   return result?.annex_list_page ?? null
 }
 
@@ -4353,7 +4354,9 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               </div>
               <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
                 {progress.state === 'stripping'
-                  ? `Recherche des annexes${progress.progTotal ? ` (page ${progress.progCurrent}/${progress.progTotal})` : '…'}`
+                  ? (progress.progCurrent === -1
+                    ? 'Repérage des annexes par IA (document scanné — peut prendre 1 à 2 minutes)…'
+                    : progress.progTotal ? `Recherche des annexes (page ${progress.progCurrent}/${progress.progTotal})` : 'Recherche des annexes…')
                   : progress.state === 'compressing'
                   ? `Compression${progress.progTotal ? ` (page ${progress.progCurrent}/${progress.progTotal})` : '…'}`
                   : 'Extraction en cours…'}
@@ -5632,7 +5635,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
               {avenantBatchProgress.state === 'stripping'
-                ? `Recherche des annexes${avenantBatchProgress.progTotal ? ` (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : '…'}`
+                ? (avenantBatchProgress.progCurrent === -1
+                  ? 'Repérage des annexes par IA (document scanné — peut prendre 1 à 2 minutes)…'
+                  : avenantBatchProgress.progTotal ? `Recherche des annexes (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : 'Recherche des annexes…')
                 : avenantBatchProgress.state === 'compressing'
                 ? `Compression${avenantBatchProgress.progTotal ? ` (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : '…'}`
                 : 'Extraction en cours…'}
@@ -5660,7 +5665,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
               {reextractProgress.state === 'downloading' && 'Téléchargement du fichier source…'}
-              {reextractProgress.state === 'stripping' && `Recherche des annexes${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`}
+              {reextractProgress.state === 'stripping' && (reextractProgress.progCurrent === -1
+                ? 'Repérage des annexes par IA (document scanné — peut prendre 1 à 2 minutes)…'
+                : `Recherche des annexes${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`)}
               {reextractProgress.state === 'compressing' && `Compression${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`}
               {reextractProgress.state === 'loading' && 'Extraction en cours…'}
             </div>
