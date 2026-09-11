@@ -1432,7 +1432,16 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        model: 'claude-sonnet-5', max_tokens: 8192,
+        model: 'claude-sonnet-5', max_tokens: 16000,
+        // Sonnet 5 active le "thinking" adaptatif par défaut, et ce budget de
+        // réflexion est prélevé sur le MÊME max_tokens que la réponse finale.
+        // Sur un bail long, le modèle pouvait donc consommer une grande partie
+        // des 8192 tokens en réflexion interne avant même d'écrire le JSON,
+        // ce qui le tronquait en cours de route (JSON invalide → "Erreur
+        // extraction" malgré un appel HTTP 200 réussi). On désactive ce
+        // thinking pour une extraction structurée qui n'en a pas besoin, et on
+        // relève la limite par sécurité.
+        thinking: { type: 'disabled' },
         messages: [{ role: 'user', content: [
           { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
           { type: 'text', text: prompt }
@@ -1447,6 +1456,9 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
       if (msg.includes('100 PDF pages')) throw new Error('PDF > 100 pages : retirez les annexes avant de déposer.')
       if (msg.includes('too large') || msg.includes('file size') || msg.includes('32 MB')) throw new Error('Fichier trop volumineux (> 32 Mo) : compressez le PDF avant de déposer.')
       throw new Error('Claude API : ' + msg)
+    }
+    if (data.stop_reason === 'max_tokens') {
+      throw new Error('Réponse tronquée par la limite de tokens (document trop dense) : augmentez max_tokens ou réduisez le document.')
     }
   let raw = ''
   if (data.content && Array.isArray(data.content)) raw = data.content.map(b => b?.text || '').join('')
