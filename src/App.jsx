@@ -3133,6 +3133,13 @@ function ResultsView({ item, onSaveManualDateEffet }) {
               {primaryDates.map(f => {
                 const isCondBreak = f.type === 'break_conditionnel'
                 const isEffetCond = f.type === 'effet_conditionnel'
+                // La carte "Prise d'effet" — connue (type 'primary', key 'date_effet')
+                // ou conditionnelle (type 'effet_conditionnel') — reste éditable
+                // manuellement dans les deux cas : une date déjà connue peut avoir
+                // besoin d'être corrigée, et ça permet aussi de redéclencher le
+                // recalcul de date_fin/breaks si nécessaire (ex: après une
+                // première saisie manuelle).
+                const isEffetField = f.key === 'date_effet' || isEffetCond
                 const pageField = f.type === 'break' ? 'break_options' : (isCondBreak ? 'indemnites_break' : f.key)
                 return (
                 <div key={f.key} className={`date-card${f.type === 'break' ? ' date-card-break' : ''}`}
@@ -3143,7 +3150,7 @@ function ResultsView({ item, onSaveManualDateEffet }) {
                     {' '}{f.label}
                   </div>
                   <div className={`date-val${(f.type === 'break' || isCondBreak || isEffetCond) ? ' break' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', color: (isCondBreak || isEffetCond) ? '#B8860B' : undefined }}>
-                    {isEffetCond && editingEffet ? (
+                    {isEffetField && editingEffet ? (
                       <>
                         <input
                           type="text"
@@ -3174,11 +3181,11 @@ function ResultsView({ item, onSaveManualDateEffet }) {
                       <>
                         {isEffetCond ? 'Non connue' : (f.val || d[f.key])}
                         <PageJumpIcon item={item} pages={pages} field={pageField} />
-                        {isEffetCond && !isAv && onSaveManualDateEffet && (
+                        {isEffetField && !isAv && onSaveManualDateEffet && (
                           <button
-                            onClick={() => { setEffetInput(''); setEditingEffet(true) }}
-                            title="Saisir la date d'effet manuellement, dès qu'elle est connue"
-                            style={{ background: 'none', border: '1px solid #EF9F27', color: '#B8860B', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                            onClick={() => { setEffetInput(isEffetCond ? '' : (d.date_effet || '')); setEditingEffet(true) }}
+                            title="Saisir ou corriger la date d'effet manuellement — recalcule date de fin et breaks"
+                            style={{ background: 'none', border: `1px solid ${isEffetCond ? '#EF9F27' : 'var(--border2)'}`, color: isEffetCond ? '#B8860B' : 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
                             ✎
                           </button>
                         )}
