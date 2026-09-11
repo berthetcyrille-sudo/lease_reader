@@ -4355,7 +4355,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
                 {progress.state === 'stripping'
                   ? (progress.progCurrent === -1
-                    ? 'Repérage des annexes par IA (document scanné — peut prendre 1 à 2 minutes)…'
+                    ? 'Pas de panique : ce document est un scan, on repère les annexes avec l\'IA (~1 minute)…'
                     : progress.progTotal ? `Recherche des annexes (page ${progress.progCurrent}/${progress.progTotal})` : 'Recherche des annexes…')
                   : progress.state === 'compressing'
                   ? `Compression${progress.progTotal ? ` (page ${progress.progCurrent}/${progress.progTotal})` : '…'}`
@@ -5636,7 +5636,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
               {avenantBatchProgress.state === 'stripping'
                 ? (avenantBatchProgress.progCurrent === -1
-                  ? 'Repérage des annexes par IA (document scanné — peut prendre 1 à 2 minutes)…'
+                  ? 'Pas de panique : ce document est un scan, on repère les annexes avec l\'IA (~1 minute)…'
                   : avenantBatchProgress.progTotal ? `Recherche des annexes (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : 'Recherche des annexes…')
                 : avenantBatchProgress.state === 'compressing'
                 ? `Compression${avenantBatchProgress.progTotal ? ` (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : '…'}`
@@ -5666,7 +5666,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
               {reextractProgress.state === 'downloading' && 'Téléchargement du fichier source…'}
               {reextractProgress.state === 'stripping' && (reextractProgress.progCurrent === -1
-                ? 'Repérage des annexes par IA (document scanné — peut prendre 1 à 2 minutes)…'
+                ? 'Pas de panique : ce document est un scan, on repère les annexes avec l\'IA (~1 minute)…'
                 : `Recherche des annexes${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`)}
               {reextractProgress.state === 'compressing' && `Compression${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`}
               {reextractProgress.state === 'loading' && 'Extraction en cours…'}
@@ -6753,8 +6753,12 @@ export default function App() {
                           <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
                         </svg>
                         <span>
-                          Recherche des pages d'annexes dans <strong>{strippingAnnexes.name}</strong>
-                          {strippingAnnexes.total > 0 ? ` — page ${strippingAnnexes.current}/${strippingAnnexes.total}` : '…'}
+                          {strippingAnnexes.current === -1 ? (
+                            <>Pas de panique : <strong>{strippingAnnexes.name}</strong> est un scan, on repère les annexes avec l'IA (~1 minute)…</>
+                          ) : (
+                            <>Recherche des pages d'annexes dans <strong>{strippingAnnexes.name}</strong>
+                            {strippingAnnexes.total > 0 ? ` — page ${strippingAnnexes.current}/${strippingAnnexes.total}` : '…'}</>
+                          )}
                         </span>
                       </div>
                     )}
