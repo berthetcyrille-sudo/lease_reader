@@ -3869,6 +3869,47 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
   )
 }
 
+// ─── Menu "Actions" d'une ligne de tableau, en portail ──────────────────────
+// Même principe que ActifPicker ci-dessus : les conteneurs du dashboard ont
+// un overflow (scroll) qui tronquerait un dropdown positionné en absolute
+// normal, en particulier quand peu de lignes sont affichées (recherche/filtre
+// actif) et que le tableau est court. On sort donc le menu sur <body>,
+// positionné en fixed par rapport au bouton, avec bascule au-dessus si pas
+// assez de place en dessous.
+function RowActionsMenu({ anchorRect, items, onClose }) {
+  if (!anchorRect) return null
+  const ESTIMATED_HEIGHT = Math.min(16 + items.length * 38, 320)
+  const spaceBelow = window.innerHeight - anchorRect.bottom
+  const openAbove = spaceBelow < ESTIMATED_HEIGHT
+  const style = openAbove
+    ? { position: 'fixed', bottom: window.innerHeight - anchorRect.top + 4, right: window.innerWidth - anchorRect.right, maxHeight: `${anchorRect.top - 8}px` }
+    : { position: 'fixed', top: anchorRect.bottom + 4, right: window.innerWidth - anchorRect.right, maxHeight: `${spaceBelow - 8}px` }
+
+  return createPortal(
+    <div style={{ ...style,
+      background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
+      boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '230px', overflowY: 'auto', zIndex: 9999 }}
+      onClick={e => e.stopPropagation()}>
+      {items.map((it, i) => (
+        <button
+          key={i}
+          onClick={e => { e.stopPropagation(); onClose(); it.onClick(e) }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '9px', width: '100%', padding: '9px 12px',
+            background: 'none', border: 'none', fontSize: '13px', fontWeight: 500,
+            color: it.danger ? 'var(--danger)' : 'var(--text)', cursor: 'pointer', textAlign: 'left',
+          }}
+          onMouseEnter={e => e.currentTarget.style.background = it.danger ? 'var(--danger-bg)' : 'var(--surface2)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{it.icon}</svg>
+          {it.label}
+        </button>
+      ))}
+    </div>,
+    document.body
+  )
+}
+
 // ─── Modale de contrôle qualité ──────────────────────────────────────────────
 function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary, onFixSurfaceLoyer }) {
   const [showDismissed, setShowDismissed] = useState(false)
@@ -4523,6 +4564,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [renamingGroup, setRenamingGroup] = useState(null) // group name
   const [showToolsMenu, setShowToolsMenu] = useState(false)
   const [openRowMenu, setOpenRowMenu] = useState(null) // id de la ligne dont le menu "Actions" est ouvert
+  const [openRowMenuRect, setOpenRowMenuRect] = useState(null) // position du bouton cliqué, pour le portail
 
   // Close picker on outside click
   useEffect(() => {
@@ -4543,7 +4585,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // Ferme le menu "Actions" d'une ligne au clic extérieur
   useEffect(() => {
     if (!openRowMenu) return
-    const handler = () => setOpenRowMenu(null)
+    const handler = () => { setOpenRowMenu(null); setOpenRowMenuRect(null) }
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [openRowMenu])
@@ -5446,18 +5488,20 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                     <button
                       className="btn"
                       style={{ width: 'auto', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}
-                      onClick={e => { e.stopPropagation(); setOpenRowMenu(v => v === row.id ? null : row.id) }}
+                      onClick={e => {
+                        e.stopPropagation()
+                        if (openRowMenu === row.id) { setOpenRowMenu(null); setOpenRowMenuRect(null) }
+                        else { setOpenRowMenuRect(e.currentTarget.getBoundingClientRect()); setOpenRowMenu(row.id) }
+                      }}
                       title="Actions">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                       Actions
                     </button>
                     {openRowMenu === row.id && (
-                      <div style={{
-                        position: 'absolute', top: '100%', right: 0, marginTop: '4px', zIndex: 500,
-                        background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
-                        boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '230px', overflow: 'hidden',
-                      }}>
-                        {[
+                      <RowActionsMenu
+                        anchorRect={openRowMenuRect}
+                        onClose={() => { setOpenRowMenu(null); setOpenRowMenuRect(null) }}
+                        items={[
                           !isAv && {
                             icon: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
                             label: 'Ajouter un avenant', onClick: () => openAvenantPicker(row),
@@ -5487,22 +5531,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                             icon: <><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></>,
                             label: 'Supprimer', danger: true, onClick: () => setConfirmDelete(row),
                           },
-                        ].filter(Boolean).map((it, i) => (
-                          <button
-                            key={i}
-                            onClick={e => { e.stopPropagation(); setOpenRowMenu(null); it.onClick(e) }}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: '9px', width: '100%', padding: '9px 12px',
-                              background: 'none', border: 'none', fontSize: '13px', fontWeight: 500,
-                              color: it.danger ? 'var(--danger)' : 'var(--text)', cursor: 'pointer', textAlign: 'left',
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.background = it.danger ? 'var(--danger-bg)' : 'var(--surface2)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{it.icon}</svg>
-                            {it.label}
-                          </button>
-                        ))}
-                      </div>
+                        ].filter(Boolean)}
+                      />
                     )}
                   </div>
                 </div>
