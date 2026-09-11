@@ -3188,7 +3188,16 @@ function ResultsView({ item, onSaveManualDateEffet }) {
                 // recalcul de date_fin/breaks si nécessaire (ex: après une
                 // première saisie manuelle).
                 const isEffetField = f.key === 'date_effet' || isEffetCond
-                const pageField = f.type === 'break' ? 'break_options' : (isCondBreak ? 'indemnites_break' : f.key)
+                // Pour les breaks, toujours référencer une page — même quand la date est
+                // calculée automatiquement (triennale "classique") plutôt qu'extraite
+                // littéralement : à défaut d'une date explicite (pages.break_options), on
+                // renvoie vers la clause générale qui fonde le droit (durée ferme /
+                // clause de résiliation), plutôt que de laisser la carte sans référence.
+                const resolvedPage = f.type === 'break'
+                  ? (pages.break_options || pages.conditions_break || pages.duree_ferme || null)
+                  : isCondBreak
+                  ? (pages.indemnites_break || pages.conditions_break || null)
+                  : pages[f.key]
                 return (
                 <div key={f.key} className={`date-card${f.type === 'break' ? ' date-card-break' : ''}`}
                   style={(isCondBreak || isEffetCond) ? { background: '#FAEEDA', border: '1px solid #EF9F27' } : undefined}>
@@ -3228,7 +3237,7 @@ function ResultsView({ item, onSaveManualDateEffet }) {
                     ) : (
                       <>
                         {isEffetCond ? 'Non connue' : (f.val || d[f.key])}
-                        <PageJumpIcon item={item} pages={pages} field={pageField} />
+                        <PageJumpIcon item={item} pages={pages} page={resolvedPage} />
                         {isEffetField && !isAv && onSaveManualDateEffet && (
                           <button
                             onClick={() => { setEffetInput(isEffetCond ? '' : (d.date_effet || '')); setEditingEffet(true) }}
@@ -5543,25 +5552,24 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   )}
                   <div style={{ position: 'relative' }}>
                     <button
-                      className="btn"
-                      style={{ width: 'auto', padding: '5px 10px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}
+                      className="dash-action-btn"
+                      style={{ opacity: 1, position: 'static' }}
                       onClick={e => {
                         e.stopPropagation()
                         if (openRowMenu === row.id) { setOpenRowMenu(null); setOpenRowMenuRect(null) }
                         else { setOpenRowMenuRect(e.currentTarget.getBoundingClientRect()); setOpenRowMenu(row.id) }
                       }}
                       title="Actions">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-                      Actions
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                     </button>
                     {openRowMenu === row.id && (
                       <RowActionsMenu
                         anchorRect={openRowMenuRect}
                         onClose={() => { setOpenRowMenu(null); setOpenRowMenuRect(null) }}
                         items={[
-                          !isAv && {
-                            icon: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
-                            label: 'Ajouter un avenant', onClick: () => openAvenantPicker(row),
+                          {
+                            icon: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
+                            label: 'Voir le détail', onClick: () => onSelect(row),
                           },
                           row.storage_path ? {
                             icon: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>,
@@ -5570,13 +5578,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                             icon: <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>,
                             label: 'Joindre le fichier source et réextraire', onClick: () => setConfirmAttachReextract(row),
                           },
+                          !isAv && {
+                            icon: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+                            label: 'Ajouter un avenant', onClick: () => openAvenantPicker(row),
+                          },
                           row.storage_path && {
                             icon: <><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/></>,
                             label: 'Réextraire', onClick: () => setConfirmReextract(row),
-                          },
-                          {
-                            icon: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
-                            label: 'Voir le détail', onClick: () => onSelect(row),
                           },
                           !isAv && {
                             icon: row.data?._archived
