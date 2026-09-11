@@ -7090,9 +7090,9 @@ export default function App() {
                     {/* Barre d'action */}
                     {files.length > 0 && !loading && !detecting && (
                       <div className="extract-bar">
-                        <button className="btn primary" onClick={handleExtract}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 3l14 9-14 9V3z"/></svg>
-                          Extraire {files.length > 1 ? `les ${files.length} fichiers` : 'le fichier'}
+                        <button className="btn primary" onClick={handleExtract} style={{ padding: '15px 36px', fontSize: '16px', fontWeight: 700, gap: '9px', boxShadow: '0 4px 14px rgba(26,95,168,.3)' }}>
+                          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 3l14 9-14 9V3z"/></svg>
+                          Extraire
                         </button>
                         <button className="btn" onClick={handleClear}>Tout effacer</button>
                       </div>
