@@ -1,6 +1,10 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-/* Zoom à 90% pour une densité plus "pro" — voir compensation ci-dessous */
-html { zoom: 90%; }
+/* Zoom à 90% pour une densité plus "pro" — voir compensation ci-dessous.
+   overflow-x: hidden supprime la fine barre de défilement horizontale que le
+   zoom peut faire apparaître par arrondi de pixel — l'appli n'a de toute
+   façon jamais besoin de défiler horizontalement au niveau de la page (les
+   tableaux comme .table-wrap gardent leur propre défilement interne). */
+html { zoom: 90%; overflow-x: hidden; }
 
 :root {
   --bg: #F8F7F5;
@@ -25,7 +29,7 @@ html { zoom: 90%; }
 }
 /* Le zoom rétrécit aussi les unités vh : on compense en demandant 100vh/0.9
    pour que ces éléments remplissent bien la fenêtre réelle, sans bandeau vide. */
-body { background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; min-height: calc(100vh / 0.9); }
+body { background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; min-height: calc(100vh / 0.9); overflow-x: hidden; }
 button, input { font-family: inherit; cursor: pointer; }
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
