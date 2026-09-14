@@ -6,26 +6,33 @@
    tableaux comme .table-wrap gardent leur propre défilement interne). */
 html { zoom: 90%; overflow-x: hidden; }
 
+/* Polices alignées sur l'outil Mandat : Libre Baskerville pour les titres,
+   IBM Plex Sans pour le texte courant, IBM Plex Mono pour les chiffres. */
+@import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
 :root {
-  --bg: #F8F7F5;
+  /* Palette reprise telle quelle de Mandat (variables --ink/--paper/--gold/etc.) */
+  --bg: #F7F4F0;
   --surface: #FFFFFF;
-  --surface2: #F3F2EF;
-  --border: #E4E2DC;
-  --border2: #CBC9C2;
-  --text: #141412;
-  --text2: #5A5850;
-  --text3: #A09E97;
-  --accent: #1A5FA8;
-  --accent-bg: #EBF3FC;
-  --accent-dark: #0D437A;
-  --danger: #B02A2A;
-  --danger-bg: #FCEAEA;
-  --success: #0D6B4F;
-  --success-bg: #E2F4EE;
-  --amber-bg: #FBF0DC;
-  --amber: #7A4808;
-  --r: 8px;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  --surface2: #EDE8E2;
+  --border: #EDE8E2;
+  --border2: #DDD6CC;
+  --text: #2E2A26;
+  --text2: #3D3630;
+  --text3: #7A7068;
+  --accent: #C9900C;
+  --accent-bg: rgba(201,144,12,.08);
+  --accent-dark: #A87A0A;
+  --danger: #8B2E10;
+  --danger-bg: rgba(139,46,16,.07);
+  --success: #2A6E3F;
+  --success-bg: rgba(42,110,63,.08);
+  --amber-bg: rgba(184,80,16,.08);
+  --amber: #B85010;
+  --r: 5px;
+  --font-serif: 'Libre Baskerville', serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
 }
 /* Le zoom rétrécit aussi les unités vh : on compense en demandant 100vh/0.9
    pour que ces éléments remplissent bien la fenêtre réelle, sans bandeau vide. */
@@ -37,7 +44,7 @@ button, input { font-family: inherit; cursor: pointer; }
 /* ── App ── */
 .app { display: flex; flex-direction: column; height: calc(100vh / 0.9); overflow: hidden; }
 
-.topbar { height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 9px; padding: 0 20px; background: #1C1C1A; color: #FFFFFF; font-size: 14px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,0.08); cursor: pointer; }
+.topbar { height: 72px; flex-shrink: 0; display: flex; align-items: center; gap: 9px; padding: 0 28px; background: #1E1A16; color: #FFFFFF; font-size: 14px; font-weight: 700; border-bottom: 2px solid var(--accent); cursor: pointer; }
 
 .btn-clear { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid rgba(255,100,100,0.35); background: transparent; color: #FF8080; font-size: 12px; font-weight: 500; transition: background .12s; }
 .btn-clear:hover { background: rgba(255,80,80,0.1); }
@@ -48,7 +55,7 @@ button, input { font-family: inherit; cursor: pointer; }
 /* ── Topbar ── */
 .result-topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 18px 32px; flex-shrink: 0; box-shadow: 0 1px 0 var(--border); }
 .result-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; color: var(--accent); background: var(--accent-bg); padding: 3px 8px; border-radius: 4px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .06em; }
-.result-title { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+.result-title { font-family: var(--font-serif); font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
 .result-sub { font-size: 13px; color: var(--text2); margin-top: 2px; }
 .result-actions { display: flex; gap: 8px; margin-top: 14px; }
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: var(--r); border: 1px solid var(--border2); background: var(--surface); color: var(--text); font-weight: 500; font-size: 13px; transition: background .12s; white-space: nowrap; }
@@ -94,7 +101,7 @@ button, input { font-family: inherit; cursor: pointer; }
 /* ── Modal ── */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .modal { background: var(--surface); border-radius: 12px; border: 1px solid var(--border); padding: 26px; width: 500px; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.15); }
-.modal-title { font-size: 16px; font-weight: 700; }
+.modal-title { font-family: var(--font-serif); font-size: 16px; font-weight: 700; }
 .modal-sub { font-size: 13px; color: var(--text2); margin-top: -6px; }
 .modal-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; max-height: 260px; }
 .modal-bail { display: block; width: 100%; text-align: left; padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--border); background: var(--surface); cursor: pointer; transition: background .12s; }
@@ -133,7 +140,7 @@ button, input { font-family: inherit; cursor: pointer; }
 .field-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text3); margin-bottom: 4px; }
 .field-val { font-size: 13px; color: var(--text); font-weight: 400; line-height: 1.5; }
 .field-val.empty { color: var(--text3); font-weight: 400; font-style: italic; }
-.field-val.mono { font-size: 17px; font-weight: 700; color: var(--accent); letter-spacing: -0.02em; }
+.field-val.mono { font-family: var(--font-mono); font-size: 17px; font-weight: 700; color: var(--accent); letter-spacing: -0.02em; }
 .field-val.verbose { font-weight: 400; font-size: 12.5px; color: var(--text2); line-height: 1.65; }
 
 /* ── Party cards ── */
@@ -152,7 +159,7 @@ button, input { font-family: inherit; cursor: pointer; }
 
 /* ── Loyer hero ── */
 .loyer-hero { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-wrap: wrap; gap: 12px; }
-.loyer-amount { font-size: 26px; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
+.loyer-amount { font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
 .loyer-lbl { font-size: 10px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px; }
 .pills { display: flex; gap: 6px; flex-wrap: wrap; }
 .pill { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
