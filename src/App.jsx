@@ -733,7 +733,7 @@ function exportToExcel(items, fileName, selectedCols = null) {
   // toujours présent quel que soit le choix, c'est une information système,
   // pas une donnée du bail.
   if (selectedCols) {
-    const keep = new Set(['Statut', ...selectedCols])
+    const keep = new Set(['Statut', ...MANDATORY_EXCEL_COLS, ...selectedCols])
     const keptIdx = headers.map((_, i) => i).filter(i => keep.has(headers[i]))
     headers = keptIdx.map(i => headers[i])
     dataRows = dataRows.map(row => keptIdx.map(i => row[i]))
@@ -3989,6 +3989,9 @@ function RowActionsMenu({ anchorRect, items, onClose }) {
 
 // ─── Sélecteur de colonnes à l'export Excel ─────────────────────────────────
 const EXCEL_COL_SELECTION_KEY = 'leaseReader.excelColumnSelection'
+// Colonnes toujours incluses, non décochables : sans elles, une ligne
+// exportée ne permet plus de savoir à quel bail/avenant elle correspond.
+const MANDATORY_EXCEL_COLS = ['ID', 'Type', 'Actif / Immeuble', 'Adresse', 'Preneur']
 
 function ExcelColumnPickerModal({ onClose, onConfirm }) {
   const groups = useMemo(() => buildExcelColumnGroups(), [])
@@ -4000,13 +4003,14 @@ function ExcelColumnPickerModal({ onClose, onConfirm }) {
         const savedSet = new Set(saved)
         // On ne garde que les colonnes encore valides (au cas où le format ait changé) —
         // et on part de tout coché si la sauvegarde est vide/invalide.
-        return new Set(allCols.filter(c => savedSet.has(c)))
+        return new Set(allCols.filter(c => savedSet.has(c) || MANDATORY_EXCEL_COLS.includes(c)))
       }
     } catch (_) {}
     return new Set(allCols) // par défaut : tout coché
   })
 
   function toggleCol(col) {
+    if (MANDATORY_EXCEL_COLS.includes(col)) return // non décochable
     setSelected(prev => {
       const next = new Set(prev)
       next.has(col) ? next.delete(col) : next.add(col)
@@ -4016,12 +4020,12 @@ function ExcelColumnPickerModal({ onClose, onConfirm }) {
   function toggleGroup(group, checked) {
     setSelected(prev => {
       const next = new Set(prev)
-      group.cols.forEach(c => checked ? next.add(c) : next.delete(c))
+      group.cols.forEach(c => (checked || MANDATORY_EXCEL_COLS.includes(c)) ? next.add(c) : next.delete(c))
       return next
     })
   }
   function toggleAll(checked) {
-    setSelected(checked ? new Set(allCols) : new Set())
+    setSelected(checked ? new Set(allCols) : new Set(MANDATORY_EXCEL_COLS))
   }
 
   function handleConfirm() {
@@ -4038,6 +4042,7 @@ function ExcelColumnPickerModal({ onClose, onConfirm }) {
             <div className="modal-title">Colonnes à exporter</div>
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
               {selected.size} / {allCols.length} colonnes sélectionnées — votre choix est mémorisé pour le prochain export.
+              {' '}<em>ID, Type, Actif/Immeuble, Adresse et Preneur restent toujours inclus</em>, pour identifier chaque ligne.
             </div>
           </div>
           <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
@@ -4065,12 +4070,16 @@ function ExcelColumnPickerModal({ onClose, onConfirm }) {
                   {group.label} <span style={{ fontWeight: 400, color: 'var(--text3)' }}>({checkedCount}/{group.cols.length})</span>
                 </label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', paddingLeft: '4px' }}>
-                  {group.cols.map(col => (
-                    <label key={col} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: 'var(--text2)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      <input type="checkbox" checked={selected.has(col)} onChange={() => toggleCol(col)} />
-                      {col}
-                    </label>
-                  ))}
+                  {group.cols.map(col => {
+                    const locked = MANDATORY_EXCEL_COLS.includes(col)
+                    return (
+                      <label key={col} title={locked ? 'Toujours incluse' : undefined}
+                        style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: locked ? 'var(--text3)' : 'var(--text2)', cursor: locked ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+                        <input type="checkbox" checked={selected.has(col)} disabled={locked} onChange={() => toggleCol(col)} />
+                        {col}{locked && ' 🔒'}
+                      </label>
+                    )
+                  })}
                 </div>
               </div>
             )
