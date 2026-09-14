@@ -3989,9 +3989,10 @@ function RowActionsMenu({ anchorRect, items, onClose }) {
 
 // ─── Sélecteur de colonnes à l'export Excel ─────────────────────────────────
 const EXCEL_COL_SELECTION_KEY = 'leaseReader.excelColumnSelection'
-// Colonnes toujours incluses, non décochables : sans elles, une ligne
-// exportée ne permet plus de savoir à quel bail/avenant elle correspond.
-const MANDATORY_EXCEL_COLS = ['ID', 'Type', 'Actif / Immeuble', 'Adresse', 'Preneur']
+// Colonnes toujours incluses, non décochables : tout le groupe Identification
+// — sans elles, une ligne exportée ne permet plus de savoir à quel bail/
+// avenant elle correspond.
+const MANDATORY_EXCEL_COLS = ['ID', 'Bail lié (ID)', 'Type', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur']
 
 function ExcelColumnPickerModal({ onClose, onConfirm }) {
   const groups = useMemo(() => buildExcelColumnGroups(), [])
@@ -4042,7 +4043,7 @@ function ExcelColumnPickerModal({ onClose, onConfirm }) {
             <div className="modal-title">Colonnes à exporter</div>
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
               {selected.size} / {allCols.length} colonnes sélectionnées — votre choix est mémorisé pour le prochain export.
-              {' '}<em>ID, Type, Actif/Immeuble, Adresse et Preneur restent toujours inclus</em>, pour identifier chaque ligne.
+              {' '}<em>Le groupe Identification reste toujours inclus</em>, pour identifier chaque ligne.
             </div>
           </div>
           <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
@@ -4058,16 +4059,18 @@ function ExcelColumnPickerModal({ onClose, onConfirm }) {
             const checkedCount = group.cols.filter(c => selected.has(c)).length
             const allChecked = checkedCount === group.cols.length
             const someChecked = checkedCount > 0 && !allChecked
+            const groupLocked = group.cols.every(c => MANDATORY_EXCEL_COLS.includes(c))
             return (
               <div key={group.label} style={{ border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 10px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', marginBottom: '6px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', fontWeight: 700, cursor: groupLocked ? 'default' : 'pointer', marginBottom: '6px' }}>
                   <input
                     type="checkbox"
                     checked={allChecked}
+                    disabled={groupLocked}
                     ref={el => { if (el) el.indeterminate = someChecked }}
                     onChange={e => toggleGroup(group, e.target.checked)}
                   />
-                  {group.label} <span style={{ fontWeight: 400, color: 'var(--text3)' }}>({checkedCount}/{group.cols.length})</span>
+                  {group.label} <span style={{ fontWeight: 400, color: 'var(--text3)' }}>({checkedCount}/{group.cols.length}){groupLocked ? ' — toujours inclus' : ''}</span>
                 </label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', paddingLeft: '4px' }}>
                   {group.cols.map(col => {
