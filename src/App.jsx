@@ -4721,7 +4721,7 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
   )
 }
 
-function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, onExportAll, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived }) {
+function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
   const [extractionErrors, setExtractionErrors] = useState(null) // null or array of {name, reason}
@@ -5399,7 +5399,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           onConfirm={(selectedCols) => {
             setShowExcelPicker(false)
             try {
-              onExportAll(selectedCols)
+              exportAllToExcel(tree, setExportErrors, selectedCols)
               showToast('success', `Export lancé (${selectedCols.length} colonne${selectedCols.length !== 1 ? 's' : ''}) — vérifiez vos téléchargements.`)
             } catch (e) {
               console.error('Export Excel échoué', e)
@@ -6848,7 +6848,6 @@ export default function App() {
                   onDelete={handleDeleteItem}
                   onArchive={handleToggleArchive}
                   onClear={handleClearHistory}
-                  onExportAll={(selectedCols) => exportAllToExcel(history, setExportErrors, selectedCols)}
                   newIds={newIds}
                   onRefresh={refreshHistoryNow}
                   onNewAvenant={id => setNewIds(prev => [...prev, id])}
