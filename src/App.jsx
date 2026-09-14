@@ -1791,15 +1791,20 @@ function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue, fu
 // Une garantie (dépôt de garantie, GAPD...) dans une seule carte blanche —
 // montant (avec renvoi de page), durée isolée si applicable (GAPD exprimée en
 // mois de loyer), puis modalités complètes.
-function GuaranteeBox({ title, montant, duree, montantCalcule, modalites, item, pages, pageField }) {
+function GuaranteeBox({ title, montant, montantPageField, duree, montantCalcule, modalites, modalitesPageField, item, pages }) {
   const safeMontant = safeStr(montant)
   const safeModalites = safeStr(modalites)
+  // La page du montant lui-même n'existe que si un chiffre est réellement
+  // écrit dans le bail ; à défaut, on renvoie vers la page de la clause
+  // (modalités) — c'est elle qui justifie la présence de cette carte, avec
+  // ou sans montant chiffré.
+  const resolvedPage = pages?.[montantPageField] || pages?.[modalitesPageField] || null
   return (
     <div className="field" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <div className="field-lbl">{title}</div>
-      <div className="field-val mono" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-        {safeMontant || 'Non renseigné'}
-        {safeMontant && pageField && <PageJumpIcon item={item} pages={pages} field={pageField} />}
+      <div className={`field-val${safeMontant ? ' mono' : ' empty'}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        {safeMontant || '—'}
+        {resolvedPage && <PageJumpIcon item={item} page={resolvedPage} />}
       </div>
       {duree && (
         <div>
@@ -3651,19 +3656,23 @@ function ResultsView({ item, onSaveManualDateEffet }) {
             <GuaranteeBox
               title="Dépôt de garantie"
               montant={fmtEur(d.depot_garantie_montant) || d.depot_garantie_montant}
+              montantPageField="depot_garantie_montant"
               duree={d.depot_garantie_duree_mois}
               montantCalcule={computeGuaranteeAmount(d.depot_garantie_duree_mois, d.loyer_cours || d.loyer_signature_montant)}
               modalites={d.depot_garantie}
-              item={item} pages={pages} pageField="depot_garantie_montant"
+              modalitesPageField="depot_garantie"
+              item={item} pages={pages}
             />
             {(d.gapd_montant || d.gapd) && (
               <GuaranteeBox
                 title="GAPD (garantie à première demande)"
                 montant={fmtEur(d.gapd_montant) || d.gapd_montant}
+                montantPageField="gapd_montant"
                 duree={d.gapd_duree_mois}
                 montantCalcule={computeGuaranteeAmount(d.gapd_duree_mois, d.loyer_cours || d.loyer_signature_montant)}
                 modalites={d.gapd}
-                item={item} pages={pages} pageField="gapd_montant"
+                modalitesPageField="gapd"
+                item={item} pages={pages}
               />
             )}
           </div>
