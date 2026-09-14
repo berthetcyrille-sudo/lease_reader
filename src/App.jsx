@@ -90,7 +90,7 @@ const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les donné
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent. INTERDIT: ne JAMAIS concatener une annotation, precision ou commentaire entre parentheses dans un champ date (format strict JJ/MM/AAAA, rien d'autre) ou dans un champ duree (ex: "1 an", "9 ans" — rien d'autre). Si une information complementaire existe (ex: reconduction, plafond de duree, condition), elle DOIT aller dans son champ dedie (ex: reconduction_tacite) et nulle part ailleurs — jamais annexee en texte libre dans date_fin, date_effet ou duree_totale. Exemple INTERDIT: date_fin="31/12/2023 (renouvelable, terme absolu 31/12/2034)" — la valeur correcte est date_fin="31/12/2023" avec reconduction_tacite.date_limite_absolue="31/12/2034" ; duree_totale="1 an renouvelable par tacite reconduction, duree maximale 12 ans" est egalement INTERDIT — la valeur correcte est duree_totale="1 an".
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"charges_impots_taxes":[],"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"gapd_montant":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
+{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"charges_impots_taxes":[],"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible). ATTENTION: NE JAMAIS mettre duree_ferme = duree_totale par defaut quand rien n'est explicitement restreint — un bail SANS renonciation ni restriction du droit de resiliation triennale (art. L.145-4) a en realite une duree_ferme implicite de 3 ans (premiere sortie possible), PAS une duree_ferme egale a la duree totale (ce qui reviendrait a interdire toute sortie anticipee, ce qui n'est pas ce que dit le bail dans ce cas). Si aucune duree ferme n'est explicitement chiffree ET qu'aucune renonciation totale n'est exprimee, laisser duree_ferme a null plutot que de la deviner egale a duree_totale.
@@ -125,7 +125,9 @@ REGLES PAR CHAMP:
 - franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null,\"page\":3}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon. ATTENTION DISTINCTION AVEC mise_a_disposition: une "franchise de loyer" reduit ou annule un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero (sinon il n'y a rien a "franchiser"). NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation des locaux avant la date d'effet officielle du bail, ou avant que le loyer ne soit contractuellement du, souvent formulee "mise a disposition anticipee a titre gratuit", "pas de loyer ni charges dus pendant cette periode") — meme si le texte utilise par erreur ou par extension le mot "franchise" pour la designer, meme si elle est ventilee par lot/etage avec des dates differentes. Ces periodes de mise a disposition anticipee vont dans le champ dedie mise_a_disposition (objet unique) — si plusieurs lots ont des dates de mise a disposition differentes, resumer l'ensemble dans le champ texte "conditions" de mise_a_disposition (avec le detail par lot) plutot que de les eclater dans franchise_periodes avec un montant a zero. ATTENTION CAS INVERSE FREQUENT: quand le texte donne plusieurs montants de franchise a des DATES ANNIVERSAIRES successives (ex: "133.943 € HT/HC de franchise à compter du 15 septembre 2025 ; 133.943 € à compter du 15 septembre 2026 ; ...") SANS préciser explicitement une durée ni une date de fin pour chaque tranche, NE JAMAIS supposer que chaque tranche dure 12 mois (jusqu'à la date anniversaire suivante) — c'est presque toujours FAUX. Ces montants correspondent generalement chacun a quelques semaines/mois de loyer accordes CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an pendant 3 ans), pas une exoneration continue toute l'annee. Calculer la VRAIE duree en mois: duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), puis date_fin = date_debut + duree_mois mois - 1 jour (PAS la veille de la prochaine date anniversaire, sauf si duree_mois calculee y correspond par coincidence). N'utiliser une duree de 12 mois entre deux echeances que si le texte le dit EXPLICITEMENT (ex: "pendant les 12 mois suivants" ecrit noir sur blanc). FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — deux cas: (a) si la DUREE est explicitement ecrite dans le bail (ex: "2,5 mois", "3 mois") et que c'est le MONTANT qui manque: reprendre la duree TELLE QUELLE dans "duree" (ex: "2,5 mois"), et calculer montant = duree_mois * (loyer_annuel_base_HT_HC / 12), en ecrivant dans "montant" la chaine "recalcul = <montant> €" (ex: "recalcul = 116116 €") plutot qu'un chiffre brut, pour signaler que c'est deduit et non ecrit dans le bail. (b) si le MONTANT est explicitement ecrit et que c'est la DUREE qui manque: montant reste un chiffre brut normal (ex: "116116"), et calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), en ecrivant dans "duree" la chaine "recalcul = <duree_mois> mois" (ex: "recalcul = 2,11 mois") plutot qu'une phrase. Si duree ET montant sont TOUS LES DEUX explicites dans le texte, les reprendre tels quels sans aucun marqueur "recalcul". Ne jamais utiliser une formule detaillee du type "Champ calculé = A / B = C" — uniquement le resultat final precede de "recalcul =".
 - participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. libelle OBLIGATOIRE.
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
+- depot_garantie_montant / depot_garantie_duree_mois / depot_garantie: depot_garantie_montant = montant chiffre du depot de garantie classique SI le bail l'exprime en euros (montant fixe ou resultant d'un calcul deja fait dans le texte). depot_garantie_duree_mois: SEPAREMENT, si le bail exprime (aussi ou uniquement) ce depot en nombre de mois de loyer (formulation frequente: "depot de garantie egal a X mois de loyer HT/HC", "correspondant a X mois de loyer principal"), isoler ce nombre ici au format court, ex: "3 mois de loyer HT/HC". Les deux champs montant et duree_mois peuvent coexister (certains baux donnent les deux) ou n'exister que l'un des deux. depot_garantie: texte des modalites completes (conditions de restitution, indexation du depot, etc.).
 - gapd_montant / gapd: si le bail prevoit, EN COMPLEMENT du depot de garantie classique (depot_garantie_montant/depot_garantie), une GARANTIE AUTONOME A PREMIERE DEMANDE (GAPD) — une garantie bancaire distincte ou complementaire, souvent mobilisable "a premiere demande" independamment de toute contestation, generalement mise en place par un etablissement bancaire au profit du Bailleur. NE PAS confondre avec le simple depot de garantie (qui reste dans depot_garantie_montant/depot_garantie) ni avec un cautionnement personnel/solidaire (qui va dans le champ garant). gapd_montant: montant chiffre brut de la GAPD si mentionne. gapd: texte des modalites completes (etablissement emetteur si nomme, duree de validite, conditions de mobilisation, articulation avec le depot de garantie classique). null pour les deux champs si aucune GAPD n'est mentionnee — la tres grande majorite des baux n'en ont pas, ne pas en deduire une simplement parce qu'un depot de garantie classique existe.
+- gapd_duree_mois: UNIQUEMENT si une GAPD existe (voir gapd_montant/gapd ci-dessus). Isole le nombre de mois de loyer que represente le montant de la GAPD, quand le bail l'exprime ainsi (formulation frequente: "garantie autonome a premiere demande d'un montant egal a X mois de loyer HT/HC", "correspondant a X mois de loyer principal"). Format court, ex: "3 mois de loyer HT/HC" ou juste "3 mois" si l'assiette n'est pas precisee. null si la GAPD est exprimee uniquement en montant fixe sans reference a un nombre de mois de loyer, ou si aucune GAPD n'existe.
 - remise_en_etat: TOUJOURS extraire, meme brievement, une clause "Indemnite de Remise en Etat" (ou "Indemnite forfaitaire de remise en etat", parfois numerotee ex: "Article 2.2") prevoyant que le Preneur verse au Bailleur, GENERALEMENT DES LA SIGNATURE (et non a la sortie), une indemnite forfaitaire, globale et definitive EN CONTREPARTIE de la liberation du Preneur de son obligation contractuelle de realiser des travaux de remise en etat des locaux a la restitution — cette clause est FREQUENTE et FACILE A MANQUER car elle n'est pas toujours numerotee ni intitulee de facon evidente, et le montant est du DES LA SIGNATURE (pas a la sortie), ce qui peut la faire confondre a tort avec une simple indemnite de fin de bail. Format attendu (texte libre, resumer sans perdre les chiffres cles): inclure le montant HT et TTC, la date d'exigibilite (souvent "au plus tard a la date de signature"), et le fait que le Bailleur renonce en echange a demander toute autre indemnite de remise en etat (sauf degradations posterieures). NE PAS confondre avec indemnites_restitution (qui concerne des indemnites VARIABLES SELON LA DATE DE SORTIE/BREAK) — cette clause-ci est un montant FIXE unique du a la signature, independant de la date de depart : elle va UNIQUEMENT dans remise_en_etat, jamais dans indemnites_restitution.
 - indemnites: UNIQUEMENT indemnites liees a une option (break, renouvellement, fin de bail). EXCLURE: honoraires, cautionnements, penalites. [{\"motif\":\"...\",\"due_par\":\"Preneur ou Bailleur\",\"montant\":\"chiffres bruts\",\"date_limite\":\"...\"}]`
 
@@ -148,7 +150,7 @@ surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retiree
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie (ex: 2 lignes Bureaux → une seule ligne avec la surface totale). NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie":null,"gapd_montant":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
@@ -156,7 +158,7 @@ REGLES PAR CHAMP (champs_modifies):
 - franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant. ATTENTION: si plusieurs montants sont donnes a des dates anniversaires successives sans duree explicite, NE PAS supposer 12 mois entre deux echeances (voir regle detaillee dans le prompt d'extraction du bail) — calculer duree_mois = round(montant / (loyer_annuel_base/12)). FORMAT SYMETRIQUE (voir regle detaillee dans le prompt d'extraction du bail): si duree explicite et montant manquant, reprendre la duree telle quelle et ecrire "recalcul = <montant> €" dans montant ; si montant explicite et duree manquante, garder le montant en chiffre brut et ecrire "recalcul = <duree> mois" dans duree ; jamais de formule detaillee.
 - frais_redaction_actes: UNIQUEMENT si cet avenant lui-meme mentionne un montant de frais de redaction (le sien propre, et/ou une nouvelle stipulation pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. null si non aborde par cet avenant.
 - charges_impots_taxes / charges_vetuste / charges_force_majeure: UNIQUEMENT si cet avenant modifie explicitement la repartition d'un impot/taxe, de la vetuste ou de la force majeure par rapport au bail initial. Memes formats que dans le prompt d'extraction du bail. null si non aborde par cet avenant (ce champ ecrase completement l'ancien tableau/objet — pour charges_impots_taxes, reprendre TOUS les impots encore pertinents, pas seulement celui modifie).
-- gapd_montant / gapd: UNIQUEMENT si cet avenant met en place, modifie ou supprime une Garantie Autonome a Premiere Demande (GAPD), distincte du simple depot de garantie. Meme definition que dans le prompt d'extraction du bail. null si non aborde par cet avenant.
+- depot_garantie_montant / depot_garantie_duree_mois / depot_garantie / gapd_montant / gapd_duree_mois / gapd: UNIQUEMENT si cet avenant modifie l'une de ces garanties. Memes definitions que dans le prompt d'extraction du bail. null si non aborde par cet avenant.
 - date_effet_condition: mettre a null des que cet avenant fixe une date_effet calendaire ferme (le plus frequent : l'avenant constate la realisation de l'evenement, ex: signature de l'Acte de Vente, et fixe donc la vraie date de prise d'effet dans champs_modifies.date_effet) — dans ce cas champs_modifies.date_effet remplace definitivement la mention conditionnelle. Ne renseigner date_effet_condition que si cet avenant modifie ou reformule le texte de la condition dont depend la prise d'effet SANS encore fournir de date calendaire ferme. null si non aborde par cet avenant.
 - conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","date_limite_levee":"jj/mm/aaaa ou null","statut":"levee/en cours/non precise","page":2}]. date_limite_levee: meme regle que dans le prompt d'extraction du bail — chercher systematiquement cette date (ou la calculer si exprimee en delai relatif depuis la date de l'avenant). Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
@@ -461,6 +463,25 @@ function parseAmount(val) {
   if (!val) return null
   const n = parseFloat(String(val).replace(/[^0-9.,]/g, '').replace(',', '.'))
   return isNaN(n) ? null : n
+}
+
+// Extrait un nombre de mois depuis un texte du type "3 mois de loyer HT/HC".
+function parseMonthsCount(text) {
+  if (!text) return null
+  const m = String(text).match(/(\d+(?:[.,]\d+)?)\s*mois/i)
+  if (!m) return null
+  const n = parseFloat(m[1].replace(',', '.'))
+  return isNaN(n) ? null : n
+}
+// Calcule un montant de garantie (dépôt de garantie ou GAPD) à partir d'un
+// nombre de mois de loyer et du loyer annuel du bail — sert de recoupement
+// quand la garantie est exprimée en mois plutôt qu'en montant chiffré (très
+// fréquent, ex: "GAPD égale à 3 mois de loyer annuel hors taxes").
+function computeGuaranteeAmount(dureeText, loyerAnnuel) {
+  const months = parseMonthsCount(dureeText)
+  const loyer = parseAmount(loyerAnnuel)
+  if (!months || !loyer) return null
+  return Math.round(loyer * months / 12)
 }
 
 // Condense verbose parking text to short summary e.g. "99 int. + 30 ext. = 129 places"
@@ -1762,6 +1783,39 @@ function PairBlock({ keyLabel, keyValue, keyMono, verboseLabel, verboseValue, fu
       <div className="pair-verbose">
         <div className="field-lbl">{verboseLabel}</div>
         <div className={`field-val${!safeVerbose ? ' empty' : ' verbose'}`}>{safeVerbose || 'Non renseigné'}</div>
+      </div>
+    </div>
+  )
+}
+
+// Une garantie (dépôt de garantie, GAPD...) dans une seule carte blanche —
+// montant (avec renvoi de page), durée isolée si applicable (GAPD exprimée en
+// mois de loyer), puis modalités complètes.
+function GuaranteeBox({ title, montant, duree, montantCalcule, modalites, item, pages, pageField }) {
+  const safeMontant = safeStr(montant)
+  const safeModalites = safeStr(modalites)
+  return (
+    <div className="field" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div className="field-lbl">{title}</div>
+      <div className="field-val mono" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        {safeMontant || 'Non renseigné'}
+        {safeMontant && pageField && <PageJumpIcon item={item} pages={pages} field={pageField} />}
+      </div>
+      {duree && (
+        <div>
+          <div className="field-lbl" style={{ fontSize: '10px' }}>Durée</div>
+          <div className="field-val" style={{ fontSize: '13px' }}>{duree}</div>
+        </div>
+      )}
+      {montantCalcule != null && (
+        <div>
+          <div className="field-lbl" style={{ fontSize: '10px' }}>Montant calculé (durée × loyer annuel)</div>
+          <div className="field-val" style={{ fontSize: '13px', color: 'var(--text2)' }}>≈ {fmtEur(montantCalcule)}</div>
+        </div>
+      )}
+      <div>
+        <div className="field-lbl" style={{ fontSize: '10px' }}>Modalités complètes</div>
+        <div className={`field-val${!safeModalites ? ' empty' : ' verbose'}`}>{safeModalites || 'Non renseigné'}</div>
       </div>
     </div>
   )
@@ -3594,22 +3648,22 @@ function ResultsView({ item, onSaveManualDateEffet }) {
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">{(d.gapd_montant || d.gapd) ? 'Garanties' : 'Dépôt de garantie'}</div></div>
           <div style={{ display: 'grid', gridTemplateColumns: (d.gapd_montant || d.gapd) ? '1fr 1fr' : '1fr', gap: '10px' }}>
-            <PairBlock
-              keyLabel="Dépôt de garantie"
-              keyValue={fmtEur(d.depot_garantie_montant) || d.depot_garantie_montant}
-              keyMono
-              verboseLabel="Modalités complètes"
-              verboseValue={d.depot_garantie}
-              full={false}
+            <GuaranteeBox
+              title="Dépôt de garantie"
+              montant={fmtEur(d.depot_garantie_montant) || d.depot_garantie_montant}
+              duree={d.depot_garantie_duree_mois}
+              montantCalcule={computeGuaranteeAmount(d.depot_garantie_duree_mois, d.loyer_cours || d.loyer_signature_montant)}
+              modalites={d.depot_garantie}
+              item={item} pages={pages} pageField="depot_garantie_montant"
             />
             {(d.gapd_montant || d.gapd) && (
-              <PairBlock
-                keyLabel="GAPD (garantie à première demande)"
-                keyValue={fmtEur(d.gapd_montant) || d.gapd_montant}
-                keyMono
-                verboseLabel="Modalités complètes"
-                verboseValue={d.gapd}
-                full={false}
+              <GuaranteeBox
+                title="GAPD (garantie à première demande)"
+                montant={fmtEur(d.gapd_montant) || d.gapd_montant}
+                duree={d.gapd_duree_mois}
+                montantCalcule={computeGuaranteeAmount(d.gapd_duree_mois, d.loyer_cours || d.loyer_signature_montant)}
+                modalites={d.gapd}
+                item={item} pages={pages} pageField="gapd_montant"
               />
             )}
           </div>
