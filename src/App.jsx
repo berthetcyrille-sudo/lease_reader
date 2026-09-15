@@ -3013,7 +3013,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-function ResultsView({ item, onSaveManualDateEffet }) {
+function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
@@ -3198,7 +3198,47 @@ function ResultsView({ item, onSaveManualDateEffet }) {
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
           <div><strong>Avenant</strong>{meta.objet_avenant && <span style={{ fontWeight: 400 }}> — {meta.objet_avenant}</span>}</div>
-          {meta.date_effet_avenant && <span className="av-banner-date">Effet : {normalizeDate(meta.date_effet_avenant)}</span>}
+          {editingEffet ? (
+            <span className="av-banner-date" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              Effet :
+              <input
+                type="text"
+                value={effetInput}
+                onChange={e => setEffetInput(e.target.value)}
+                placeholder="jj/mm/aaaa"
+                autoFocus
+                style={{ width: '92px', fontSize: '13px', padding: '3px 6px', border: '1px solid var(--border2)', borderRadius: '5px' }}
+              />
+              <button
+                disabled={savingEffet || !/^\d{2}\/\d{2}\/\d{4}$/.test(effetInput.trim())}
+                onClick={async () => {
+                  setSavingEffet(true)
+                  const ok = await onSaveManualDateEffetAvenant?.(item, effetInput.trim())
+                  setSavingEffet(false)
+                  if (ok) setEditingEffet(false)
+                }}
+                title="Enregistrer — corrige aussi l'ordre de tri des avenants du bail"
+                style={{ background: 'var(--success)', color: '#fff', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                {savingEffet ? '…' : '✓'}
+              </button>
+              <button onClick={() => setEditingEffet(false)} title="Annuler"
+                style={{ background: 'var(--surface2)', color: 'var(--text3)', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                ✕
+              </button>
+            </span>
+          ) : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              {meta.date_effet_avenant && <span className="av-banner-date">Effet : {normalizeDate(meta.date_effet_avenant)}</span>}
+              {onSaveManualDateEffetAvenant && (
+                <button
+                  onClick={() => { setEffetInput(meta.date_effet_avenant || ''); setEditingEffet(true) }}
+                  title="Saisir ou corriger la date d'effet de cet avenant — détermine son ordre parmi les autres avenants du bail"
+                  style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                  ✎
+                </button>
+              )}
+            </span>
+          )}
         </div>
       )}
 
@@ -7078,6 +7118,19 @@ export default function App() {
     return true
   }
 
+  // Correction manuelle de la date d'effet D'UN AVENANT (distincte de celle du
+  // bail ci-dessus). Sert uniquement à trier correctement les avenants entre
+  // eux (voir avKey un peu partout dans le fichier) et à l'affichage — ne
+  // déclenche aucun recalcul de date_fin/breaks, contrairement à celle du bail.
+  async function handleManualDateEffetAvenant(row, newDateEffetStr) {
+    const newData = { ...row.data, date_effet_avenant: newDateEffetStr }
+    const { error } = await supabase.from('extractions').update({ data: newData }).eq('id', row.id)
+    if (error) { console.error('Mise à jour de la date d\'effet de l\'avenant échouée', error); return false }
+    setHistory(prev => prev.map(b => ({ ...b, avenants: (b.avenants || []).map(a => a.id === row.id ? { ...a, data: newData } : a) })))
+    if (activeItem?.id === row.id) setActiveItem(prev => ({ ...prev, data: newData }))
+    return true
+  }
+
   async function handleDeleteItem(item, e) {
     e.stopPropagation()
     // Si bail : supprimer aussi les avenants liés en base
@@ -7417,7 +7470,7 @@ export default function App() {
 
           <div className="content" ref={contentRef}>
             {activeItem ? (
-              <ResultsView item={activeItem} onSaveManualDateEffet={handleManualDateEffet} />
+              <ResultsView item={activeItem} onSaveManualDateEffet={handleManualDateEffet} onSaveManualDateEffetAvenant={handleManualDateEffetAvenant} />
             ) : (
               <>
                 <Dashboard
