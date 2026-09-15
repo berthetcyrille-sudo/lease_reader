@@ -5214,7 +5214,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       const cmp = a.localeCompare(b, 'fr')
       return sortDir === 'asc' ? cmp : -cmp
     }).forEach(([grp, rows]) => {
-      result.push({ _isGroupHeader: true, _groupName: grp, _groupCount: rows.filter(r => r._level === 0).length })
+      result.push({ _isGroupHeader: true, _groupName: grp, _groupCount: rows.filter(r => r._level === 0).length, _groupAvenantCount: rows.filter(r => r._level !== 0).length })
       rows.forEach(r => result.push(r))
     })
     noGroup.forEach(r => result.push(r))
@@ -5549,7 +5549,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                       style={{ fontSize: '11px', cursor: 'pointer', color: 'var(--text3)', opacity: 0.6 }}>✏️</span>
                   )}
                 </div>
-                <span style={{ fontSize: '11px', color: 'var(--text3)' }}>{row._groupCount} {row._groupCount > 1 ? 'baux' : 'bail'}</span>
+                <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
+                  {row._groupCount} {row._groupCount > 1 ? 'baux' : 'bail'}
+                  {row._groupAvenantCount > 0 && ` · ${row._groupAvenantCount} avenant${row._groupAvenantCount > 1 ? 's' : ''}`}
+                </span>
               </div>
             )
 
