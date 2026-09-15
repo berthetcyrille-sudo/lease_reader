@@ -351,18 +351,24 @@ async function stripAnnexPages(file, onProgress) {
       const textContent = await page.getTextContent()
       const text = textContent.items.map(it => it.str).join(' ')
       totalTextLength += text.trim().length
-      // Signal principal, robuste aux variations de mise en forme du titre :
-      // la page liste au moins "Annexe 1" ET "Annexe 2" à la suite — bien plus
-      // fiable que de dépendre du rendu exact de "ANNEXES :" (police, espaces,
-      // deux-points parfois absents/différents selon le générateur du PDF).
-      // Le ":" (ou tiret) après le numéro est indispensable : sans lui, une
-      // simple référence en prose ailleurs dans l'acte ("...jointes en Annexe
-      // 1 de l'Avenant", "...décrits en Annexe 2 de l'Avenant") déclenche un
-      // faux positif bien avant la vraie liste, tronquant le document en plein
-      // milieu (vécu : perte de la page de signature d'un avenant).
-      const hasFirstEntry = /ANNEXE\s*(N\s*°?\s*)?1\s*[:\-–]/i.test(text)
-      const hasSecondEntry = /ANNEXE\s*(N\s*°?\s*)?2\s*[:\-–]/i.test(text)
-      if (hasFirstEntry && hasSecondEntry) { annexListPage = i; break }
+      // Signal principal, robuste aux variations de mise en forme :
+      // la page liste au moins "Annexe 1" ET "Annexe 2" à la suite, ET porte
+      // le titre "ANNEXES" (au pluriel) propre à la vraie page de liste —
+      // bien plus fiable que de dépendre d'une ponctuation précise après le
+      // numéro (deux-points, tiret, tabulation... tout existe selon le
+      // générateur du PDF ; le format "Annexe 1 <tabulation> Titre" sans
+      // aucune ponctuation est même le plus courant). Le titre "ANNEXES" est
+      // le vrai signal distinctif : une simple référence en prose ailleurs
+      // dans l'acte ("...jointes en Annexe 1 de l'Avenant", "...décrits en
+      // Annexe 2 de l'Avenant") ne porte quasiment jamais ce titre au
+      // pluriel — contrairement à un simple numéro seul, qui lui peut
+      // apparaître n'importe où et déclencher un faux positif bien avant la
+      // vraie liste, tronquant le document en plein milieu (vécu : perte de
+      // la page de signature d'un avenant).
+      const hasHeading = /\bANNEXES\b/i.test(text)
+      const hasFirstEntry = /ANNEXE\s*(N\s*°?\s*)?1\b/i.test(text)
+      const hasSecondEntry = /ANNEXE\s*(N\s*°?\s*)?2\b/i.test(text)
+      if (hasHeading && hasFirstEntry && hasSecondEntry) { annexListPage = i; break }
     }
     await pdf.destroy() // libère le worker pdf.js avant l'étape pdf-lib / compression / repli Claude qui suit
 
@@ -4669,6 +4675,7 @@ async function reextractOne(row, onProgress) {
     onProgress?.('stripping')
     const strippedResult = await stripAnnexPages(file, (c, t) => onProgress?.('stripping', c, t))
     file = strippedResult.file
+    const { originalPages, keptPages, removedCount, detectedPage } = strippedResult
     onProgress?.('compressing')
     file = await compressPdfIfNeeded(file, (c, t) => onProgress?.('compressing', c, t))
     if (file.size > 30 * 1024 * 1024) {
@@ -4719,7 +4726,7 @@ async function reextractOne(row, onProgress) {
 
     const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
     if (updateErr) throw updateErr
-    return { success: true }
+    return { success: true, originalPages, keptPages, removedCount, detectedPage }
   } catch (err) {
     return { success: false, error: err.message || 'Erreur inconnue' }
   }
@@ -5294,14 +5301,20 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     const label = bailRow.data?.immeuble || bailRow.data?.adresse || bailRow.file_name
     let successCount = 0
     const failedFiles = []
+    const annexSummaries = []
 
     for (let idx = 0; idx < validFiles.length; idx++) {
       const file = validFiles[idx]
       setAvenantBatchProgress({ bailLabel: label, current: idx + 1, total: validFiles.length, fileName: file.name, state: 'stripping' })
       try {
-        const { file: strippedFile } = await stripAnnexPages(file, (current, total) => {
+        const { file: strippedFile, originalPages, keptPages, removedCount, detectedPage } = await stripAnnexPages(file, (current, total) => {
           setAvenantBatchProgress(prev => ({ ...prev, state: 'stripping', progCurrent: current, progTotal: total }))
         })
+        if (originalPages != null) {
+          annexSummaries.push(removedCount > 0
+            ? `${file.name} : ${originalPages}→${keptPages} pages (annexes retirées p.${detectedPage})`
+            : `${file.name} : ${originalPages} pages (annexes non détectées)`)
+        }
         setAvenantBatchProgress(prev => ({ ...prev, state: 'compressing', progCurrent: null, progTotal: null }))
         const prepared = await compressPdfIfNeeded(strippedFile, (current, total) => {
           setAvenantBatchProgress(prev => ({ ...prev, state: 'compressing', progCurrent: current, progTotal: total }))
@@ -5339,7 +5352,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     setExpanded(prev => ({ ...prev, [bailRow.id]: true })) // déplie le bail pour montrer les nouveaux avenants
 
     if (successCount > 0) {
-      showToast('success', `${successCount} avenant${successCount > 1 ? 's' : ''} ajouté${successCount > 1 ? 's' : ''} à « ${label} »`)
+      showToast('success', `${successCount} avenant${successCount > 1 ? 's' : ''} ajouté${successCount > 1 ? 's' : ''} à « ${label} »${annexSummaries.length ? ' — ' + annexSummaries.join(' · ') : ''}`, annexSummaries.length ? 9000 : 4500)
     }
     if (failedFiles.length > 0) {
       const detail = failedFiles.map(f => `${f.name} (${f.msg})`).join(' · ')
@@ -5470,7 +5483,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     const label = row.data?.immeuble || row.data?.adresse || row.file_name
     setReextractProgress({ label, state: 'stripping' })
     try {
-      const { file: strippedFile } = await stripAnnexPages(file, (current, total) => {
+      const { file: strippedFile, originalPages, keptPages, removedCount, detectedPage } = await stripAnnexPages(file, (current, total) => {
         setReextractProgress(prev => ({ ...prev, state: 'stripping', progCurrent: current, progTotal: total }))
       })
       setReextractProgress(prev => ({ ...prev, state: 'compressing', progCurrent: null, progTotal: null }))
@@ -5530,7 +5543,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
       setReextractProgress(null)
       setAttachTarget(null)
-      showToast('success', `« ${label} » attaché et réextrait avec succès`)
+      showToast('success', `« ${label} » attaché et réextrait avec succès${originalPages != null ? ' — ' + (removedCount > 0 ? `${originalPages}→${keptPages} pages (annexes retirées p.${detectedPage})` : `${originalPages} pages (annexes non détectées)`) : ''}`, 9000)
       onRefresh?.()
     } catch (err) {
       setReextractProgress(null)
@@ -5548,7 +5561,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     })
     setReextractProgress(null)
     if (result.success) {
-      showToast('success', `« ${label} » réextrait avec succès`)
+      const annexNote = result.originalPages != null
+        ? ' — ' + (result.removedCount > 0
+            ? `${result.originalPages}→${result.keptPages} pages (annexes retirées p.${result.detectedPage})`
+            : `${result.originalPages} pages (annexes non détectées)`)
+        : ''
+      showToast('success', `« ${label} » réextrait avec succès${annexNote}`, annexNote ? 9000 : 4500)
       onRefresh?.()
     } else {
       showToast('error', `Échec de la réextraction : ${result.error}`)
