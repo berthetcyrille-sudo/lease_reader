@@ -4268,7 +4268,7 @@ const displayPartyName = s => standardizeCase(shortPartyName(s))
 // (seul le compte par bail est pertinent). Permet aussi d'ajouter un immeuble
 // à la table maîtresse `immeubles`, qui alimente ensuite le sélecteur d'actif
 // utilisé lors de la création d'un bail.
-function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSelect, onClose }) {
+function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onToggleDone, onSelect, onClose }) {
   const [newName, setNewName] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
@@ -4292,9 +4292,11 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSe
     return [...names].sort((a, b) => a.localeCompare(b)).map(name => {
       const buildingBails = (byBuilding[name] || []).slice().sort((a, b) =>
         (a.data?.preneur || a.file_name || '').localeCompare(b.data?.preneur || b.file_name || ''))
+      const master = (immeubles || []).find(i => i.name === name)
       return {
         name,
-        id: (immeubles || []).find(i => i.name === name)?.id || null,
+        id: master?.id || null,
+        done: !!master?.done,
         bailCount: buildingBails.length,
         bails: buildingBails.map(b => ({
           id: b.id,
@@ -4323,6 +4325,7 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSe
 
   const doneCount = rows.filter(r => r.bailCount > 0).length
   const todoCount = rows.filter(r => r.bailCount === 0).length
+  const checkedCount = rows.filter(r => r.done).length
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -4331,7 +4334,7 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSe
           <div>
             <div className="modal-title">Synthèse — immeubles</div>
             <div className="modal-sub">
-              {doneCount} immeuble{doneCount !== 1 ? 's' : ''} avec au moins un bail · {todoCount} pas encore commencé{todoCount !== 1 ? 's' : ''}
+              {doneCount} immeuble{doneCount !== 1 ? 's' : ''} avec au moins un bail · {todoCount} pas encore commencé{todoCount !== 1 ? 's' : ''} · {checkedCount}/{rows.length} coché{checkedCount !== 1 ? 's' : ''} OK
             </div>
           </div>
           <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
@@ -4400,6 +4403,26 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSe
                         }}>
                           Pas commencé
                         </span>
+                      )}
+                      {r.id && (
+                        <label
+                          onClick={e => e.stopPropagation()}
+                          title={r.done ? 'Marqué OK — cliquer pour décocher' : 'Marquer OK une fois les extractions terminées pour cet immeuble'}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
+                            fontSize: '11px', fontWeight: 700, color: r.done ? 'var(--success)' : 'var(--text3)',
+                            padding: '3px 8px', borderRadius: '999px',
+                            background: r.done ? 'var(--success-bg)' : 'transparent',
+                            border: `1px solid ${r.done ? 'transparent' : 'var(--border2)'}`,
+                          }}>
+                          <input
+                            type="checkbox"
+                            checked={r.done}
+                            onChange={() => onToggleDone?.(r.id, !r.done)}
+                            style={{ margin: 0, cursor: 'pointer' }}
+                          />
+                          OK
+                        </label>
                       )}
                       {r.id && r.bailCount === 0 && (
                         <button
@@ -6642,14 +6665,17 @@ export default function App() {
   }
 
   // ─── Liste maîtresse des immeubles ──────────────────────────────────────────
-  // Table `immeubles` (id, name) : contrairement à actif_group (qui n'existe
-  // que sur les baux déjà saisis), cette table permet de déclarer un immeuble
-  // du patrimoine AVANT même d'y avoir extrait un premier bail — nécessaire
-  // pour la vue Synthèse (voir les immeubles "pas encore faits").
-  const [immeubles, setImmeubles] = useState([]) // [{ id, name }]
+  // Table `immeubles` (id, name, done) : contrairement à actif_group (qui
+  // n'existe que sur les baux déjà saisis), cette table permet de déclarer un
+  // immeuble du patrimoine AVANT même d'y avoir extrait un premier bail —
+  // nécessaire pour la vue Synthèse (voir les immeubles "pas encore faits").
+  // `done` est une case à cocher manuelle, sans logique automatique dessous —
+  // elle sert uniquement à suivre "j'ai fini de tout extraire pour cet
+  // immeuble", indépendamment du nombre de baux/avenants déjà en base.
+  const [immeubles, setImmeubles] = useState([]) // [{ id, name, done }]
 
   async function fetchImmeubles() {
-    const { data, error } = await supabase.from('immeubles').select('id, name').order('name')
+    const { data, error } = await supabase.from('immeubles').select('id, name, done').order('name')
     if (error) { console.error('Chargement des immeubles échoué', error); return [] }
     return data || []
   }
@@ -6667,7 +6693,7 @@ export default function App() {
     const v = (name || '').trim()
     if (!v) return
     if (immeubles.some(i => i.name.toLowerCase() === v.toLowerCase())) return
-    const { data, error } = await supabase.from('immeubles').insert({ name: v }).select('id, name').single()
+    const { data, error } = await supabase.from('immeubles').insert({ name: v }).select('id, name, done').single()
     if (error) {
       // Contrainte d'unicité (créé entre-temps par un autre onglet/utilisateur) : pas bloquant
       if (error.code === '23505') return
@@ -6686,6 +6712,16 @@ export default function App() {
     if (error) { console.error('Suppression immeuble échouée', error); return }
     setImmeubles(prev => prev.filter(i => i.id !== id))
   }
+
+  async function toggleImmeubleDone(id, done) {
+    setImmeubles(prev => prev.map(i => i.id === id ? { ...i, done } : i)) // optimiste
+    const { error } = await supabase.from('immeubles').update({ done }).eq('id', id)
+    if (error) {
+      console.error('Mise à jour du statut "terminé" échouée', error)
+      setImmeubles(prev => prev.map(i => i.id === id ? { ...i, done: !done } : i)) // rollback
+    }
+  }
+
 
   // ─── Navigation par URL (API History native — pas de librairie de routage) ──
   // /               → dashboard
@@ -7372,6 +7408,7 @@ export default function App() {
             immeubles={immeubles}
             onAddImmeuble={ensureImmeubleExists}
             onRemoveImmeuble={removeImmeuble}
+            onToggleDone={toggleImmeubleDone}
             onSelect={item => { setShowSynthese(false); setActiveItem(item); navigate(`/bail/${item.id}`) }}
             onClose={() => setShowSynthese(false)}
           />
