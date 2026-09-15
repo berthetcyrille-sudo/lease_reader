@@ -6154,6 +6154,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                       ⚠ Bail manquant
                     </span>
                   )}
+                  {!row.storage_path && !isExtractionError && !isOrphan && (
+                    <span title="Aucun fichier source attaché — via le menu ⋯ : « Joindre le fichier source et réextraire »" style={{ fontSize: '10px', background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid #DEBB70', borderRadius: '4px', padding: '1px 5px', fontWeight: 600, marginTop: '2px', display: 'block', cursor: 'help' }}>
+                      📎 Sans fichier
+                    </span>
+                  )}
                 </div>
 
                 {/* Surface */}
