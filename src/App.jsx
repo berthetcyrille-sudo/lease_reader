@@ -4177,6 +4177,198 @@ function ExcelColumnPickerModal({ onClose, onConfirm }) {
   )
 }
 
+// ─── Vue Synthèse : consolidé par immeuble ──────────────────────────────────
+// Objectif (demande utilisateur) : voir en un coup d'œil les immeubles jamais
+// commencés (aucun bail saisi) et ceux où il manque potentiellement des baux
+// ou des avenants — sans afficher de total d'avenants au niveau immeuble
+// (seul le compte par bail est pertinent). Permet aussi d'ajouter un immeuble
+// à la table maîtresse `immeubles`, qui alimente ensuite le sélecteur d'actif
+// utilisé lors de la création d'un bail.
+function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSelect, onClose }) {
+  const [newName, setNewName] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [expanded, setExpanded] = useState({}) // { [immeubleName]: bool }
+  const [confirmDelete, setConfirmDelete] = useState(null) // { id, name }
+
+  const byBuilding = useMemo(() => {
+    const map = {}
+    bails.forEach(b => {
+      if (!b.actif_group) return
+      if (!map[b.actif_group]) map[b.actif_group] = []
+      map[b.actif_group].push(b)
+    })
+    return map
+  }, [bails])
+
+  const noGroupBails = useMemo(() => bails.filter(b => !b.actif_group), [bails])
+
+  const rows = useMemo(() => {
+    const names = new Set([...(immeubles || []).map(i => i.name), ...Object.keys(byBuilding)])
+    return [...names].sort((a, b) => a.localeCompare(b)).map(name => {
+      const buildingBails = (byBuilding[name] || []).slice().sort((a, b) =>
+        (a.data?.preneur || a.file_name || '').localeCompare(b.data?.preneur || b.file_name || ''))
+      return {
+        name,
+        id: (immeubles || []).find(i => i.name === name)?.id || null,
+        bailCount: buildingBails.length,
+        bails: buildingBails.map(b => ({
+          id: b.id,
+          label: b.data?.preneur || b.data?.immeuble || b.file_name,
+          avenantCount: (b.avenants || []).length,
+          row: b,
+        })),
+      }
+    })
+  }, [byBuilding, immeubles])
+
+  async function handleAdd() {
+    const v = newName.trim()
+    if (!v) return
+    setAdding(true)
+    await onAddImmeuble(v)
+    setNewName('')
+    setAdding(false)
+  }
+
+  const doneCount = rows.filter(r => r.bailCount > 0).length
+  const todoCount = rows.filter(r => r.bailCount === 0).length
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ width: '760px', maxWidth: '94vw', height: '85vh', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div className="modal-title">Synthèse — immeubles</div>
+            <div className="modal-sub">
+              {doneCount} immeuble{doneCount !== 1 ? 's' : ''} avec au moins un bail · {todoCount} pas encore commencé{todoCount !== 1 ? 's' : ''}
+            </div>
+          </div>
+          <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <input
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+            placeholder="Ajouter un immeuble…"
+            style={{ flex: 1, padding: '8px 12px', fontSize: '13px', border: '1px solid var(--border2)', borderRadius: 'var(--r)', outline: 'none', background: 'var(--surface2)', color: 'var(--text)' }}
+          />
+          <button className="btn primary" disabled={!newName.trim() || adding} onClick={handleAdd}>+ Ajouter</button>
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
+          {rows.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+              Aucun immeuble pour le moment — ajoutez-en un ci-dessus.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {rows.map(r => {
+                const started = r.bailCount > 0
+                const isOpen = !!expanded[r.name]
+                return (
+                  <div key={r.name} style={{
+                    border: `1px solid ${started ? 'var(--border)' : 'var(--border2)'}`,
+                    borderRadius: 'var(--r)',
+                    background: started ? 'var(--surface)' : 'var(--surface2)',
+                    overflow: 'hidden',
+                  }}>
+                    <div
+                      onClick={() => started && setExpanded(prev => ({ ...prev, [r.name]: !prev[r.name] }))}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '10px', padding: '11px 14px',
+                        cursor: started ? 'pointer' : 'default',
+                      }}>
+                      <span style={{ fontSize: '13px', flexShrink: 0, width: '14px', color: 'var(--text3)' }}>
+                        {started ? (isOpen ? '▾' : '▸') : ''}
+                      </span>
+                      <span style={{
+                        fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: '14px',
+                        color: started ? 'var(--text)' : 'var(--text3)', flex: 1,
+                        fontStyle: started ? 'normal' : 'italic',
+                      }}>
+                        {r.name}
+                      </span>
+                      {started ? (
+                        <span style={{
+                          fontSize: '11px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px',
+                          background: 'var(--accent-bg)', color: 'var(--accent)',
+                        }}>
+                          {r.bailCount} {r.bailCount > 1 ? 'baux' : 'bail'}
+                        </span>
+                      ) : (
+                        <span style={{
+                          fontSize: '11px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px',
+                          background: 'var(--danger-bg)', color: 'var(--danger)',
+                        }}>
+                          Pas commencé
+                        </span>
+                      )}
+                      {r.id && r.bailCount === 0 && (
+                        <button
+                          title="Retirer cet immeuble de la liste"
+                          onClick={e => { e.stopPropagation(); setConfirmDelete({ id: r.id, name: r.name }) }}
+                          style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: '13px', padding: '2px 4px', cursor: 'pointer' }}>
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                    {started && isOpen && (
+                      <div style={{ borderTop: '1px solid var(--border)' }}>
+                        {r.bails.map((b, i) => (
+                          <div
+                            key={b.id}
+                            onClick={() => onSelect(b.row)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 14px 9px 38px',
+                              cursor: 'pointer', borderTop: i > 0 ? '1px solid var(--border)' : 'none',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
+                            onMouseLeave={e => e.currentTarget.style.background = ''}>
+                            <span style={{ fontSize: '12.5px', color: 'var(--text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {b.label}
+                            </span>
+                            <span style={{ fontSize: '11px', color: b.avenantCount > 0 ? 'var(--text2)' : 'var(--text3)', fontWeight: b.avenantCount > 0 ? 600 : 400 }}>
+                              {b.avenantCount > 0 ? `${b.avenantCount} avenant${b.avenantCount > 1 ? 's' : ''}` : '—'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {noGroupBails.length > 0 && (
+            <div style={{ marginTop: '16px', padding: '10px 14px', borderRadius: 'var(--r)', border: '1px dashed var(--border2)', fontSize: '12px', color: 'var(--text3)' }}>
+              ⚠ {noGroupBails.length} bail{noGroupBails.length > 1 ? 's' : ''} non rattaché{noGroupBails.length > 1 ? 's' : ''} à un immeuble (actif non renseigné) — à corriger depuis le tableau de bord.
+            </div>
+          )}
+        </div>
+
+        {confirmDelete && (
+          <div className="modal-overlay" style={{ zIndex: 10000 }} onClick={() => setConfirmDelete(null)}>
+            <div className="modal" style={{ width: '360px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-title">Retirer « {confirmDelete.name} » ?</div>
+              <div className="modal-sub" style={{ marginTop: 0 }}>Cet immeuble n'a aucun bail rattaché — il disparaîtra de cette liste et du sélecteur d'actif.</div>
+              <div className="modal-actions">
+                <button className="btn" onClick={() => setConfirmDelete(null)}>Annuler</button>
+                <button className="btn" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                  onClick={async () => { await onRemoveImmeuble(confirmDelete.id); setConfirmDelete(null) }}>
+                  Retirer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Modale de contrôle qualité ──────────────────────────────────────────────
 function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary, onFixSurfaceLoyer }) {
   const [showDismissed, setShowDismissed] = useState(false)
@@ -4798,7 +4990,7 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
   )
 }
 
-function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived }) {
+function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived, immeubles, onEnsureImmeuble }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
   const [extractionErrors, setExtractionErrors] = useState(null) // null or array of {name, reason}
@@ -4860,8 +5052,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     return () => document.removeEventListener('click', handler)
   }, [openRowMenu])
 
-  // Derive all existing actif groups from tree
-  const existingGroups = [...new Set(tree.map(b => b.actif_group).filter(Boolean))].sort()
+  // Liste des actifs proposés dans le sélecteur : la table maîtresse
+  // `immeubles` en priorité, complétée par tout actif_group déjà utilisé sur
+  // le tree mais pas encore présent dans cette table (filet de sécurité —
+  // l'App réconcilie normalement les deux automatiquement).
+  const existingGroups = [...new Set([
+    ...(immeubles || []).map(i => i.name),
+    ...tree.map(b => b.actif_group).filter(Boolean),
+  ])].sort()
 
   async function renameGroup(oldName, newName) {
     const v = newName.trim()
@@ -4872,6 +5070,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       await supabase.from('extractions').update({ actif_group: v }).eq('parent_id', id)
       onUpdateActif?.(id, v)
     }
+    onEnsureImmeuble?.(v)
     setRenamingGroup(null)
   }
 
@@ -4885,6 +5084,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     onUpdateActif?.(id, v)
     const { error } = await supabase.from('extractions').update({ actif_group: v || null }).eq('id', id)
     if (!error) await supabase.from('extractions').update({ actif_group: v || null }).eq('parent_id', id)
+    if (v) onEnsureImmeuble?.(v)
     savingRef.current = false
   }
 
@@ -6126,6 +6326,7 @@ export default function App() {
   const [showEtatLocatifMenu, setShowEtatLocatifMenu] = useState(false)
   const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
   const [showQualityCheck, setShowQualityCheck] = useState(false)
+  const [showSynthese, setShowSynthese] = useState(false)
   // Recherche/filtre du dashboard remontés ici (plutôt que locaux à Dashboard)
   // pour survivre à la navigation vers une fiche détail et retour.
   const [dashSearch, setDashSearch] = useState('')
@@ -6186,6 +6387,47 @@ export default function App() {
     setHistLoaded(true)
   }
 
+  // ─── Liste maîtresse des immeubles ──────────────────────────────────────────
+  // Table `immeubles` (id, name) : contrairement à actif_group (qui n'existe
+  // que sur les baux déjà saisis), cette table permet de déclarer un immeuble
+  // du patrimoine AVANT même d'y avoir extrait un premier bail — nécessaire
+  // pour la vue Synthèse (voir les immeubles "pas encore faits").
+  const [immeubles, setImmeubles] = useState([]) // [{ id, name }]
+
+  async function fetchImmeubles() {
+    const { data, error } = await supabase.from('immeubles').select('id, name').order('name')
+    if (error) { console.error('Chargement des immeubles échoué', error); return [] }
+    return data || []
+  }
+
+  async function loadImmeubles() {
+    setImmeubles(await fetchImmeubles())
+  }
+
+  // Ajoute un immeuble à la table maîtresse s'il n'y existe pas déjà
+  // (comparaison insensible à la casse) — appelé à la fois depuis la vue
+  // Synthèse ("+ Ajouter un immeuble") et automatiquement dès qu'un nouvel
+  // actif_group est créé ailleurs dans l'appli (ActifPicker du dashboard),
+  // pour que les deux restent toujours synchronisés.
+  async function ensureImmeubleExists(name) {
+    const v = (name || '').trim()
+    if (!v) return
+    if (immeubles.some(i => i.name.toLowerCase() === v.toLowerCase())) return
+    const { data, error } = await supabase.from('immeubles').insert({ name: v }).select('id, name').single()
+    if (error) {
+      // Contrainte d'unicité (créé entre-temps par un autre onglet/utilisateur) : pas bloquant
+      if (error.code !== '23505') console.error('Création immeuble échouée', error)
+      return
+    }
+    setImmeubles(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function removeImmeuble(id) {
+    const { error } = await supabase.from('immeubles').delete().eq('id', id)
+    if (error) { console.error('Suppression immeuble échouée', error); return }
+    setImmeubles(prev => prev.filter(i => i.id !== id))
+  }
+
   // ─── Navigation par URL (API History native — pas de librairie de routage) ──
   // /               → dashboard
   // /bail/{id}      → fiche détail d'un bail ou avenant
@@ -6230,6 +6472,7 @@ export default function App() {
   // Le Dashboard est désormais la seule page (plus d'onglet "Extraire" séparé
   // à cliquer en premier) — il faut donc charger l'historique dès le montage.
   useEffect(() => { loadHistory() }, [])
+  useEffect(() => { loadImmeubles() }, [])
 
   // Clic sur un lot dans l'état locatif → ouvre le détail du bail, ferme la modale
   useEffect(() => {
@@ -6258,6 +6501,18 @@ export default function App() {
     })
     return Object.entries(map).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name))
   }, [history])
+
+  // Réconciliation douce : un actif_group déjà utilisé sur un bail mais absent
+  // de la table maîtresse `immeubles` (données historiques créées avant son
+  // introduction) y est ajouté automatiquement, pour que la vue Synthèse et le
+  // sélecteur d'actif restent cohérents avec ce qui existe déjà en base.
+  useEffect(() => {
+    if (!histLoaded || !immeubles) return
+    const known = new Set(immeubles.map(i => i.name.toLowerCase()))
+    const missing = [...new Set(history.filter(r => r.document_type === 'bail' && r.actif_group).map(r => r.actif_group))]
+      .filter(name => !known.has(name.toLowerCase()))
+    missing.forEach(name => ensureImmeubleExists(name))
+  }, [histLoaded, history, immeubles])
 
   // Rafraîchissement forcé (ignore le cache histLoaded) — utilisé après un ajout
   // ponctuel depuis le dashboard (ex. bouton "+ Avenant"), où loadHistory() seul
@@ -6734,6 +6989,19 @@ export default function App() {
           </div>
 
           <button
+            onClick={() => setShowSynthese(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '13px', fontWeight: 600,
+              padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', marginLeft: '10px',
+            }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>
+            </svg>
+            Synthèse
+          </button>
+
+          <button
             onClick={() => setShowQualityCheck(true)}
             style={{
               display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(255,255,255,0.08)',
@@ -6823,6 +7091,17 @@ export default function App() {
               setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
               if (activeItem?.id === rowId) setActiveItem(prev => ({ ...prev, data: newData }))
             }}
+          />
+        )}
+
+        {showSynthese && (
+          <SyntheseModal
+            bails={history.filter(row => row.document_type === 'bail' && !row.data?._archived)}
+            immeubles={immeubles}
+            onAddImmeuble={ensureImmeubleExists}
+            onRemoveImmeuble={removeImmeuble}
+            onSelect={item => { setShowSynthese(false); setActiveItem(item); navigate(`/bail/${item.id}`) }}
+            onClose={() => setShowSynthese(false)}
           />
         )}
 
@@ -6937,6 +7216,8 @@ export default function App() {
                   setSearch={setDashSearch}
                   showArchived={dashShowArchived}
                   setShowArchived={setDashShowArchived}
+                  immeubles={immeubles}
+                  onEnsureImmeuble={ensureImmeubleExists}
                   onUpdateActif={(id, value) => {
                     setHistory(prev => prev.map(b => {
                       if (b.id === id) return { ...b, actif_group: value || null }
