@@ -6140,23 +6140,23 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 </div>
 
                 {/* Type */}
-                <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px', flexDirection: 'column', gap: '3px' }}>
+                <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px', flexDirection: 'row', gap: '4px', flexWrap: 'wrap' }}>
                   <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`}>
                     {isAv ? 'Avenant' : 'Bail'}
                   </span>
                   {isExtractionError && (
-                    <span title={d.error_message || 'Erreur lors de l\'extraction'} style={{ fontSize: '10px', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '4px', padding: '1px 5px', fontWeight: 600, marginTop: '2px', display: 'block', cursor: 'help' }}>
-                      ❌ Erreur extraction
+                    <span title={d.error_message || 'Erreur lors de l\'extraction'} style={{ fontSize: '11px', width: '18px', height: '18px', lineHeight: '16px', textAlign: 'center', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '4px', fontWeight: 600, cursor: 'help', flexShrink: 0 }}>
+                      ❌
                     </span>
                   )}
                   {isOrphan && !isExtractionError && (
-                    <span title="Bail parent manquant ou en erreur" style={{ fontSize: '10px', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '4px', padding: '1px 5px', fontWeight: 600, marginTop: '2px', display: 'block' }}>
-                      ⚠ Bail manquant
+                    <span title="Bail parent manquant ou en erreur" style={{ fontSize: '11px', width: '18px', height: '18px', lineHeight: '16px', textAlign: 'center', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '4px', fontWeight: 600, cursor: 'help', flexShrink: 0 }}>
+                      ⚠
                     </span>
                   )}
                   {!row.storage_path && !isExtractionError && !isOrphan && (
-                    <span title="Aucun fichier source attaché — via le menu ⋯ : « Joindre le fichier source et réextraire »" style={{ fontSize: '10px', background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid #DEBB70', borderRadius: '4px', padding: '1px 5px', fontWeight: 600, marginTop: '2px', display: 'block', cursor: 'help' }}>
-                      📎 Sans fichier
+                    <span title="Aucun fichier source attaché — via le menu ⋯ : « Joindre le fichier source et réextraire »" style={{ fontSize: '11px', width: '18px', height: '18px', lineHeight: '16px', textAlign: 'center', background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid #DEBB70', borderRadius: '4px', fontWeight: 600, cursor: 'help', flexShrink: 0 }}>
+                      📎
                     </span>
                   )}
                 </div>
