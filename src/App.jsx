@@ -5168,10 +5168,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const toastTimerRef = useRef(null)
   useBeforeUnloadGuard(!!avenantBatchProgress || !!reextractProgress)
 
-  function showToast(type, message) {
+  function showToast(type, message, duration = 4500) {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     setToast({ type, message })
-    toastTimerRef.current = setTimeout(() => setToast(null), 4500)
+    toastTimerRef.current = setTimeout(() => setToast(null), duration)
   }
 
   // Flatten all items for table
@@ -5319,7 +5319,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       showToast('success', `${successCount} avenant${successCount > 1 ? 's' : ''} ajouté${successCount > 1 ? 's' : ''} à « ${label} »`)
     }
     if (failedFiles.length > 0) {
-      showToast('error', `${failedFiles.length} échec${failedFiles.length > 1 ? 's' : ''} : ${failedFiles.map(f => f.name).join(', ')}`)
+      const detail = failedFiles.map(f => `${f.name} (${f.msg})`).join(' · ')
+      showToast('error', `${failedFiles.length} échec${failedFiles.length > 1 ? 's' : ''} : ${detail}`, 10000)
     }
     onRefresh?.()
   }
