@@ -5692,7 +5692,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           </div>
         </div>
       )}
-      {/* Toolbar */}
+      {/* Toolbar + en-tête de colonnes : collés ensemble comme un seul bloc,
+          pour éviter deux décalages sticky indépendants à garder synchronisés. */}
+      <div className="dash-sticky-head">
       <div className="dash-toolbar">
         <div className="dash-stats">
           {(() => {
@@ -5828,6 +5830,28 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           </div>
         )}
       </div>
+      {!!filtered.length && (
+        <div className="dash-thead">
+          <div className="dash-th" style={{ gridColumn: '1', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
+            onClick={() => { if (sortBy === 'actif') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('actif'); setSortDir('asc') } }}>
+            Actif / Document
+            {sortBy === 'actif' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+          </div>
+          <div className="dash-th" style={{ gridColumn: '2', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
+            onClick={() => { if (sortBy === 'preneur') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('preneur'); setSortDir('asc') } }}>
+            Preneur
+            {sortBy === 'preneur' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+          </div>
+          <div className="dash-th" style={{ gridColumn: '3' }}>Type</div>
+          <div className="dash-th dash-th-right" style={{ gridColumn: '4' }}>Surface</div>
+          <div className="dash-th" style={{ gridColumn: '5' }}>Date effet</div>
+          <div className="dash-th" style={{ gridColumn: '6' }}>Date fin</div>
+          <div className="dash-th" style={{ gridColumn: '7' }}>Break</div>
+          <div className="dash-th dash-th-right" style={{ gridColumn: '8' }}>Loyer HT/HC à la signature</div>
+          <div style={{ gridColumn: '9' }}/>
+        </div>
+      )}
+      </div>
 
       {showBulkAttach && (
         <BulkAttachModal
@@ -5873,25 +5897,6 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         </div>
       ) : (
         <div className="dash-table">
-          <div className="dash-thead">
-            <div className="dash-th" style={{ gridColumn: '1', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
-              onClick={() => { if (sortBy === 'actif') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('actif'); setSortDir('asc') } }}>
-              Actif / Document
-              {sortBy === 'actif' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-            </div>
-            <div className="dash-th" style={{ gridColumn: '2', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
-              onClick={() => { if (sortBy === 'preneur') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('preneur'); setSortDir('asc') } }}>
-              Preneur
-              {sortBy === 'preneur' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-            </div>
-            <div className="dash-th" style={{ gridColumn: '3' }}>Type</div>
-            <div className="dash-th dash-th-right" style={{ gridColumn: '4' }}>Surface</div>
-            <div className="dash-th" style={{ gridColumn: '5' }}>Date effet</div>
-            <div className="dash-th" style={{ gridColumn: '6' }}>Date fin</div>
-            <div className="dash-th" style={{ gridColumn: '7' }}>Break</div>
-            <div className="dash-th dash-th-right" style={{ gridColumn: '8' }}>Loyer HT/HC à la signature</div>
-            <div style={{ gridColumn: '9' }}/>
-          </div>
           {sortedFiltered.map((row, rowIdx) => {
             // Group header
             if (row._isGroupHeader) return (
