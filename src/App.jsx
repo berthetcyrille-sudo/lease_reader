@@ -4219,6 +4219,7 @@ const displayPartyName = s => standardizeCase(shortPartyName(s))
 function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSelect, onClose }) {
   const [newName, setNewName] = useState('')
   const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState('')
   const [expanded, setExpanded] = useState({}) // { [immeubleName]: bool }
   const [confirmDelete, setConfirmDelete] = useState(null) // { id, name }
 
@@ -4257,9 +4258,15 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSe
     const v = newName.trim()
     if (!v) return
     setAdding(true)
-    await onAddImmeuble(v)
-    setNewName('')
-    setAdding(false)
+    setAddError('')
+    try {
+      await onAddImmeuble(v)
+      setNewName('')
+    } catch (err) {
+      setAddError(err.message || 'Échec de l\'ajout')
+    } finally {
+      setAdding(false)
+    }
   }
 
   const doneCount = rows.filter(r => r.bailCount > 0).length
@@ -4288,6 +4295,11 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSe
           />
           <button className="btn primary" disabled={!newName.trim() || adding} onClick={handleAdd}>+ Ajouter</button>
         </div>
+        {addError && (
+          <div style={{ fontSize: '12px', color: 'var(--danger)', background: 'var(--danger-bg)', padding: '8px 12px', borderRadius: 'var(--r)' }}>
+            ⚠ {addError}
+          </div>
+        )}
 
         <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
           {rows.length === 0 ? (
@@ -5163,7 +5175,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       await supabase.from('extractions').update({ actif_group: v }).eq('parent_id', id)
       onUpdateActif?.(id, v)
     }
-    onEnsureImmeuble?.(v)
+    try { await onEnsureImmeuble?.(v) } catch (err) { showToast('error', err.message || "Échec de l'enregistrement de l'immeuble") }
     setRenamingGroup(null)
   }
 
@@ -5177,7 +5189,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     onUpdateActif?.(id, v)
     const { error } = await supabase.from('extractions').update({ actif_group: v || null }).eq('id', id)
     if (!error) await supabase.from('extractions').update({ actif_group: v || null }).eq('parent_id', id)
-    if (v) onEnsureImmeuble?.(v)
+    if (v) { try { await onEnsureImmeuble?.(v) } catch (err) { showToast('error', err.message || "Échec de l'enregistrement de l'immeuble") } }
     savingRef.current = false
   }
 
@@ -6605,8 +6617,13 @@ export default function App() {
     const { data, error } = await supabase.from('immeubles').insert({ name: v }).select('id, name').single()
     if (error) {
       // Contrainte d'unicité (créé entre-temps par un autre onglet/utilisateur) : pas bloquant
-      if (error.code !== '23505') console.error('Création immeuble échouée', error)
-      return
+      if (error.code === '23505') return
+      console.error('Création immeuble échouée', error)
+      throw new Error(
+        error.code === '42P01'
+          ? "La table « immeubles » n'existe pas encore en base — voir la note d'installation de la vue Synthèse."
+          : (error.message || 'Création de l\'immeuble échouée (vérifie les policies RLS sur la table immeubles).')
+      )
     }
     setImmeubles(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
   }
@@ -6700,7 +6717,7 @@ export default function App() {
     const known = new Set(immeubles.map(i => i.name.toLowerCase()))
     const missing = [...new Set(history.filter(r => r.document_type === 'bail' && r.actif_group).map(r => r.actif_group))]
       .filter(name => !known.has(name.toLowerCase()))
-    missing.forEach(name => ensureImmeubleExists(name))
+    missing.forEach(name => ensureImmeubleExists(name).catch(() => {})) // best-effort, pas d'UI ici
   }, [histLoaded, history, immeubles])
 
   // Rafraîchissement forcé (ignore le cache histLoaded) — utilisé après un ajout
