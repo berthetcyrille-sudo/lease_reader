@@ -5144,7 +5144,7 @@ function LinkSecondBailModal({ row, bails, progress, onConfirm, onClose }) {
   )
 }
 
-function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived, immeubles, onEnsureImmeuble }) {
+function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived, immeubles, onEnsureImmeuble, userEmail }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
   const [extractionErrors, setExtractionErrors] = useState(null) // null or array of {name, reason}
@@ -5299,7 +5299,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           document_type: 'avenant',
           parent_id: bailRow.id,
           actif_group: bailRow.actif_group || null,
-          created_by: session?.user?.email || null,
+          created_by: userEmail || null,
         }).select().single()
         if (error) throw error
         if (saved?.id) await uploadSourceFile(saved.id, prepared) // on attend la fin pour éviter un rafraîchissement prématuré du dashboard
@@ -5356,7 +5356,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         document_type: 'avenant',
         parent_id: secondaryBail.id,
         actif_group: secondaryBail.actif_group || null,
-        created_by: row.created_by || null,
+        created_by: userEmail || null,
       }).select().single()
       if (error) throw error
       if (sourceFile) await uploadSourceFile(dup.id, sourceFile)
@@ -7504,6 +7504,7 @@ export default function App() {
                   setShowArchived={setDashShowArchived}
                   immeubles={immeubles}
                   onEnsureImmeuble={ensureImmeubleExists}
+                  userEmail={session?.user?.email || null}
                   onUpdateActif={(id, value) => {
                     setHistory(prev => prev.map(b => {
                       if (b.id === id) return { ...b, actif_group: value || null }
