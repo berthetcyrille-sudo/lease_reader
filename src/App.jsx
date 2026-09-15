@@ -4178,16 +4178,11 @@ function ExcelColumnPickerModal({ onClose, onConfirm }) {
 }
 
 // ─── Helpers d'affichage des noms de parties (preneur/bailleur) ─────────────
-// Les extractions reprennent la dénomination telle qu'écrite dans le bail
-// (souvent longue — forme sociale, SIREN, représentant — et parfois tout en
-// majuscules). Pour un affichage compact et homogène dans la Synthèse :
-// 1) shortPartyName raccourcit à la dénomination principale (avant la
-//    première virgule/parenthèse/forme sociale) ;
-// 2) standardizeCase remet une casse normale, en préservant les formes
-//    juridiques usuelles (SAS, SARL…), les acronymes ponctués (ex: J.I.D.A.)
-//    et tout ce qui commence par un chiffre (numéros, SIREN…).
-const shortPartyName = s => s?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim()
-
+// shortPartyName (déjà défini plus haut dans le fichier) raccourcit à la
+// dénomination principale. standardizeCase remet une casse normale, en
+// préservant les formes juridiques usuelles (SAS, SARL…), les acronymes
+// ponctués (ex: J.I.D.A.) et tout ce qui commence par un chiffre (numéros,
+// SIREN…).
 const CORP_FORMS = new Set(['sas','sasu','sarl','eurl','sci','sccv','snc','gie','scp','scea','selarl','selas','sep','opci','sppicav','sa'])
 
 function titleCaseWord(w) {
