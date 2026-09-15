@@ -4177,6 +4177,43 @@ function ExcelColumnPickerModal({ onClose, onConfirm }) {
   )
 }
 
+// ─── Helpers d'affichage des noms de parties (preneur/bailleur) ─────────────
+// Les extractions reprennent la dénomination telle qu'écrite dans le bail
+// (souvent longue — forme sociale, SIREN, représentant — et parfois tout en
+// majuscules). Pour un affichage compact et homogène dans la Synthèse :
+// 1) shortPartyName raccourcit à la dénomination principale (avant la
+//    première virgule/parenthèse/forme sociale) ;
+// 2) standardizeCase remet une casse normale, en préservant les formes
+//    juridiques usuelles (SAS, SARL…), les acronymes ponctués (ex: J.I.D.A.)
+//    et tout ce qui commence par un chiffre (numéros, SIREN…).
+const shortPartyName = s => s?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim()
+
+const CORP_FORMS = new Set(['sas','sasu','sarl','eurl','sci','sccv','snc','gie','scp','scea','selarl','selas','sep','opci','sppicav','sa'])
+
+function titleCaseWord(w) {
+  if (!w) return w
+  return w.split(/([-'])/).map(part => part.length ? part[0].toUpperCase() + part.slice(1).toLowerCase() : part).join('')
+}
+
+function standardizeCase(str) {
+  if (!str) return str
+  return str.split(/(\s+)/).map(raw => {
+    if (!raw.trim()) return raw
+    const lead = raw.match(/^[(]+/)?.[0] || ''
+    const trail = raw.match(/[).,]+$/)?.[0] || ''
+    const core = raw.slice(lead.length, raw.length - trail.length)
+    if (!core) return raw
+    let out
+    if (/^\d/.test(core)) out = core
+    else if (/^[A-Z](\.[A-Z])+\.?$/.test(core)) out = core
+    else if (CORP_FORMS.has(core.toLowerCase())) out = core.toUpperCase()
+    else out = titleCaseWord(core)
+    return lead + out + trail
+  }).join('')
+}
+
+const displayPartyName = s => standardizeCase(shortPartyName(s))
+
 // ─── Vue Synthèse : consolidé par immeuble ──────────────────────────────────
 // Objectif (demande utilisateur) : voir en un coup d'œil les immeubles jamais
 // commencés (aucun bail saisi) et ceux où il manque potentiellement des baux
@@ -4213,7 +4250,7 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onSe
         bailCount: buildingBails.length,
         bails: buildingBails.map(b => ({
           id: b.id,
-          label: b.data?.preneur || b.data?.immeuble || b.file_name,
+          label: displayPartyName(b.data?.preneur) || b.data?.immeuble || b.file_name,
           avenantCount: (b.avenants || []).length,
           row: b,
         })),
