@@ -5022,6 +5022,64 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
   )
 }
 
+// ─── Sélection du second bail à lier à un avenant (cas rare) ───────────────
+function LinkSecondBailModal({ row, bails, progress, onConfirm, onClose }) {
+  const [q, setQ] = useState('')
+  const label = b => b.data?.preneur || b.data?.immeuble || b.file_name
+  const filtered = bails.filter(b => {
+    const s = q.trim().toLowerCase()
+    if (!s) return true
+    return [b.data?.preneur, b.data?.immeuble, b.data?.adresse, b.actif_group].filter(Boolean)
+      .some(v => v.toLowerCase().includes(s))
+  }).sort((a, b) => label(a).localeCompare(label(b)))
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ width: '480px' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-title">Lier « {row.file_name} » à un second bail</div>
+        <div className="modal-sub">
+          Ce document sera dupliqué sur le bail choisi (avec son fichier source), et les deux lignes resteront tracées
+          comme un seul et même document. À utiliser uniquement quand un avenant modifie réellement plusieurs baux
+          (ex. avenant de résiliation commun).
+        </div>
+        {progress ? (
+          <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+            Duplication en cours…
+          </div>
+        ) : (
+          <>
+            <input
+              autoFocus
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="Rechercher un bail (preneur, immeuble, adresse)…"
+              style={{ padding: '8px 12px', fontSize: '13px', border: '1px solid var(--border2)', borderRadius: 'var(--r)', outline: 'none', background: 'var(--surface2)', color: 'var(--text)' }}
+            />
+            <div style={{ overflowY: 'auto', maxHeight: '320px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {filtered.length === 0 ? (
+                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text3)', fontSize: '12px', fontStyle: 'italic' }}>
+                  Aucun bail trouvé
+                </div>
+              ) : filtered.map(b => (
+                <button
+                  key={b.id}
+                  className="modal-bail"
+                  onClick={() => onConfirm(b)}>
+                  {label(b)}
+                  <div className="modal-bail-meta">{b.actif_group || b.data?.adresse || ''}</div>
+                </button>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={onClose}>Annuler</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived, immeubles, onEnsureImmeuble }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
@@ -5038,6 +5096,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [showExcelPicker, setShowExcelPicker] = useState(false)
   const [reextractProgress, setReextractProgress] = useState(null) // { label, state } — bloquant
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
+  const [linkTarget, setLinkTarget] = useState(null) // avenant row en attente de choix du 2e bail
+  const [linkProgress, setLinkProgress] = useState(false) // duplication en cours (bloquant)
+  const [confirmUnlink, setConfirmUnlink] = useState(null) // avenant row en attente de confirmation de déliaison
   const avenantInputRef = useRef(null)
   const attachInputRef = useRef(null)
   const toastTimerRef = useRef(null)
@@ -5201,6 +5262,71 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
   function viewSourceFile(row) {
     openSourceAtPage(row, 1)
+  }
+
+  // ─── Cas rare : un avenant concerne 2 baux du même preneur ─────────────────
+  // (ex. avenant de résiliation commun à un bail bât A et un bail bât B/C).
+  // Plutôt qu'un simple lien "voir aussi" (qui ne recalculerait la date de fin
+  // que sur UN des deux baux), on duplique la ligne d'avenant sur le second
+  // bail — chaque bail garde ainsi son échéancier correctement recalculé — et
+  // on tague les deux lignes avec une référence croisée pour les besoins
+  // d'affichage et d'avertissement en cas de modification d'un seul côté.
+  async function linkAvenantToSecondBail(row, secondaryBail) {
+    setLinkProgress(true)
+    try {
+      let sourceFile = null
+      if (row.storage_path) {
+        const { data: signedData, error: signErr } = await supabase.storage
+          .from('lease-sources').createSignedUrl(row.storage_path, 300)
+        if (signErr) throw signErr
+        const fileRes = await fetch(signedData.signedUrl)
+        if (!fileRes.ok) throw new Error('Téléchargement du fichier source échoué')
+        const blob = await fileRes.blob()
+        sourceFile = new File([blob], row.file_name || row.storage_path.split('/').pop(), { type: blob.type })
+      }
+
+      const { data: dup, error } = await supabase.from('extractions').insert({
+        file_name: row.file_name,
+        data: { ...row.data },
+        document_type: 'avenant',
+        parent_id: secondaryBail.id,
+        actif_group: secondaryBail.actif_group || null,
+        created_by: row.created_by || null,
+      }).select().single()
+      if (error) throw error
+      if (sourceFile) await uploadSourceFile(dup.id, sourceFile)
+
+      const newDataPrimary = { ...row.data, _bail_partage_id: secondaryBail.id, _avenant_partage_id: dup.id }
+      const newDataSecondary = { ...row.data, _bail_partage_id: row.parent_id, _avenant_partage_id: row.id }
+      await supabase.from('extractions').update({ data: newDataPrimary }).eq('id', row.id)
+      await supabase.from('extractions').update({ data: newDataSecondary }).eq('id', dup.id)
+
+      setLinkTarget(null)
+      showToast('success', `Avenant dupliqué et lié au bail « ${secondaryBail.data?.immeuble || secondaryBail.data?.preneur || secondaryBail.file_name} »`)
+      onRefresh?.()
+    } catch (err) {
+      showToast('error', `Échec de la liaison : ${err.message || 'Erreur inconnue'}`)
+    } finally {
+      setLinkProgress(false)
+    }
+  }
+
+  // Retire la référence croisée des deux côtés, sans rien supprimer — les deux
+  // lignes redeviennent deux avenants indépendants (chacun garde ses données).
+  async function unlinkAvenant(row) {
+    const siblingId = row.data?._avenant_partage_id
+    const { _bail_partage_id, _avenant_partage_id, ...cleaned } = row.data || {}
+    await supabase.from('extractions').update({ data: cleaned }).eq('id', row.id)
+    if (siblingId) {
+      const { data: sibling } = await supabase.from('extractions').select('data').eq('id', siblingId).maybeSingle()
+      if (sibling) {
+        const { _bail_partage_id: a, _avenant_partage_id: b, ...siblingCleaned } = sibling.data || {}
+        await supabase.from('extractions').update({ data: siblingCleaned }).eq('id', siblingId)
+      }
+    }
+    setConfirmUnlink(null)
+    showToast('success', 'Liaison retirée — les deux avenants sont maintenant indépendants')
+    onRefresh?.()
   }
 
   // ─── Rattrapage : attacher le fichier source à un document déjà extrait ────
@@ -5491,6 +5617,24 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           confirmLabel="Choisir le fichier"
           onConfirm={() => { openAttachPicker(confirmAttachReextract); setConfirmAttachReextract(null) }}
           onCancel={() => setConfirmAttachReextract(null)}
+        />
+      )}
+      {linkTarget && (
+        <LinkSecondBailModal
+          row={linkTarget}
+          bails={tree.filter(b => b.document_type === 'bail' && b.id !== linkTarget.parent_id)}
+          progress={linkProgress}
+          onConfirm={bail => linkAvenantToSecondBail(linkTarget, bail)}
+          onClose={() => !linkProgress && setLinkTarget(null)}
+        />
+      )}
+      {confirmUnlink && (
+        <ConfirmModal
+          title="Délier le second bail ?"
+          message="Les deux avenants redeviendront indépendants — chacun garde ses propres données, mais une future correction sur l'un ne sera plus signalée sur l'autre."
+          confirmLabel="Délier"
+          onConfirm={() => unlinkAvenant(confirmUnlink)}
+          onCancel={() => setConfirmUnlink(null)}
         />
       )}
       {/* Export errors modal */}
@@ -6047,6 +6191,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                               ? <><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><path d="M10 12h4"/></>
                               : <><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></>,
                             label: row.data?._archived ? 'Désarchiver' : 'Archiver', onClick: e => onArchive(row, e),
+                          },
+                          isAv && !row.data?._avenant_partage_id && {
+                            icon: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
+                            label: 'Lier à un second bail (rare)', onClick: () => setLinkTarget(row),
+                          },
+                          isAv && row.data?._avenant_partage_id && {
+                            icon: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
+                            label: 'Délier le second bail', onClick: () => setConfirmUnlink(row),
                           },
                           {
                             icon: <><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></>,
@@ -7171,6 +7323,8 @@ export default function App() {
                 }
               }
             }
+            const sharedBailId = activeItem.document_type === 'avenant' ? activeItem.data?._bail_partage_id : null
+            const sharedBail = sharedBailId ? history.find(b => b.id === sharedBailId) : null
             return (
             <div className="result-topbar" style={{ position: 'relative' }}>
               {activeItem.data?._extracted_at && (
@@ -7188,6 +7342,18 @@ export default function App() {
               </div>
               <div className="result-title">{resultTitle}</div>
               {resultSub && <div className="result-sub">{resultSub}</div>}
+              {sharedBail && (
+                <div
+                  onClick={() => { setActiveItem(sharedBail); navigate(`/bail/${sharedBail.id}`) }}
+                  title="Ce document a été dupliqué et rattaché à ce bail — pense à répercuter toute correction des deux côtés"
+                  style={{
+                    marginTop: '6px', display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+                    fontSize: '11px', fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-bg)',
+                    padding: '3px 9px', borderRadius: '999px', width: 'fit-content',
+                  }}>
+                  🔗 Avenant aussi rattaché à « {sharedBail.data?.immeuble || sharedBail.data?.preneur || sharedBail.file_name} »
+                </div>
+              )}
               <div className="result-actions">
                 <button className="btn back" onClick={() => { setActiveItem(null); navigate('/') }}>← Retour au dashboard</button>
                 {activeItem.storage_path && (
