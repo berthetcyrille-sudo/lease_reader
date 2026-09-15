@@ -5475,10 +5475,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     e.target.value = ''
     if (!file || !row) return
 
-    // Les baux sans fichier source sont typiquement d'anciennes extractions,
-    // faites avec des règles de prompt potentiellement dépassées — on profite
-    // donc de l'attache du fichier pour relancer une extraction complète dans
-    // la foulée, plutôt que de se limiter à la localisation de pages.
+    // Deux cas d'usage : (1) baux sans fichier source du tout, typiquement
+    // d'anciennes extractions faites avec des règles de prompt potentiellement
+    // dépassées — on profite de l'attache pour relancer une extraction
+    // complète ; (2) remplacement d'un fichier déjà attaché (ex. fichier
+    // repris sans ses annexes après correction de leur détection). Dans les
+    // deux cas, le fichier choisi remplace entièrement les données actuelles.
+    const previousStoragePath = row.storage_path
     const isAv = row.document_type === 'avenant'
     const label = row.data?.immeuble || row.data?.adresse || row.file_name
     setReextractProgress({ label, state: 'stripping' })
@@ -5538,6 +5541,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       } catch (_) { /* non bloquant */ }
 
       await uploadSourceFile(row.id, prepared) // attache le fichier + renseigne storage_path
+      // Si un fichier était déjà attaché sous un nom différent, l'ancien objet
+      // de stockage devient orphelin (chemin basé sur recordId + nom de
+      // fichier) — on le supprime en best-effort, sans bloquer le flux
+      // principal si ça échoue (droits, chemin déjà absent...).
+      if (previousStoragePath && previousStoragePath !== `${row.id}/${sanitizeStorageKey(prepared.name)}`) {
+        try { await supabase.storage.from('lease-sources').remove([previousStoragePath]) } catch (_) {}
+      }
       const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
       if (updateErr) throw updateErr
 
@@ -5718,8 +5728,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       )}
       {confirmAttachReextract && (
         <ConfirmModal
-          title="Joindre le fichier et réextraire ?"
-          message={`Ce document n'a pas encore de fichier source attaché — probablement une extraction ancienne, faite avec des règles de prompt potentiellement dépassées. Le fichier que tu vas choisir remplacera les données actuelles de "${confirmAttachReextract.data?.immeuble || confirmAttachReextract.data?.adresse || confirmAttachReextract.file_name}" par une extraction avec les règles actuelles. Les avenants éventuels ne sont pas affectés.`}
+          title={confirmAttachReextract.storage_path ? 'Remplacer le fichier et réextraire ?' : 'Joindre le fichier et réextraire ?'}
+          message={confirmAttachReextract.storage_path
+            ? `Le nouveau fichier que tu vas choisir remplacera définitivement l'actuel fichier source attaché à "${confirmAttachReextract.data?.immeuble || confirmAttachReextract.data?.adresse || confirmAttachReextract.file_name}" (utile par exemple pour repartir d'un PDF plus léger, sans annexes). Les données actuelles seront aussi remplacées par une nouvelle extraction sur ce nouveau fichier. Les avenants éventuels ne sont pas affectés.`
+            : `Ce document n'a pas encore de fichier source attaché — probablement une extraction ancienne, faite avec des règles de prompt potentiellement dépassées. Le fichier que tu vas choisir remplacera les données actuelles de "${confirmAttachReextract.data?.immeuble || confirmAttachReextract.data?.adresse || confirmAttachReextract.file_name}" par une extraction avec les règles actuelles. Les avenants éventuels ne sont pas affectés.`}
           confirmLabel="Choisir le fichier"
           onConfirm={() => { openAttachPicker(confirmAttachReextract); setConfirmAttachReextract(null) }}
           onCancel={() => setConfirmAttachReextract(null)}
@@ -6287,12 +6299,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                             icon: <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
                             label: 'Voir le détail', onClick: () => onSelect(row),
                           },
-                          row.storage_path ? {
+                          row.storage_path && {
                             icon: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></>,
                             label: 'Voir le fichier source', onClick: () => viewSourceFile(row),
-                          } : {
+                          },
+                          {
                             icon: <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>,
-                            label: 'Joindre le fichier source et réextraire', onClick: () => setConfirmAttachReextract(row),
+                            label: row.storage_path ? 'Remplacer le fichier source et réextraire' : 'Joindre le fichier source et réextraire',
+                            onClick: () => setConfirmAttachReextract(row),
                           },
                           !isAv && {
                             icon: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
