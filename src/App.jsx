@@ -389,9 +389,31 @@ async function stripAnnexPages(file, onProgress) {
     if (annexListPage === null && numPages > 15) {
       try {
         onProgress?.(-1, numPages) // -1 = signal spécial : repli IA en cours (pas un numéro de page)
-        const base64 = await toBase64(file)
+        // On n'envoie que la FIN du document à Claude pour cette question
+        // (la liste des annexes est quasiment toujours dans les dernières
+        // pages, juste après la signature) — envoyer le PDF entier peut
+        // dépasser la limite de taille de requête de l'API sur les gros
+        // scans, faisant échouer le repli précisément sur les documents qui
+        // en ont le plus besoin. On compresse en plus cet extrait s'il reste
+        // lourd (mêmes réglages que la compression normale avant extraction).
+        const tailPageCount = Math.min(30, numPages)
+        const tailStartIndex = numPages - tailPageCount // 0-based
+        const arrayBufferForTail = await file.arrayBuffer()
+        const srcDocForTail = await PDFDocument.load(arrayBufferForTail)
+        const tailDoc = await PDFDocument.create()
+        const tailIndices = Array.from({ length: tailPageCount }, (_, i) => tailStartIndex + i)
+        const tailCopiedPages = await tailDoc.copyPages(srcDocForTail, tailIndices)
+        tailCopiedPages.forEach(p => tailDoc.addPage(p))
+        const tailBytes = await tailDoc.save()
+        let tailFile = new File([tailBytes], file.name, { type: 'application/pdf' })
+        tailFile = await compressPdfIfNeeded(tailFile)
+        const base64 = await toBase64(tailFile)
         const detected = await detectAnnexPageViaClaude(base64)
-        if (Number.isInteger(detected) && detected > 0 && detected < numPages) annexListPage = detected - 1
+        // Le numéro renvoyé est relatif à cet extrait — on le retraduit en
+        // numéro de page dans le document complet.
+        if (Number.isInteger(detected) && detected > 0 && detected <= tailPageCount) {
+          annexListPage = tailStartIndex + (detected - 1)
+        }
       } catch (e) {
         console.error('Repli Claude (détection annexes) échoué pour', file.name, e)
       }
