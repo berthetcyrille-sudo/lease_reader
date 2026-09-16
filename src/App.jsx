@@ -344,51 +344,56 @@ async function stripAnnexPages(file, onProgress) {
     if (numPages < 3) { await pdf.destroy(); return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null } }
 
     let annexListPage = null // index 0-based de la page qui liste les annexes
-    let totalTextLength = 0
     for (let i = 0; i < numPages; i++) {
       onProgress?.(i + 1, numPages)
       const page = await pdf.getPage(i + 1)
       const textContent = await page.getTextContent()
       const text = textContent.items.map(it => it.str).join(' ')
-      totalTextLength += text.trim().length
       // Signal principal, robuste aux variations de mise en forme :
       // la page liste au moins "Annexe 1" ET "Annexe 2" à la suite, ET porte
-      // le titre "ANNEXES" (au pluriel) propre à la vraie page de liste —
-      // bien plus fiable que de dépendre d'une ponctuation précise après le
-      // numéro (deux-points, tiret, tabulation... tout existe selon le
-      // générateur du PDF ; le format "Annexe 1 <tabulation> Titre" sans
-      // aucune ponctuation est même le plus courant). Le titre "ANNEXES" est
-      // le vrai signal distinctif : une simple référence en prose ailleurs
-      // dans l'acte ("...jointes en Annexe 1 de l'Avenant", "...décrits en
-      // Annexe 2 de l'Avenant") ne porte quasiment jamais ce titre au
-      // pluriel — contrairement à un simple numéro seul, qui lui peut
-      // apparaître n'importe où et déclencher un faux positif bien avant la
-      // vraie liste, tronquant le document en plein milieu (vécu : perte de
-      // la page de signature d'un avenant).
-      const hasHeading = /\bANNEXES\b/i.test(text)
+      // un titre de type "annexes" propre à la vraie page de liste — bien
+      // plus fiable que de dépendre d'une ponctuation précise après le numéro
+      // (deux-points, tiret, tabulation... tout existe selon le générateur du
+      // PDF ; le format "Annexe 1 <tabulation> Titre" sans aucune
+      // ponctuation est même le plus courant). Le titre est le vrai signal
+      // distinctif : une simple référence en prose ailleurs dans l'acte
+      // ("...jointes en Annexe 1 de l'Avenant", "...décrits en Annexe 2 de
+      // l'Avenant") n'en porte quasiment jamais — contrairement à un simple
+      // numéro seul, qui lui peut apparaître n'importe où et déclencher un
+      // faux positif bien avant la vraie liste, tronquant le document en
+      // plein milieu (vécu : perte de la page de signature d'un avenant).
+      // Plusieurs formulations courantes du titre existent selon le rédacteur
+      // ("ANNEXES", "Documents annexés", "Pièces annexées", "Liste des
+      // annexes"...) — un seul motif rigide en ratait certaines (vécu :
+      // "Documents annexés" non reconnu, la vraie liste jamais découpée).
+      const hasHeading = /\b(ANNEXES|DOCUMENTS?\s+ANNEX[ÉE]{1,2}S?|PI[ÈE]CES?\s+ANNEX[ÉE]{1,2}S?|LISTE\s+DES\s+ANNEXES?)\b/i.test(text)
       const hasFirstEntry = /ANNEXE\s*(N\s*°?\s*)?1\b/i.test(text)
       const hasSecondEntry = /ANNEXE\s*(N\s*°?\s*)?2\b/i.test(text)
       if (hasHeading && hasFirstEntry && hasSecondEntry) { annexListPage = i; break }
     }
     await pdf.destroy() // libère le worker pdf.js avant l'étape pdf-lib / compression / repli Claude qui suit
 
-    // Repli pour les documents SCANNÉS (photocopies) : quasiment aucun texte
-    // n'a pu être extrait, donc la détection ci-dessus ne pouvait rien
-    // trouver — pas parce que le document n'a pas de liste d'annexes, mais
-    // parce qu'il n'y a rien à lire. On demande alors à Claude de repérer
-    // VISUELLEMENT cette page, plutôt que d'abandonner silencieusement. On ne
-    // tente ce repli que si le document est réellement vide de texte (sinon
-    // la détection locale, gratuite et instantanée, aurait déjà fonctionné) et
-    // assez long pour que ça vaille la peine (un document court n'a de toute
-    // façon pas besoin d'être découpé).
-    if (annexListPage === null && totalTextLength < 200 && numPages > 15) {
+    // Repli quand la détection locale ne trouve rien : soit un document
+    // SCANNÉ (quasiment aucun texte n'a pu être extrait), soit un document
+    // texte dont le titre de la page d'annexes est formulé d'une façon que la
+    // regex ci-dessus ne connaît pas encore (vécu à deux reprises avec des
+    // formulations différentes — plutôt que de courir après chaque nouvelle
+    // formulation, on demande à Claude de trancher visuellement dès que la
+    // détection locale échoue). On ne se limite donc plus aux seuls documents
+    // "vides de texte" : le seuil sur totalTextLength écartait à tort les
+    // documents mixtes (une partie du texte lisible, mais pas forcément la
+    // bonne page) ou texte-mais-mal-formulés, laissant le repli ne jamais se
+    // déclencher pour eux. Seule condition restante : un document assez long
+    // pour que le découpage vaille la peine (un document court n'a de toute
+    // façon pas besoin d'être allégé).
+    if (annexListPage === null && numPages > 15) {
       try {
         onProgress?.(-1, numPages) // -1 = signal spécial : repli IA en cours (pas un numéro de page)
         const base64 = await toBase64(file)
         const detected = await detectAnnexPageViaClaude(base64)
         if (Number.isInteger(detected) && detected > 0 && detected < numPages) annexListPage = detected - 1
       } catch (e) {
-        console.error('Repli Claude (détection annexes sur scan) échoué pour', file.name, e)
+        console.error('Repli Claude (détection annexes) échoué pour', file.name, e)
       }
     }
 
