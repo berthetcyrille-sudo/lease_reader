@@ -5233,6 +5233,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur'
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
+  const [editingActifUpload, setEditingActifUpload] = useState(null) // index de fichier dans la file d'import
+  const [editingActifUploadRect, setEditingActifUploadRect] = useState(null)
   const [renamingGroup, setRenamingGroup] = useState(null) // group name
   const [showToolsMenu, setShowToolsMenu] = useState(false)
   const [openRowMenu, setOpenRowMenu] = useState(null) // id de la ligne dont le menu "Actions" est ouvert
@@ -5245,6 +5247,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [editingActif])
+
+  useEffect(() => {
+    if (editingActifUpload === null) return
+    const handler = () => setEditingActifUpload(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [editingActifUpload])
 
   // Ferme le menu "Actions" au clic extérieur
   useEffect(() => {
@@ -6650,7 +6659,8 @@ export default function App() {
   }, [session])
 
   const [files,        setFiles]        = useState([])
-  const dirActifGroupsRef = useRef({})
+  // (dirActifGroupsRef a été retiré : remplacé par l'état actifGroups ci-dessous,
+  // qui reste éditable dans la file d'attente au lieu d'être figé au drop)
   const [statuses,     setStatuses]     = useState([])
   const [loading,      setLoading]      = useState(false)
   useBeforeUnloadGuard(loading)
@@ -6673,6 +6683,7 @@ export default function App() {
   const [fileOrder,    setFileOrder]    = useState([])     // indices ordonnés
   const [detecting,    setDetecting]    = useState(false)  // détection en cours
   const [avenantLinks, setAvenantLinks] = useState({})     // index -> parentId
+  const [actifGroups,  setActifGroups]  = useState({})     // index -> nom d'immeuble (actif_group), éditable manuellement
   const [pertinents,   setPertinents]   = useState([])     // bool per file
   const [raisons,      setRaisons]      = useState([])     // raison non pertinent
   const [lastError,    setLastError]    = useState('')
@@ -6922,8 +6933,15 @@ export default function App() {
   // Détection automatique déclenchée au drop
   async function detectFiles(newFiles, offset = 0, dirAutoLinks = {}, dirActifGroups = {}) {
     setDetecting(true)
-    // Store dir-based actif groups (absolute indices)
-    Object.entries(dirActifGroups).forEach(([k, v]) => { dirActifGroupsRef.current[parseInt(k) + offset] = v })
+    // Pré-remplit le sélecteur manuel d'actif avec la valeur détectée par
+    // répertoire — reste ensuite librement modifiable dans la file d'attente
+    // (avant ce correctif, cette détection n'était consultée qu'au moment de
+    // l'enregistrement final, sans aucune correction possible avant).
+    setActifGroups(prev => {
+      const n = { ...prev }
+      Object.entries(dirActifGroups).forEach(([k, v]) => { n[parseInt(k) + offset] = v })
+      return n
+    })
     const types      = new Array(newFiles.length).fill('')
     const pertinents = new Array(newFiles.length).fill(null)
     const raisons    = new Array(newFiles.length).fill('')
@@ -7121,7 +7139,7 @@ export default function App() {
             if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
           }
         } catch (_) { /* non bloquant */ }
-        const saved = await saveExtraction(files[i], extracted, 'bail', null, dirActifGroupsRef.current[i] || null)
+        const saved = await saveExtraction(files[i], extracted, 'bail', null, actifGroups[i] || null)
         if (saved) {
           const bwa = { ...saved, avenants: [] }
           availableBails.push(bwa)
@@ -7133,7 +7151,7 @@ export default function App() {
         setStatus(i, 'error', e.message); setLastError(e.message)
         extractionErrorsList.push({ name: files[i]?.name || `Fichier ${i+1}`, reason: e.message || 'Erreur inconnue' })
         try {
-          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'bail', parent_id: null, actif_group: dirActifGroupsRef.current[i] || null, created_by: session?.user?.email || null })
+          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'bail', parent_id: null, actif_group: actifGroups[i] || null, created_by: session?.user?.email || null })
         } catch (_) {}
       }
     })
@@ -7175,7 +7193,7 @@ export default function App() {
           const realBail = availableBails.find(b => b.file_name === files[dirIdx]?.name)
           parentId = realBail?.id || null
         }
-        const saved = await saveExtraction(files[i], extracted, 'avenant', parentId, dirActifGroupsRef.current[i] || null)
+        const saved = await saveExtraction(files[i], extracted, 'avenant', parentId, actifGroups[i] || null)
         if (saved) {
           lastSaved = saved
           setNewIds(prev => [...prev, saved.id])
@@ -7186,7 +7204,7 @@ export default function App() {
         setStatus(i, 'error', e.message); setLastError(e.message)
         extractionErrorsList.push({ name: files[i]?.name || `Fichier ${i+1}`, reason: e.message || 'Erreur inconnue' })
         try {
-          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'avenant', parent_id: null, actif_group: dirActifGroupsRef.current[i] || null, created_by: session?.user?.email || null })
+          await supabase.from('extractions').insert({ file_name: files[i]?.name, data: { extraction_error: true, error_message: e.message }, document_type: 'avenant', parent_id: null, actif_group: actifGroups[i] || null, created_by: session?.user?.email || null })
         } catch (_) {}
       }
     })
@@ -7287,7 +7305,7 @@ export default function App() {
 
   function handleClear() {
     setFiles([]); setStatuses([]); setActiveItem(null); setDocTypes([])
-    setLastError(''); setFileOrder([]); setAvenantLinks({}); setPertinents([]); setRaisons([]); setAnnexInfo([])
+    setLastError(''); setFileOrder([]); setAvenantLinks({}); setPertinents([]); setRaisons([]); setAnnexInfo([]); setActifGroups({})
   }
 
   const d = activeItem?.data || {}
@@ -7705,11 +7723,12 @@ export default function App() {
                           </button>
                         </div>
                         {/* En-tête colonnes */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 100px 120px 220px 32px', gap: '8px', padding: '0 4px 6px', borderBottom: '1px solid var(--border)', marginBottom: '4px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 90px 110px 150px 190px 32px', gap: '8px', padding: '0 4px 6px', borderBottom: '1px solid var(--border)', marginBottom: '4px' }}>
                           <div/>
                           <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Fichier</div>
                           <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Pertinent</div>
                           <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Type</div>
+                          <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Actif</div>
                           <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Bail lié</div>
                           <div/>
                         </div>
@@ -7735,7 +7754,7 @@ export default function App() {
                             ]
                             return (
                               <div key={fileIdx} className={`queue-item ${st.state || ''}`}
-                                style={{ display: 'grid', gridTemplateColumns: '20px 1fr 100px 120px 220px 32px', gap: '8px', alignItems: 'center', padding: '8px 4px', flexWrap: 'nowrap' }}>
+                                style={{ display: 'grid', gridTemplateColumns: '20px 1fr 90px 110px 150px 190px 32px', gap: '8px', alignItems: 'center', padding: '8px 4px', flexWrap: 'nowrap' }}>
 
                                 {/* Ordre ▲▼ */}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
@@ -7814,6 +7833,45 @@ export default function App() {
                                         onClick={() => setDocType(fileIdx, 'avenant')}>Avenant</button>
                                     </div>
                                   )}
+                                </div>
+
+                                {/* Actif — même sélecteur (recherche + création) que sur le dashboard */}
+                                <div style={{ position: 'relative' }}>
+                                  {pertinent !== false ? (
+                                    <>
+                                      <span
+                                        onClick={e => {
+                                          e.stopPropagation()
+                                          if (editingActifUpload === fileIdx) { setEditingActifUpload(null); return }
+                                          setEditingActifUploadRect(e.currentTarget.getBoundingClientRect())
+                                          setEditingActifUpload(fileIdx)
+                                        }}
+                                        title="Définir l'immeuble de ce document"
+                                        style={{
+                                          fontSize: '10px', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer', display: 'inline-block', maxWidth: '100%',
+                                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                          background: actifGroups[fileIdx] ? 'var(--accent-bg)' : 'var(--surface2)',
+                                          color: actifGroups[fileIdx] ? 'var(--accent)' : 'var(--text3)',
+                                          border: `1px solid ${actifGroups[fileIdx] ? 'rgba(26,95,168,.2)' : 'var(--border)'}`,
+                                          fontWeight: actifGroups[fileIdx] ? 600 : 400,
+                                        }}>
+                                        {actifGroups[fileIdx] || '+ Actif'}
+                                      </span>
+                                      {editingActifUpload === fileIdx && (
+                                        <ActifPicker
+                                          currentValue={actifGroups[fileIdx] || ''}
+                                          existingGroups={existingGroups}
+                                          onSave={v => {
+                                            setActifGroups(prev => ({ ...prev, [fileIdx]: v || null }))
+                                            if (v) onEnsureImmeuble?.(v)
+                                            setEditingActifUpload(null)
+                                          }}
+                                          onClose={() => setEditingActifUpload(null)}
+                                          anchorRect={editingActifUploadRect}
+                                        />
+                                      )}
+                                    </>
+                                  ) : <span/>}
                                 </div>
 
                                 {/* Bail lié */}
