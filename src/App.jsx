@@ -5238,8 +5238,6 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur'
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
-  const [editingActifUpload, setEditingActifUpload] = useState(null) // index de fichier dans la file d'import
-  const [editingActifUploadRect, setEditingActifUploadRect] = useState(null)
   const [renamingGroup, setRenamingGroup] = useState(null) // group name
   const [showToolsMenu, setShowToolsMenu] = useState(false)
   const [openRowMenu, setOpenRowMenu] = useState(null) // id de la ligne dont le menu "Actions" est ouvert
@@ -5252,13 +5250,6 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [editingActif])
-
-  useEffect(() => {
-    if (editingActifUpload === null) return
-    const handler = () => setEditingActifUpload(null)
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
-  }, [editingActifUpload])
 
   // Ferme le menu "Actions" au clic extérieur
   useEffect(() => {
@@ -6689,6 +6680,16 @@ export default function App() {
   const [detecting,    setDetecting]    = useState(false)  // détection en cours
   const [avenantLinks, setAvenantLinks] = useState({})     // index -> parentId
   const [actifGroups,  setActifGroups]  = useState({})     // index -> nom d'immeuble (actif_group), éditable manuellement
+  const [editingActifUpload, setEditingActifUpload] = useState(null) // index de fichier dans la file d'import
+  const [editingActifUploadRect, setEditingActifUploadRect] = useState(null)
+
+  // Ferme le sélecteur d'actif de la file d'import au clic extérieur
+  useEffect(() => {
+    if (editingActifUpload === null) return
+    const handler = () => setEditingActifUpload(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [editingActifUpload])
   const [pertinents,   setPertinents]   = useState([])     // bool per file
   const [raisons,      setRaisons]      = useState([])     // raison non pertinent
   const [lastError,    setLastError]    = useState('')
@@ -7865,10 +7866,10 @@ export default function App() {
                                       {editingActifUpload === fileIdx && (
                                         <ActifPicker
                                           currentValue={actifGroups[fileIdx] || ''}
-                                          existingGroups={existingGroups}
+                                          existingGroups={(immeubles || []).map(im => im.name).sort((a, b) => a.localeCompare(b))}
                                           onSave={v => {
                                             setActifGroups(prev => ({ ...prev, [fileIdx]: v || null }))
-                                            if (v) onEnsureImmeuble?.(v)
+                                            if (v) ensureImmeubleExists(v).catch(() => {})
                                             setEditingActifUpload(null)
                                           }}
                                           onClose={() => setEditingActifUpload(null)}
