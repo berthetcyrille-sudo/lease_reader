@@ -4293,6 +4293,7 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
   const [newName, setNewName] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
+  const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState({}) // { [immeubleName]: bool }
   const [confirmDelete, setConfirmDelete] = useState(null) // { id, name }
 
@@ -4378,15 +4379,29 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
             ⚠ {addError}
           </div>
         )}
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Rechercher un immeuble…"
+          style={{ padding: '7px 12px', fontSize: '12.5px', border: '1px solid var(--border)', borderRadius: 'var(--r)', outline: 'none', background: 'var(--surface)', color: 'var(--text)' }}
+        />
 
         <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
-          {rows.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
-              Aucun immeuble pour le moment — ajoutez-en un ci-dessus.
-            </div>
-          ) : (
+          {(() => {
+            const visibleRows = rows.filter(r => r.name.toLowerCase().includes(search.trim().toLowerCase()))
+            if (rows.length === 0) return (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+                Aucun immeuble pour le moment — ajoutez-en un ci-dessus.
+              </div>
+            )
+            if (visibleRows.length === 0) return (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
+                Aucun immeuble ne correspond à « {search} ».
+              </div>
+            )
+            return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {rows.map(r => {
+              {visibleRows.map(r => {
                 const started = r.bailCount > 0
                 const isOpen = !!expanded[r.name]
                 return (
@@ -4502,7 +4517,8 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
                 )
               })}
             </div>
-          )}
+            )
+          })()}
 
           {noGroupBails.length > 0 && (
             <div style={{ marginTop: '16px', padding: '10px 14px', borderRadius: 'var(--r)', border: '1px dashed var(--border2)', fontSize: '12px', color: 'var(--text3)' }}>
