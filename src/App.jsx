@@ -5861,7 +5861,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 if (!!node.data?._archived !== !!showArchived) return
                 if (filter !== 'avenant' && rowMatchesSearch({ data: node.data, file_name: node.file_name, actif_group: node.actif_group }, q)) {
                   bailCount++
-                  if (!node.data?.date_effet && node.data?.date_effet_condition && isDatePast(node.data.date_effet_condition.date_limite)) csOverdueCount++
+                  const resolvedByAv = (node.avenants || []).some(av => av.data?.champs_modifies?.date_effet)
+                  if (!node.data?.date_effet && !resolvedByAv && node.data?.date_effet_condition && isDatePast(node.data.date_effet_condition.date_limite)) csOverdueCount++
                 }
                 if (filter !== 'bail') {
                   ;(node.avenants || []).forEach(av => {
@@ -6114,7 +6115,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             const isAv = row.document_type === 'avenant'
             const isOrphan = isAv && !row.parent_id && row._level === 0
             const isExtractionError = d.extraction_error === true
-            const effetCond = (!isAv && !d.date_effet) ? d.date_effet_condition : null
+            // Un avenant peut avoir levé la condition suspensive en fixant une
+            // date d'effet ferme (champs_modifies.date_effet) — dans ce cas,
+            // le badge ne doit plus s'afficher sur le bail, même si les
+            // données brutes du bail d'origine restent conditionnées.
+            const resolvedByAvenant = !isAv && (row.avenants || []).some(av => av.data?.champs_modifies?.date_effet)
+            const effetCond = (!isAv && !d.date_effet && !resolvedByAvenant) ? d.date_effet_condition : null
             const effetCondOverdue = !!(effetCond && isDatePast(effetCond.date_limite))
             const breaks = filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
             return (
