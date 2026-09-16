@@ -6682,6 +6682,7 @@ export default function App() {
   const [tab,          setTab]          = useState('history')
   const [showAddModal, setShowAddModal] = useState(false)
   const [showEtatLocatifMenu, setShowEtatLocatifMenu] = useState(false)
+  const [etatLocatifSearch, setEtatLocatifSearch] = useState('')
   const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
   const [showQualityCheck, setShowQualityCheck] = useState(false)
   const [showSynthese, setShowSynthese] = useState(false)
@@ -7361,7 +7362,7 @@ export default function App() {
 
           <div style={{ position: 'relative', marginLeft: '24px' }} onClick={e => e.stopPropagation()}>
             <button
-              onClick={() => setShowEtatLocatifMenu(v => !v)}
+              onClick={() => { setShowEtatLocatifMenu(v => !v); setEtatLocatifSearch('') }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(255,255,255,0.08)',
                 border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '13px', fontWeight: 600,
@@ -7379,20 +7380,39 @@ export default function App() {
                 border: '1px solid var(--border2)', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,.25)',
                 width: '260px', maxHeight: '320px', overflowY: 'auto', zIndex: 500,
               }}>
+                <input
+                  autoFocus
+                  value={etatLocatifSearch}
+                  onChange={e => setEtatLocatifSearch(e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                  placeholder="Rechercher un immeuble…"
+                  style={{
+                    display: 'block', width: '100%', boxSizing: 'border-box', padding: '8px 12px', fontSize: '13px',
+                    border: 'none', borderBottom: '1px solid var(--border)', outline: 'none',
+                    background: 'var(--surface)', color: 'var(--text)', position: 'sticky', top: 0, zIndex: 1,
+                  }}
+                />
                 {buildingGroups.length === 0 ? (
                   <div style={{ padding: '14px 12px', fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>
                     Aucun actif groupant défini pour l'instant
                   </div>
-                ) : buildingGroups.map(g => (
-                  <div
-                    key={g.name}
-                    onClick={() => { setEtatLocatifBuilding(g.name); setShowEtatLocatifMenu(false); navigate(`/etat-locatif/${encodeURIComponent(g.name)}`) }}
-                    style={{ padding: '9px 12px', fontSize: '13px', cursor: 'pointer', borderBottom: '1px solid var(--border)', color: 'var(--text)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    {g.name} <span style={{ color: 'var(--text3)', fontSize: '11px' }}>({g.count} {g.count === 1 ? 'bail' : 'baux'})</span>
-                  </div>
-                ))}
+                ) : (() => {
+                  const filtered = buildingGroups.filter(g => g.name.toLowerCase().includes(etatLocatifSearch.trim().toLowerCase()))
+                  return filtered.length === 0 ? (
+                    <div style={{ padding: '14px 12px', fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>
+                      Aucun immeuble trouvé
+                    </div>
+                  ) : filtered.map(g => (
+                    <div
+                      key={g.name}
+                      onClick={() => { setEtatLocatifBuilding(g.name); setShowEtatLocatifMenu(false); navigate(`/etat-locatif/${encodeURIComponent(g.name)}`) }}
+                      style={{ padding: '9px 12px', fontSize: '13px', cursor: 'pointer', borderBottom: '1px solid var(--border)', color: 'var(--text)' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
+                      onMouseLeave={e => e.currentTarget.style.background = ''}>
+                      {g.name} <span style={{ color: 'var(--text3)', fontSize: '11px' }}>({g.count} {g.count === 1 ? 'bail' : 'baux'})</span>
+                    </div>
+                  ))
+                })()}
               </div>
             )}
           </div>
