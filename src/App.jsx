@@ -4275,7 +4275,7 @@ const displayPartyName = s => standardizeCase(shortPartyName(s))
 // (seul le compte par bail est pertinent). Permet aussi d'ajouter un immeuble
 // à la table maîtresse `immeubles`, qui alimente ensuite le sélecteur d'actif
 // utilisé lors de la création d'un bail.
-function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onToggleDone, onSelect, onClose }) {
+function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onToggleDone, onToggleVerified, onSelect, onClose }) {
   const [newName, setNewName] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
@@ -4304,6 +4304,7 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
         name,
         id: master?.id || null,
         done: !!master?.done,
+        verified: !!master?.verified,
         bailCount: buildingBails.length,
         bails: buildingBails.map(b => ({
           id: b.id,
@@ -4332,7 +4333,8 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
 
   const doneCount = rows.filter(r => r.bailCount > 0).length
   const todoCount = rows.filter(r => r.bailCount === 0).length
-  const checkedCount = rows.filter(r => r.done).length
+  const completeCount = rows.filter(r => r.done).length
+  const verifiedCount = rows.filter(r => r.verified).length
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -4341,7 +4343,7 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
           <div>
             <div className="modal-title">Synthèse — immeubles</div>
             <div className="modal-sub">
-              {doneCount} immeuble{doneCount !== 1 ? 's' : ''} avec au moins un bail · {todoCount} pas encore commencé{todoCount !== 1 ? 's' : ''} · {checkedCount}/{rows.length} coché{checkedCount !== 1 ? 's' : ''} OK
+              {doneCount} immeuble{doneCount !== 1 ? 's' : ''} avec au moins un bail · {todoCount} pas encore commencé{todoCount !== 1 ? 's' : ''} · {completeCount}/{rows.length} complet{completeCount !== 1 ? 's' : ''} · {verifiedCount}/{rows.length} vérifié{verifiedCount !== 1 ? 's' : ''}
             </div>
           </div>
           <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
@@ -4414,7 +4416,7 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
                       {r.id && (
                         <label
                           onClick={e => e.stopPropagation()}
-                          title={r.done ? 'Marqué OK — cliquer pour décocher' : 'Marquer OK une fois les extractions terminées pour cet immeuble'}
+                          title={r.done ? 'Marqué complet — cliquer pour décocher' : 'Marquer complet une fois les extractions terminées pour cet immeuble'}
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
                             fontSize: '11px', fontWeight: 700, color: r.done ? 'var(--success)' : 'var(--text3)',
@@ -4428,7 +4430,27 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
                             onChange={() => onToggleDone?.(r.id, !r.done)}
                             style={{ margin: 0, cursor: 'pointer' }}
                           />
-                          OK
+                          Complet
+                        </label>
+                      )}
+                      {r.id && (
+                        <label
+                          onClick={e => e.stopPropagation()}
+                          title={r.verified ? 'Marqué vérifié — cliquer pour décocher' : 'Marquer vérifié une fois les données de cet immeuble relues/contrôlées'}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
+                            fontSize: '11px', fontWeight: 700, color: r.verified ? 'var(--accent)' : 'var(--text3)',
+                            padding: '3px 8px', borderRadius: '999px',
+                            background: r.verified ? 'var(--accent-bg)' : 'transparent',
+                            border: `1px solid ${r.verified ? 'transparent' : 'var(--border2)'}`,
+                          }}>
+                          <input
+                            type="checkbox"
+                            checked={r.verified}
+                            onChange={() => onToggleVerified?.(r.id, !r.verified)}
+                            style={{ margin: 0, cursor: 'pointer' }}
+                          />
+                          Vérifié
                         </label>
                       )}
                       {r.id && r.bailCount === 0 && (
@@ -6703,17 +6725,19 @@ export default function App() {
   }
 
   // ─── Liste maîtresse des immeubles ──────────────────────────────────────────
-  // Table `immeubles` (id, name, done) : contrairement à actif_group (qui
-  // n'existe que sur les baux déjà saisis), cette table permet de déclarer un
-  // immeuble du patrimoine AVANT même d'y avoir extrait un premier bail —
+  // Table `immeubles` (id, name, done, verified) : contrairement à actif_group
+  // (qui n'existe que sur les baux déjà saisis), cette table permet de déclarer
+  // un immeuble du patrimoine AVANT même d'y avoir extrait un premier bail —
   // nécessaire pour la vue Synthèse (voir les immeubles "pas encore faits").
-  // `done` est une case à cocher manuelle, sans logique automatique dessous —
-  // elle sert uniquement à suivre "j'ai fini de tout extraire pour cet
-  // immeuble", indépendamment du nombre de baux/avenants déjà en base.
-  const [immeubles, setImmeubles] = useState([]) // [{ id, name, done }]
+  // `done` ("Complet") et `verified` ("Vérifié") sont deux cases à cocher
+  // manuelles indépendantes, sans logique automatique dessous : la première
+  // suit "toutes les extractions sont faites pour cet immeuble", la seconde
+  // "quelqu'un a relu/contrôlé les données" — un immeuble peut être complet
+  // sans être vérifié, l'inverse n'a pas de sens mais n'est pas empêché.
+  const [immeubles, setImmeubles] = useState([]) // [{ id, name, done, verified }]
 
   async function fetchImmeubles() {
-    const { data, error } = await supabase.from('immeubles').select('id, name, done').order('name')
+    const { data, error } = await supabase.from('immeubles').select('id, name, done, verified').order('name')
     if (error) { console.error('Chargement des immeubles échoué', error); return [] }
     return data || []
   }
@@ -6731,7 +6755,7 @@ export default function App() {
     const v = (name || '').trim()
     if (!v) return
     if (immeubles.some(i => i.name.toLowerCase() === v.toLowerCase())) return
-    const { data, error } = await supabase.from('immeubles').insert({ name: v }).select('id, name, done').single()
+    const { data, error } = await supabase.from('immeubles').insert({ name: v }).select('id, name, done, verified').single()
     if (error) {
       // Contrainte d'unicité (créé entre-temps par un autre onglet/utilisateur) : pas bloquant
       if (error.code === '23505') return
@@ -6755,8 +6779,17 @@ export default function App() {
     setImmeubles(prev => prev.map(i => i.id === id ? { ...i, done } : i)) // optimiste
     const { error } = await supabase.from('immeubles').update({ done }).eq('id', id)
     if (error) {
-      console.error('Mise à jour du statut "terminé" échouée', error)
+      console.error('Mise à jour du statut "Complet" échouée', error)
       setImmeubles(prev => prev.map(i => i.id === id ? { ...i, done: !done } : i)) // rollback
+    }
+  }
+
+  async function toggleImmeubleVerified(id, verified) {
+    setImmeubles(prev => prev.map(i => i.id === id ? { ...i, verified } : i)) // optimiste
+    const { error } = await supabase.from('immeubles').update({ verified }).eq('id', id)
+    if (error) {
+      console.error('Mise à jour du statut "Vérifié" échouée', error)
+      setImmeubles(prev => prev.map(i => i.id === id ? { ...i, verified: !verified } : i)) // rollback
     }
   }
 
@@ -7447,6 +7480,7 @@ export default function App() {
             onAddImmeuble={ensureImmeubleExists}
             onRemoveImmeuble={removeImmeuble}
             onToggleDone={toggleImmeubleDone}
+            onToggleVerified={toggleImmeubleVerified}
             onSelect={item => { setShowSynthese(false); setActiveItem(item); navigate(`/bail/${item.id}`) }}
             onClose={() => setShowSynthese(false)}
           />
