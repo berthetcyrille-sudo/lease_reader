@@ -3057,8 +3057,9 @@ function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant
     setInseeIndex(null)
     const indice = d.indexation_indice
     if (!indice || !INSEE_SERIES[indice]) return
-    if (d.indexation_valeur_base) {
-      setInseeIndex({ value: parseFloat(d.indexation_valeur_base), label: d.indexation_trimestre_base || '', source: 'bail' })
+    const valeurBase = parseAmount(d.indexation_valeur_base)
+    if (valeurBase != null) {
+      setInseeIndex({ value: valeurBase, label: d.indexation_trimestre_base || '', source: 'bail' })
       return
     }
     setInseeLoading(true)
