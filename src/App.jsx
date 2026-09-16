@@ -351,26 +351,26 @@ async function stripAnnexPages(file, onProgress) {
       const textContent = await page.getTextContent()
       const text = textContent.items.map(it => it.str).join(' ')
       // Signal principal, robuste aux variations de mise en forme :
-      // la page liste au moins "Annexe 1" ET "Annexe 2" à la suite, ET porte
-      // un titre de type "annexes" propre à la vraie page de liste — bien
-      // plus fiable que de dépendre d'une ponctuation précise après le numéro
-      // (deux-points, tiret, tabulation... tout existe selon le générateur du
-      // PDF ; le format "Annexe 1 <tabulation> Titre" sans aucune
-      // ponctuation est même le plus courant). Le titre est le vrai signal
-      // distinctif : une simple référence en prose ailleurs dans l'acte
-      // ("...jointes en Annexe 1 de l'Avenant", "...décrits en Annexe 2 de
-      // l'Avenant") n'en porte quasiment jamais — contrairement à un simple
-      // numéro seul, qui lui peut apparaître n'importe où et déclencher un
-      // faux positif bien avant la vraie liste, tronquant le document en
-      // plein milieu (vécu : perte de la page de signature d'un avenant).
-      // Plusieurs formulations courantes du titre existent selon le rédacteur
-      // ("ANNEXES", "Documents annexés", "Pièces annexées", "Liste des
-      // annexes"...) — un seul motif rigide en ratait certaines (vécu :
-      // "Documents annexés" non reconnu, la vraie liste jamais découpée).
-      const hasHeading = /\b(ANNEXES|DOCUMENTS?\s+ANNEX[ÉE]{1,2}S?|PI[ÈE]CES?\s+ANNEX[ÉE]{1,2}S?|LISTE\s+DES\s+ANNEXES?)\b/i.test(text)
-      const hasFirstEntry = /ANNEXE\s*(N\s*°?\s*)?1\b/i.test(text)
-      const hasSecondEntry = /ANNEXE\s*(N\s*°?\s*)?2\b/i.test(text)
-      if (hasHeading && hasFirstEntry && hasSecondEntry) { annexListPage = i; break }
+      // La page liste "Annexe 1" ET "Annexe 2" PROCHES l'une de l'autre dans
+      // le texte — signal structurel, pas basé sur un titre à deviner.
+      // Tenter d'énumérer les formulations de titre ("ANNEXES", "Documents
+      // annexés"...) s'est révélé sans fin : certaines listes n'ont même
+      // aucun titre du tout (juste "Annexe 1 : ..." puis "Annexe 2 : ..."
+      // directement après la signature). La vraie différence structurelle
+      // entre une liste et une simple référence en prose ("...jointes en
+      // Annexe 1 de l'Avenant", "...décrits en Annexe 2 de l'Avenant" —
+      // dispersées sur toute la page, séparées de plusieurs phrases) est que
+      // les entrées d'une vraie liste se suivent à quelques dizaines de
+      // caractères d'écart, jamais plus. Seuil choisi large (120 caractères)
+      // pour couvrir un titre d'annexe assez long entre les deux entrées,
+      // tout en restant bien en-deçà de l'écart typique entre deux
+      // références en prose séparées par plusieurs phrases contractuelles.
+      const firstMatch = text.match(/ANNEXE\s*(N\s*°?\s*)?1\b/i)
+      const secondMatch = text.match(/ANNEXE\s*(N\s*°?\s*)?2\b/i)
+      if (firstMatch && secondMatch) {
+        const gap = Math.abs(secondMatch.index - (firstMatch.index + firstMatch[0].length))
+        if (gap <= 120) { annexListPage = i; break }
+      }
     }
     await pdf.destroy() // libère le worker pdf.js avant l'étape pdf-lib / compression / repli Claude qui suit
 
