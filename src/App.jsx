@@ -281,16 +281,17 @@ const PDF_COMPRESS_THRESHOLD = 8 * 1024 * 1024 // 8 Mo : en-dessous, on ne touch
 const PDF_RENDER_DPI = 150
 const PDF_JPEG_QUALITY = 0.72
 
-async function compressPdfIfNeeded(file, onProgress) {
+async function compressPdfIfNeeded(file, onProgress, opts = {}) {
+  const { dpi = PDF_RENDER_DPI, quality = PDF_JPEG_QUALITY, threshold = PDF_COMPRESS_THRESHOLD } = opts
   if (!file.name.toLowerCase().endsWith('.pdf')) return file
-  if (file.size <= PDF_COMPRESS_THRESHOLD) return file
+  if (file.size <= threshold) return file
 
   try {
     const arrayBuffer = await file.arrayBuffer()
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
     const numPages = pdf.numPages
     const outDoc = await PDFDocument.create()
-    const scale = PDF_RENDER_DPI / 72 // pdf.js viewport de base = 72dpi
+    const scale = dpi / 72 // pdf.js viewport de base = 72dpi
 
     for (let i = 1; i <= numPages; i++) {
       onProgress?.(i, numPages)
@@ -304,7 +305,7 @@ async function compressPdfIfNeeded(file, onProgress) {
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       await page.render({ canvasContext: ctx, viewport }).promise
 
-      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', PDF_JPEG_QUALITY))
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality))
       const jpegBytes = new Uint8Array(await blob.arrayBuffer())
       const jpgImage = await outDoc.embedJpg(jpegBytes)
       const pdfPage = outDoc.addPage([viewport.width, viewport.height])
@@ -374,46 +375,32 @@ async function stripAnnexPages(file, onProgress) {
     await pdf.destroy() // libère le worker pdf.js avant l'étape pdf-lib / compression / repli Claude qui suit
 
     // Repli quand la détection locale ne trouve rien : soit un document
+    // Repli quand la détection locale ne trouve rien : soit un document
     // SCANNÉ (quasiment aucun texte n'a pu être extrait), soit un document
     // texte dont le titre de la page d'annexes est formulé d'une façon que la
-    // regex ci-dessus ne connaît pas encore (vécu à deux reprises avec des
-    // formulations différentes — plutôt que de courir après chaque nouvelle
-    // formulation, on demande à Claude de trancher visuellement dès que la
-    // détection locale échoue). On ne se limite donc plus aux seuls documents
-    // "vides de texte" : le seuil sur totalTextLength écartait à tort les
-    // documents mixtes (une partie du texte lisible, mais pas forcément la
-    // bonne page) ou texte-mais-mal-formulés, laissant le repli ne jamais se
-    // déclencher pour eux. Seule condition restante : un document assez long
-    // pour que le découpage vaille la peine (un document court n'a de toute
-    // façon pas besoin d'être allégé).
+    // regex ci-dessus ne connaît pas encore. On ne se limite donc plus aux
+    // seuls documents "vides de texte" : le seuil sur totalTextLength
+    // écartait à tort les documents mixtes ou texte-mais-mal-formulés,
+    // laissant le repli ne jamais se déclencher pour eux. Seule condition
+    // restante : un document assez long pour que le découpage vaille la
+    // peine (un document court n'a de toute façon pas besoin d'être allégé).
     if (annexListPage === null && numPages > 15) {
       try {
         onProgress?.(-1, numPages) // -1 = signal spécial : repli IA en cours (pas un numéro de page)
-        // On n'envoie que la FIN du document à Claude pour cette question
-        // (la liste des annexes est quasiment toujours dans les dernières
-        // pages, juste après la signature) — envoyer le PDF entier peut
-        // dépasser la limite de taille de requête de l'API sur les gros
-        // scans, faisant échouer le repli précisément sur les documents qui
-        // en ont le plus besoin. On compresse en plus cet extrait s'il reste
-        // lourd (mêmes réglages que la compression normale avant extraction).
-        const tailPageCount = Math.min(30, numPages)
-        const tailStartIndex = numPages - tailPageCount // 0-based
-        const arrayBufferForTail = await file.arrayBuffer()
-        const srcDocForTail = await PDFDocument.load(arrayBufferForTail)
-        const tailDoc = await PDFDocument.create()
-        const tailIndices = Array.from({ length: tailPageCount }, (_, i) => tailStartIndex + i)
-        const tailCopiedPages = await tailDoc.copyPages(srcDocForTail, tailIndices)
-        tailCopiedPages.forEach(p => tailDoc.addPage(p))
-        const tailBytes = await tailDoc.save()
-        let tailFile = new File([tailBytes], file.name, { type: 'application/pdf' })
-        tailFile = await compressPdfIfNeeded(tailFile)
-        const base64 = await toBase64(tailFile)
+        // On envoie le document ENTIER (pas seulement la fin) : la liste des
+        // annexes peut se trouver n'importe où — un avenant court peut être
+        // suivi de centaines de pages d'annexes scannées, plaçant la liste
+        // très tôt dans un document par ailleurs très long (vécu : page 14
+        // sur 190). Supposer qu'elle est "vers la fin" a fait chercher au
+        // mauvais endroit et manquer la vraie page. On compresse en
+        // revanche plus agressivement qu'avant extraction (résolution et
+        // qualité réduites : seule la lisibilité du texte importe ici, pas
+        // le rendu fin) pour rester sous la limite de taille de requête même
+        // sur un document de plusieurs centaines de pages.
+        const forDetection = await compressPdfIfNeeded(file, null, { dpi: 90, quality: 0.45, threshold: 4 * 1024 * 1024 })
+        const base64 = await toBase64(forDetection)
         const detected = await detectAnnexPageViaClaude(base64)
-        // Le numéro renvoyé est relatif à cet extrait — on le retraduit en
-        // numéro de page dans le document complet.
-        if (Number.isInteger(detected) && detected > 0 && detected <= tailPageCount) {
-          annexListPage = tailStartIndex + (detected - 1)
-        }
+        if (Number.isInteger(detected) && detected > 0 && detected < numPages) annexListPage = detected - 1
       } catch (e) {
         console.error('Repli Claude (détection annexes) échoué pour', file.name, e)
       }
