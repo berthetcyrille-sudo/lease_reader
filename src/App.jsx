@@ -397,7 +397,7 @@ async function stripAnnexPages(file, onProgress) {
         // qualité réduites : seule la lisibilité du texte importe ici, pas
         // le rendu fin) pour rester sous la limite de taille de requête même
         // sur un document de plusieurs centaines de pages.
-        const forDetection = await compressPdfIfNeeded(file, null, { dpi: 90, quality: 0.45, threshold: 4 * 1024 * 1024 })
+        const forDetection = await compressPdfIfNeeded(file, null, { dpi: 60, quality: 0.35, threshold: 4 * 1024 * 1024 })
         const base64 = await toBase64(forDetection)
         const detected = await detectAnnexPageViaClaude(base64)
         if (Number.isInteger(detected) && detected > 0 && detected < numPages) annexListPage = detected - 1
@@ -4922,7 +4922,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
                 {progress.state === 'stripping'
                   ? (progress.progCurrent === -1
-                    ? 'Pas de panique : ce document est un scan, on repère les annexes avec l\'IA (~1 minute)…'
+                    ? 'Pas de panique : la détection normale n\'a rien trouvé, on repère les annexes avec l\'IA — peut prendre plusieurs minutes sur un document long…'
                     : progress.progTotal ? `Recherche des annexes (page ${progress.progCurrent}/${progress.progTotal})` : 'Recherche des annexes…')
                   : progress.state === 'compressing'
                   ? `Compression${progress.progTotal ? ` (page ${progress.progCurrent}/${progress.progTotal})` : '…'}`
@@ -6419,7 +6419,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
               {avenantBatchProgress.state === 'stripping'
                 ? (avenantBatchProgress.progCurrent === -1
-                  ? 'Pas de panique : ce document est un scan, on repère les annexes avec l\'IA (~1 minute)…'
+                  ? 'Pas de panique : la détection normale n\'a rien trouvé, on repère les annexes avec l\'IA — peut prendre plusieurs minutes sur un document long…'
                   : avenantBatchProgress.progTotal ? `Recherche des annexes (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : 'Recherche des annexes…')
                 : avenantBatchProgress.state === 'compressing'
                 ? `Compression${avenantBatchProgress.progTotal ? ` (page ${avenantBatchProgress.progCurrent}/${avenantBatchProgress.progTotal})` : '…'}`
@@ -6449,7 +6449,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
               {reextractProgress.state === 'downloading' && 'Téléchargement du fichier source…'}
               {reextractProgress.state === 'stripping' && (reextractProgress.progCurrent === -1
-                ? 'Pas de panique : ce document est un scan, on repère les annexes avec l\'IA (~1 minute)…'
+                ? 'Pas de panique : la détection normale n\'a rien trouvé, on repère les annexes avec l\'IA — peut prendre plusieurs minutes sur un document long…'
                 : `Recherche des annexes${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`)}
               {reextractProgress.state === 'compressing' && `Compression${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`}
               {reextractProgress.state === 'loading' && 'Extraction en cours…'}
@@ -7709,7 +7709,7 @@ export default function App() {
                         </svg>
                         <span>
                           {strippingAnnexes.current === -1 ? (
-                            <>Pas de panique : <strong>{strippingAnnexes.name}</strong> est un scan, on repère les annexes avec l'IA (~1 minute)…</>
+                            <>Pas de panique : la détection normale n'a rien trouvé, on repère les annexes avec l'IA — peut prendre plusieurs minutes sur un document long…</>
                           ) : (
                             <>Recherche des pages d'annexes dans <strong>{strippingAnnexes.name}</strong>
                             {strippingAnnexes.total > 0 ? ` — page ${strippingAnnexes.current}/${strippingAnnexes.total}` : '…'}</>
