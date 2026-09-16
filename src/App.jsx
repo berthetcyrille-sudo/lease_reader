@@ -6948,15 +6948,6 @@ export default function App() {
   // Détection automatique déclenchée au drop
   async function detectFiles(newFiles, offset = 0, dirAutoLinks = {}, dirActifGroups = {}) {
     setDetecting(true)
-    // Pré-remplit le sélecteur manuel d'actif avec la valeur détectée par
-    // répertoire — reste ensuite librement modifiable dans la file d'attente
-    // (avant ce correctif, cette détection n'était consultée qu'au moment de
-    // l'enregistrement final, sans aucune correction possible avant).
-    setActifGroups(prev => {
-      const n = { ...prev }
-      Object.entries(dirActifGroups).forEach(([k, v]) => { n[parseInt(k) + offset] = v })
-      return n
-    })
     const types      = new Array(newFiles.length).fill('')
     const pertinents = new Array(newFiles.length).fill(null)
     const raisons    = new Array(newFiles.length).fill('')
