@@ -3045,7 +3045,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant }) {
+function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
@@ -3067,6 +3067,12 @@ function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant
   const [editingEffet, setEditingEffet] = useState(false)
   const [effetInput, setEffetInput] = useState('')
   const [savingEffet, setSavingEffet] = useState(false)
+  const [editingSurface, setEditingSurface] = useState(false)
+  const [surfaceInput, setSurfaceInput] = useState('')
+  const [savingSurface, setSavingSurface] = useState(false)
+  const [editingParking, setEditingParking] = useState(false)
+  const [parkingInput, setParkingInput] = useState('')
+  const [savingParking, setSavingParking] = useState(false)
   useEffect(() => {
     setInseeIndex(null)
     const indice = d.indexation_indice
@@ -3496,10 +3502,48 @@ function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant
               return (
                 <div className="field">
                   <div className="field-lbl">Surface totale louée</div>
-                  <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
-                    <PageJumpIcon item={item} pages={pages} field="surface_totale_m2" />
-                  </div>
+                  {editingSurface ? (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="text"
+                        value={surfaceInput}
+                        onChange={e => setSurfaceInput(e.target.value)}
+                        placeholder="ex: 1351.64"
+                        autoFocus
+                        style={{ width: '100px', fontSize: '15px', padding: '3px 6px', border: '1px solid var(--border2)', borderRadius: '5px' }}
+                      />
+                      <span style={{ fontSize: '13px', color: 'var(--text3)' }}>m²</span>
+                      <button
+                        disabled={savingSurface || !surfaceInput.trim() || isNaN(parseFloat(surfaceInput.replace(',', '.')))}
+                        onClick={async () => {
+                          setSavingSurface(true)
+                          const ok = await onSaveManualSurface?.(item, surfaceInput.trim())
+                          setSavingSurface(false)
+                          if (ok) setEditingSurface(false)
+                        }}
+                        title="Enregistrer"
+                        style={{ background: 'var(--success)', color: '#fff', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                        {savingSurface ? '…' : '✓'}
+                      </button>
+                      <button onClick={() => setEditingSurface(false)} title="Annuler"
+                        style={{ background: 'var(--surface2)', color: 'var(--text3)', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
+                      <PageJumpIcon item={item} pages={pages} field="surface_totale_m2" />
+                      {onSaveManualSurface && !isAv && (
+                        <button
+                          onClick={() => { setSurfaceInput(d.surface_totale_m2 || ''); setEditingSurface(true) }}
+                          title="Saisir ou corriger la surface totale — utile quand elle n'est chiffrée que dans une annexe (plan, état des lieux) non lue par l'extraction"
+                          style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                          ✎
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {showGapNote && (
                     <div style={{ fontSize: '10.5px', color: 'var(--text3)', fontStyle: 'italic', marginTop: '2px' }}>
                       dont {gapHero.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m² de quote-part parties communes non ventilée
@@ -3513,10 +3557,47 @@ function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant
               return (
                 <div className="field">
                   <div className="field-lbl">Stationnement</div>
-                  <div className="field-val">
-                    {parseParkingShort(d.parking_nb_places) || '—'}
-                    {pkUnit && <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text2)', marginLeft: '8px' }}>{pkUnit.toLocaleString('fr-FR')} €/place/an</span>}
-                  </div>
+                  {editingParking ? (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="text"
+                        value={parkingInput}
+                        onChange={e => setParkingInput(e.target.value)}
+                        placeholder="ex: 35 places"
+                        autoFocus
+                        style={{ width: '160px', fontSize: '14px', padding: '3px 6px', border: '1px solid var(--border2)', borderRadius: '5px' }}
+                      />
+                      <button
+                        disabled={savingParking || !parkingInput.trim()}
+                        onClick={async () => {
+                          setSavingParking(true)
+                          const ok = await onSaveManualParking?.(item, parkingInput.trim())
+                          setSavingParking(false)
+                          if (ok) setEditingParking(false)
+                        }}
+                        title="Enregistrer"
+                        style={{ background: 'var(--success)', color: '#fff', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                        {savingParking ? '…' : '✓'}
+                      </button>
+                      <button onClick={() => setEditingParking(false)} title="Annuler"
+                        style={{ background: 'var(--surface2)', color: 'var(--text3)', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="field-val" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {parseParkingShort(d.parking_nb_places) || '—'}
+                      {pkUnit && <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text2)' }}>{pkUnit.toLocaleString('fr-FR')} €/place/an</span>}
+                      {onSaveManualParking && !isAv && (
+                        <button
+                          onClick={() => { setParkingInput(d.parking_nb_places || ''); setEditingParking(true) }}
+                          title="Saisir ou corriger le nombre de places — utile quand il n'est chiffré que dans une annexe non lue par l'extraction"
+                          style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                          ✎
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })()}
@@ -7370,6 +7451,33 @@ export default function App() {
     return true
   }
 
+  // Correction manuelle du nombre de places de parking — même logique que la
+  // surface : parfois chiffré seulement dans une annexe non lue.
+  async function handleManualParking(row, newParkingStr) {
+    const newData = { ...row.data, parking_nb_places: newParkingStr }
+    const { error: err3 } = await supabase.from('extractions').update({ data: newData }).eq('id', row.id)
+    if (err3) { console.error('Mise à jour du parking échouée', err3); return false }
+    setHistory(prev => prev.map(b => b.id === row.id
+      ? { ...b, data: newData }
+      : { ...b, avenants: (b.avenants || []).map(a => a.id === row.id ? { ...a, data: newData } : a) }))
+    if (activeItem?.id === row.id) setActiveItem(prev => ({ ...prev, data: newData }))
+    return true
+  }
+
+  // Correction manuelle de la surface totale louée — cas rare mais réel :
+  // certains baux ne chiffrent la surface exacte que dans une annexe
+  // (plan, état des lieux) que l'extraction ne lit pas.
+  async function handleManualSurface(row, newSurfaceStr) {
+    const newData = { ...row.data, surface_totale_m2: newSurfaceStr }
+    const { error: err2 } = await supabase.from('extractions').update({ data: newData }).eq('id', row.id)
+    if (err2) { console.error('Mise à jour de la surface totale échouée', err2); return false }
+    setHistory(prev => prev.map(b => b.id === row.id
+      ? { ...b, data: newData }
+      : { ...b, avenants: (b.avenants || []).map(a => a.id === row.id ? { ...a, data: newData } : a) }))
+    if (activeItem?.id === row.id) setActiveItem(prev => ({ ...prev, data: newData }))
+    return true
+  }
+
   // Correction manuelle de la date d'effet D'UN AVENANT (distincte de celle du
   // bail ci-dessus). Sert uniquement à trier correctement les avenants entre
   // eux (voir avKey un peu partout dans le fichier) et à l'affichage — ne
@@ -7743,7 +7851,7 @@ export default function App() {
 
           <div className="content" ref={contentRef}>
             {activeItem ? (
-              <ResultsView item={activeItem} onSaveManualDateEffet={handleManualDateEffet} onSaveManualDateEffetAvenant={handleManualDateEffetAvenant} />
+              <ResultsView item={activeItem} onSaveManualDateEffet={handleManualDateEffet} onSaveManualDateEffetAvenant={handleManualDateEffetAvenant} onSaveManualSurface={handleManualSurface} onSaveManualParking={handleManualParking} />
             ) : (
               <>
                 <Dashboard
