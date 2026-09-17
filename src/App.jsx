@@ -6174,6 +6174,46 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             const effetCond = (!isAv && !d.date_effet && !resolvedByAvenant) ? d.date_effet_condition : null
             const effetCondOverdue = !!(effetCond && isDatePast(effetCond.date_limite))
             const breaks = filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
+            // Un bail replié affiche ses PROPRES données extraites — mais si un
+            // avenant a modifié un champ depuis (loyer, date de fin, break,
+            // surface), c'est cette donnée-là qui prévaut réellement, pas
+            // celle du bail d'origine. Sans indication, l'utilisateur peut
+            // légitimement penser que la valeur affichée est fausse alors
+            // qu'elle est juste celle d'AVANT l'avenant. On retrouve donc, par
+            // champ, le DERNIER avenant (par ordre chronologique) qui l'a
+            // effectivement modifié, pour afficher un petit repère dessus.
+            const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
+            const avKeyLocal = av => toSortableAv(av.data?.date_effet_avenant || av.data?.date_signature_avenant || av.created_at)
+            const sortedAvenantsForOverride = !isAv ? (row.avenants || []).slice().sort((a, b) => avKeyLocal(a).localeCompare(avKeyLocal(b))) : []
+            const lastOverride = field => {
+              for (let k = sortedAvenantsForOverride.length - 1; k >= 0; k--) {
+                const v = sortedAvenantsForOverride[k].data?.champs_modifies?.[field]
+                if (v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0)) return { avenant: sortedAvenantsForOverride[k], value: v }
+              }
+              return null
+            }
+            const overrides = isAv ? {} : {
+              surface_totale_m2: lastOverride('surface_totale_m2'),
+              date_fin: lastOverride('date_fin'),
+              break_options: lastOverride('break_options'),
+              loyer_signature_montant: lastOverride('loyer_signature_montant'),
+            }
+            const overrideLabel = ov => ov.avenant.data?.objet_avenant || `Avenant du ${normalizeDate(ov.avenant.data?.date_effet_avenant || ov.avenant.data?.date_signature_avenant) || ''}`
+            const OverrideMark = ({ field, formatValue }) => {
+              const ov = overrides[field]
+              if (!ov) return null
+              return (
+                <span
+                  onClick={e => { e.stopPropagation(); onSelect(ov.avenant) }}
+                  title={`Modifié par avenant : ${overrideLabel(ov)} — nouvelle valeur : ${formatValue ? formatValue(ov.value) : ov.value}`}
+                  style={{
+                    marginLeft: '4px', fontSize: '10px', color: 'var(--accent)', cursor: 'pointer',
+                    verticalAlign: 'super', fontWeight: 700,
+                  }}>
+                  ↻
+                </span>
+              )
+            }
             return (
               <div
                 key={row.id}
@@ -6289,6 +6329,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 <div className="dash-td dash-td-right" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>
                     {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
+                    <OverrideMark field="surface_totale_m2" formatValue={v => `${v} m²`} />
                   </span>
                 </div>
 
@@ -6314,21 +6355,25 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
                 {/* Date fin */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{normalizeDate(d.date_fin) || '—'}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>
+                    {normalizeDate(d.date_fin) || '—'}
+                    <OverrideMark field="date_fin" formatValue={v => normalizeDate(v) || v} />
+                  </span>
                 </div>
 
                 {/* Break */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   {breaks.length > 0 ? (
-                    <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', alignItems: 'center' }}>
                       {breaks
                         .filter(b => typeof b === 'string' && b.length < 30) // exclure texte verbeux
                         .slice(0, 2).map((b, i) => (
                           <span key={i} style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '3px', background: 'var(--accent-bg)', color: 'var(--accent)', border: '1px solid rgba(26,95,168,0.2)', whiteSpace: 'nowrap' }}>{normalizeDate(b) || b}</span>
                         ))}
                       {breaks.filter(b => typeof b === 'string' && b.length < 30).length > 2 && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>+{breaks.length-2}</span>}
+                      <OverrideMark field="break_options" formatValue={v => Array.isArray(v) ? v.map(x => normalizeDate(x) || x).join(', ') : v} />
                     </div>
-                  ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—</span>}
+                  ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—<OverrideMark field="break_options" formatValue={v => Array.isArray(v) ? v.map(x => normalizeDate(x) || x).join(', ') : v} /></span>}
                 </div>
 
                 {/* Loyer */}
@@ -6336,8 +6381,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   {d.loyer_signature_montant ? (
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>
                       {fmtEur(d.loyer_signature_montant)}
+                      <OverrideMark field="loyer_signature_montant" formatValue={v => fmtEur(v)} />
                     </span>
-                  ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—</span>}
+                  ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—<OverrideMark field="loyer_signature_montant" formatValue={v => fmtEur(v)} /></span>}
                 </div>
 
                 {/* Actions */}
