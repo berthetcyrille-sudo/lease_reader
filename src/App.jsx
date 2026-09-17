@@ -5117,6 +5117,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
 function BulkReextractModal({ tree, onClose, onRefresh }) {
   const allRows = useMemo(() => tree.flatMap(b => [b, ...(b.avenants || [])]), [tree])
   const [scope, setScope] = useState('all') // 'all' | 'bail' | 'avenant'
+  const [buildingFilter, setBuildingFilter] = useState('') // '' = tous les immeubles
   const [excludeArchived, setExcludeArchived] = useState(true)
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState(null) // { current, total, fileName, state }
@@ -5124,11 +5125,17 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
   const stopRef = useRef(false)
   useBeforeUnloadGuard(running)
 
+  const buildingOptions = useMemo(
+    () => [...new Set(allRows.map(r => r.actif_group).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [allRows]
+  )
+
   const rowLabel = r => r.data?.immeuble || r.data?.adresse || r.file_name
 
   const matchesScope = r => {
     if (scope === 'bail' && r.document_type !== 'bail') return false
     if (scope === 'avenant' && r.document_type !== 'avenant') return false
+    if (buildingFilter && r.actif_group !== buildingFilter) return false
     if (excludeArchived && r.data?._archived) return false
     return true
   }
@@ -5226,6 +5233,14 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
                 </button>
               ))}
             </div>
+            <div className="field-lbl" style={{ marginBottom: '8px' }}>Immeuble</div>
+            <select
+              value={buildingFilter}
+              onChange={e => setBuildingFilter(e.target.value)}
+              style={{ display: 'block', width: '100%', padding: '8px 10px', fontSize: '13px', border: '1px solid var(--border2)', borderRadius: '6px', marginBottom: '14px', background: 'var(--surface)', color: 'var(--text)' }}>
+              <option value="">Tous les immeubles</option>
+              {buildingOptions.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '16px', cursor: 'pointer' }}>
               <input type="checkbox" checked={excludeArchived} onChange={e => setExcludeArchived(e.target.checked)} />
               Exclure les baux archivés
@@ -6436,7 +6451,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
                 {/* Date fin */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4, overflowWrap: 'anywhere', display: 'inline-block' }}>
                     {normalizeDate(d.date_fin) || '—'}
                     <OverrideMark field="date_fin" formatValue={v => normalizeDate(v) || v} />
                   </span>
