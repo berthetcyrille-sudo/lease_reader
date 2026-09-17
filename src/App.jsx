@@ -5170,7 +5170,7 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
 }
 
 // ─── Sélection du second bail à lier à un avenant (cas rare) ───────────────
-function LinkSecondBailModal({ row, bails, progress, onConfirm, onClose }) {
+function BailPickerModal({ row, bails, progress, onConfirm, onClose, title, subtitle, progressLabel }) {
   const [q, setQ] = useState('')
   const label = b => b.data?.preneur || b.data?.immeuble || b.file_name
   const filtered = bails.filter(b => {
@@ -5183,15 +5183,11 @@ function LinkSecondBailModal({ row, bails, progress, onConfirm, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ width: '480px' }} onClick={e => e.stopPropagation()}>
-        <div className="modal-title">Lier « {row.file_name} » à un second bail</div>
-        <div className="modal-sub">
-          Ce document sera dupliqué sur le bail choisi (avec son fichier source), et les deux lignes resteront tracées
-          comme un seul et même document. À utiliser uniquement quand un avenant modifie réellement plusieurs baux
-          (ex. avenant de résiliation commun).
-        </div>
+        <div className="modal-title">{title}</div>
+        <div className="modal-sub">{subtitle}</div>
         {progress ? (
           <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
-            Duplication en cours…
+            {progressLabel}
           </div>
         ) : (
           <>
@@ -5244,6 +5240,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [reextractProgress, setReextractProgress] = useState(null) // { label, state } — bloquant
   const [toast, setToast] = useState(null) // { type: 'success'|'error', message }
   const [linkTarget, setLinkTarget] = useState(null) // avenant row en attente de choix du 2e bail
+  const [moveTarget, setMoveTarget] = useState(null) // avenant row en attente de choix du bail de destination
+  const [moveProgress, setMoveProgress] = useState(false)
   const [linkProgress, setLinkProgress] = useState(false) // duplication en cours (bloquant)
   const [confirmUnlink, setConfirmUnlink] = useState(null) // avenant row en attente de confirmation de déliaison
   const avenantInputRef = useRef(null)
@@ -5462,6 +5460,28 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       showToast('error', `Échec de la liaison : ${err.message || 'Erreur inconnue'}`)
     } finally {
       setLinkProgress(false)
+    }
+  }
+
+  // Rattache un avenant à un autre bail que celui d'origine (cas d'une
+  // erreur de rattachement au moment de l'ajout) — contrairement au lien
+  // "second bail", ceci DÉPLACE l'avenant (aucune duplication) : le fichier
+  // source et les données déjà extraites/corrigées sont conservés tels
+  // quels, seul le bail parent change.
+  async function moveAvenantToBail(row, newBail) {
+    setMoveProgress(true)
+    try {
+      const { error } = await supabase.from('extractions')
+        .update({ parent_id: newBail.id, actif_group: newBail.actif_group || null })
+        .eq('id', row.id)
+      if (error) throw error
+      setMoveTarget(null)
+      showToast('success', `Avenant déplacé vers « ${newBail.data?.immeuble || newBail.data?.preneur || newBail.file_name} »`)
+      onRefresh?.()
+    } catch (err) {
+      showToast('error', `Échec du déplacement : ${err.message || 'Erreur inconnue'}`)
+    } finally {
+      setMoveProgress(false)
     }
   }
 
@@ -5791,12 +5811,27 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         />
       )}
       {linkTarget && (
-        <LinkSecondBailModal
+        <BailPickerModal
           row={linkTarget}
           bails={tree.filter(b => b.document_type === 'bail' && b.id !== linkTarget.parent_id)}
           progress={linkProgress}
+          title={`Lier « ${linkTarget.file_name} » à un second bail`}
+          subtitle="Ce document sera dupliqué sur le bail choisi (avec son fichier source), et les deux lignes resteront tracées comme un seul et même document. À utiliser uniquement quand un avenant modifie réellement plusieurs baux (ex. avenant de résiliation commun)."
+          progressLabel="Duplication en cours…"
           onConfirm={bail => linkAvenantToSecondBail(linkTarget, bail)}
           onClose={() => !linkProgress && setLinkTarget(null)}
+        />
+      )}
+      {moveTarget && (
+        <BailPickerModal
+          row={moveTarget}
+          bails={tree.filter(b => b.document_type === 'bail' && b.id !== moveTarget.parent_id)}
+          progress={moveProgress}
+          title={`Déplacer « ${moveTarget.file_name} » vers un autre bail`}
+          subtitle="L'avenant sera entièrement rattaché au bail choisi (fichier source et données conservés tels quels) — plus rattaché à son bail d'origine. À utiliser quand un avenant a été attaché au mauvais bail par erreur."
+          progressLabel="Déplacement en cours…"
+          onConfirm={bail => moveAvenantToBail(moveTarget, bail)}
+          onClose={() => !moveProgress && setMoveTarget(null)}
         />
       )}
       {confirmUnlink && (
@@ -6380,6 +6415,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                               ? <><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><path d="M10 12h4"/></>
                               : <><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></>,
                             label: row.data?._archived ? 'Désarchiver' : 'Archiver', onClick: e => onArchive(row, e),
+                          },
+                          isAv && {
+                            icon: <><path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/><path d="M15 19l3 3 3-3"/><path d="M19 9l3 3-3 3"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></>,
+                            label: 'Déplacer vers un autre bail', onClick: () => setMoveTarget(row),
                           },
                           isAv && !row.data?._avenant_partage_id && {
                             icon: <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
