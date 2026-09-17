@@ -206,8 +206,8 @@ button, input { font-family: inherit; cursor: pointer; }
 
 .dash-row { display: grid; grid-template-columns: 1.5fr 1.1fr 70px 90px 120px 140px 100px 120px 136px; gap: 10px; padding: 0; border-bottom: 1px solid var(--border); cursor: pointer; transition: all .18s; position: relative; background: var(--surface); overflow: visible; }
 .dash-row:hover { background: var(--accent-bg); box-shadow: -2px 0 0 var(--accent); }
-.dash-row-av { background: var(--accent-bg); border-left: 3px solid var(--accent); }
-.dash-row-av:hover { background: rgba(201,144,12,.16); }
+.dash-row-av { background: rgba(201,144,12,.14); border-left: 3px solid var(--accent); }
+.dash-row-av:hover { background: rgba(201,144,12,.22); }
 .dash-row:hover .dash-action-btn { opacity: 1; }
 .dash-row-new { animation: rowFlash 2.5s ease-out forwards; }
 @keyframes rowFlash { 0%,40% { background: var(--accent-bg); box-shadow: -2px 0 0 var(--accent); } 100% { background: var(--surface); box-shadow: none; } }
