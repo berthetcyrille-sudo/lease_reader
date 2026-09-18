@@ -2519,6 +2519,25 @@ function auditBail(row) {
   // légal par défaut pour la quasi-totalité des baux commerciaux — son absence
   // du texte n'est pas anormale et ne justifie pas une vérification systématique.
 
+  // 5. Avenant signé avant le bail lui-même — incohérence logique (un avenant
+  // ne peut pas précéder l'acte qu'il modifie) : révèle presque toujours soit
+  // une erreur d'extraction sur l'une des deux dates de signature, soit un
+  // rattachement au mauvais bail.
+  const bailSignature = parseFrDate(d.date_signature)
+  if (bailSignature && Array.isArray(row.avenants)) {
+    row.avenants.forEach(av => {
+      const avSignature = parseFrDate(av.data?.date_signature_avenant)
+      if (avSignature && avSignature < bailSignature) {
+        const avLabel = av.data?.objet_avenant || av.file_name || 'Avenant'
+        issues.push({
+          type: 'avenant_anterieur_au_bail',
+          severity: 'high',
+          detail: `« ${avLabel} » signé le ${fmtFR(avSignature)}, avant la signature du bail lui-même (${fmtFR(bailSignature)}) — à vérifier : erreur d'extraction sur l'une des deux dates, ou avenant rattaché au mauvais bail.`,
+        })
+      }
+    })
+  }
+
   return { row, label, issues, dismissed: !!d._qc_dismissed }
 }
 
