@@ -4384,6 +4384,12 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
       if (!b.actif_group) return
       if (!map[b.actif_group]) map[b.actif_group] = []
       map[b.actif_group].push(b)
+      // Second actif (rare) : le bail apparaît aussi dans la liste de ce
+      // second immeuble, sans être dupliqué (même objet référencé deux fois).
+      if (b.actif_group_2 && b.actif_group_2 !== b.actif_group) {
+        if (!map[b.actif_group_2]) map[b.actif_group_2] = []
+        map[b.actif_group_2].push(b)
+      }
     })
     return map
   }, [bails])
@@ -5357,6 +5363,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur'
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
+  const [editingActif2, setEditingActif2] = useState(null) // bail id (second actif, cas rare)
+  const [editingActif2Rect, setEditingActif2Rect] = useState(null)
   const [renamingGroup, setRenamingGroup] = useState(null) // group name
   const [showToolsMenu, setShowToolsMenu] = useState(false)
   const [openRowMenu, setOpenRowMenu] = useState(null) // id de la ligne dont le menu "Actions" est ouvert
@@ -5369,6 +5377,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [editingActif])
+
+  useEffect(() => {
+    if (!editingActif2) return
+    const handler = () => setEditingActif2(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [editingActif2])
 
   // Ferme le menu "Actions" au clic extérieur
   useEffect(() => {
@@ -5420,6 +5435,20 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     if (!error) await supabase.from('extractions').update({ actif_group: v || null }).eq('parent_id', id)
     if (v) { try { await onEnsureImmeuble?.(v) } catch (err) { showToast('error', err.message || "Échec de l'enregistrement de l'immeuble") } }
     savingRef.current = false
+  }
+
+  // Second actif (rare) : classement uniquement, cette ligne reste l'unique
+  // source de vérité pour ses données et ses avenants — pas de duplication.
+  // N'écrit que sur cette seule ligne (contrairement à saveActifGroup, qui
+  // propage aussi aux avenants : ceux-ci sont déjà rattachés via parent_id
+  // et n'ont pas besoin de porter eux-mêmes ce second classement).
+  async function saveActifGroup2(id, value) {
+    const v = (value || '').trim()
+    setEditingActif2(null)
+    const { error } = await supabase.from('extractions').update({ actif_group_2: v || null }).eq('id', id)
+    if (error) { showToast('error', error.message || "Échec de l'enregistrement du second actif"); return }
+    if (v) { try { await onEnsureImmeuble?.(v) } catch (err) { showToast('error', err.message || "Échec de l'enregistrement de l'immeuble") } }
+    onRefresh?.()
   }
 
   function toggleExpand(id) {
@@ -6362,7 +6391,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                     </div>
                   )}
                   {!isAv && (
-                    <div style={{ position: 'relative', marginTop: '2px' }}>
+                    <div style={{ position: 'relative', marginTop: '2px', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                       <span
                         onClick={e => {
                           e.stopPropagation()
@@ -6386,6 +6415,37 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                           onSave={v => saveActifGroup(row.id, v)}
                           onClose={() => setEditingActif(null)}
                           anchorRect={editingActifRect}
+                        />
+                      )}
+                      {/* Second actif — cas rare d'un bail à cheval sur deux immeubles
+                          (ex. locaux répartis sur deux bâtiments distincts dans la
+                          Synthèse/l'État locatif). Classement uniquement : cette
+                          ligne reste l'unique source de vérité, pas de duplication. */}
+                      {(row.actif_group_2 || row.actif_group) && (
+                        <span
+                          onClick={e => {
+                            e.stopPropagation()
+                            if (editingActif2 === row.id) { setEditingActif2(null); return }
+                            setEditingActif2Rect(e.currentTarget.getBoundingClientRect())
+                            setEditingActif2(row.id)
+                          }}
+                          title="Second actif (rare) — apparaît aussi dans la Synthèse et l'État locatif de cet immeuble, sans dupliquer la ligne"
+                          style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', cursor: 'pointer',
+                            background: row.actif_group_2 ? 'var(--teal-bg, rgba(31,111,107,.1))' : 'var(--surface2)',
+                            color: row.actif_group_2 ? '#1F6F6B' : 'var(--text3)',
+                            border: `1px solid ${row.actif_group_2 ? 'rgba(31,111,107,.25)' : 'var(--border)'}`,
+                            fontWeight: row.actif_group_2 ? 600 : 400, display: 'inline-block',
+                          }}>
+                          {row.actif_group_2 || '+ 2e actif'}
+                        </span>
+                      )}
+                      {editingActif2 === row.id && (
+                        <ActifPicker
+                          currentValue={row.actif_group_2 || ''}
+                          existingGroups={existingGroups.filter(g => g !== row.actif_group)}
+                          onSave={v => saveActifGroup2(row.id, v)}
+                          onClose={() => setEditingActif2(null)}
+                          anchorRect={editingActif2Rect}
                         />
                       )}
                     </div>
@@ -6927,7 +6987,7 @@ export default function App() {
 
   async function fetchAllHistory() {
     const { data: rows } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
+      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, actif_group_2, storage_path')
       .order('created_at', { ascending: false }).limit(RENDER_LIMIT)
     return rows ? buildTree(rows) : []
   }
@@ -7034,7 +7094,7 @@ export default function App() {
 
   async function loadItemById(id) {
     const { data } = await supabase.from('extractions')
-      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, storage_path')
+      .select('id, file_name, created_at, data, document_type, parent_id, actif_group, actif_group_2, storage_path')
       .eq('id', id).single()
     return data || null
   }
@@ -7094,6 +7154,9 @@ export default function App() {
     history.forEach(row => {
       if (row.document_type !== 'bail' || !row.actif_group || row.data?._archived) return
       map[row.actif_group] = (map[row.actif_group] || 0) + 1
+      if (row.actif_group_2 && row.actif_group_2 !== row.actif_group) {
+        map[row.actif_group_2] = (map[row.actif_group_2] || 0) + 1
+      }
     })
     return Object.entries(map).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name))
   }, [history])
@@ -7105,8 +7168,13 @@ export default function App() {
   useEffect(() => {
     if (!histLoaded || !immeubles) return
     const known = new Set(immeubles.map(i => i.name.toLowerCase()))
-    const missing = [...new Set(history.filter(r => r.document_type === 'bail' && r.actif_group).map(r => r.actif_group))]
-      .filter(name => !known.has(name.toLowerCase()))
+    const usedNames = new Set()
+    history.forEach(r => {
+      if (r.document_type !== 'bail') return
+      if (r.actif_group) usedNames.add(r.actif_group)
+      if (r.actif_group_2) usedNames.add(r.actif_group_2)
+    })
+    const missing = [...usedNames].filter(name => !known.has(name.toLowerCase()))
     missing.forEach(name => ensureImmeubleExists(name).catch(() => {})) // best-effort, pas d'UI ici
   }, [histLoaded, history, immeubles])
 
@@ -7763,7 +7831,7 @@ export default function App() {
         {etatLocatifBuilding && (
           <EtatLocatifModal
             building={etatLocatifBuilding}
-            bails={history.filter(row => row.document_type === 'bail' && row.actif_group === etatLocatifBuilding && !row.data?._archived)}
+            bails={history.filter(row => row.document_type === 'bail' && (row.actif_group === etatLocatifBuilding || row.actif_group_2 === etatLocatifBuilding) && !row.data?._archived)}
             onClose={() => { setEtatLocatifBuilding(null); navigate('/') }}
           />
         )}
