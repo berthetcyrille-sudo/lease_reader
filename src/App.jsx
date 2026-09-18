@@ -1034,7 +1034,7 @@ function extractConditionalBreaks(d, cleanBreaksArr) {
 }
 
 function detectsFullTriennialWaiver(clauseTextLower) {
-  const basicWaiver = /renonce.{0,80}triennale|pas.{0,20}triennale|supprim.{0,20}triennale|faculté.{0,10}résiliation.{0,10}triennale/i.test(clauseTextLower)
+  const basicWaiver = /renonce.{0,200}triennale|pas.{0,20}triennale|supprim.{0,20}triennale|faculté.{0,10}résiliation.{0,10}triennale/i.test(clauseTextLower)
   if (!basicWaiver) return false
   // Renonciation PARTIELLE (donc pas une renonciation totale) : soit exprimée
   // via "durée/période ferme", soit limitée explicitement à la seule première
@@ -6694,7 +6694,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                         : '❌ Erreur'}
                     </span>
                   )}
-                  <div style={{ position: 'relative' }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                      className="dash-action-btn"
+                      style={{ opacity: 1, position: 'static', background: 'var(--surface2)', borderRadius: '50%' }}
+                      onClick={e => { e.stopPropagation(); onSelect(row) }}
+                      title="Ouvrir la fiche">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
                     <button
                       className="dash-action-btn"
                       style={{ opacity: 1, position: 'static', background: 'var(--surface2)', borderRadius: '50%', marginRight: '8px' }}
