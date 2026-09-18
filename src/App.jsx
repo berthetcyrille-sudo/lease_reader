@@ -174,6 +174,33 @@ REGLES PAR CHAMP (champs_modifies):
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
 - _pages: objet AU MEME NIVEAU que champs_modifies (pas dedans) avec le numero de PAGE du PDF ou se trouve chaque champ RENSEIGNE (non-null) de champs_modifies, plus objet_avenant, date_effet_avenant et date_signature_avenant si applicable. Format: {"loyer_signature_montant":2,"date_effet_avenant":1,"objet_avenant":1}. Ne pas inclure les champs restes null.`
 
+// Injecte dans le prompt avenant ce qui est DEJA connu du bail d'origine
+// (issu de son extraction et/ou d'avenants precedents deja traites) — sans ce
+// contexte, l'IA extrait l'avenant en vase clos et peut "réinventer" une
+// valeur par défaut (ex: un rythme de résiliation triennal 3/6/9 générique)
+// pour un champ que l'avenant ne modifie pourtant pas lui-même, écrasant à
+// tort une disposition différente déjà en vigueur (ex: une renonciation aux
+// premières échéances établissant une durée ferme de 9 ans). Aucune règle de
+// prompt à elle seule ne peut fiabiliser ça : il faut que le modèle voie
+// explicitement l'état actuel pour savoir ce qui, en cas de silence du texte,
+// doit être laissé à null (= inchangé) plutôt que recalculé from scratch.
+function buildAvenantPrompt(parentBailData) {
+  if (!parentBailData) return AVENANT_PROMPT
+  const ctx = []
+  if (parentBailData.duree_totale) ctx.push(`duree_totale actuelle du bail : ${parentBailData.duree_totale}`)
+  if (parentBailData.duree_ferme) ctx.push(`duree_ferme actuelle du bail : ${parentBailData.duree_ferme}`)
+  ctx.push(Array.isArray(parentBailData.break_options) && parentBailData.break_options.length > 0
+    ? `break_options actuels du bail : ${JSON.stringify(parentBailData.break_options)}`
+    : `break_options actuels du bail : aucun (le preneur ne dispose d'aucune faculté de sortie anticipée connue à ce jour)`)
+  if (parentBailData.date_effet) ctx.push(`date_effet actuelle du bail : ${parentBailData.date_effet}`)
+  if (!ctx.length) return AVENANT_PROMPT
+  return AVENANT_PROMPT + `
+
+CONTEXTE DEJA CONNU DU BAIL D'ORIGINE (issu de son extraction et/ou d'avenants precedents deja traites) :
+${ctx.map(c => `- ${c}`).join('\n')}
+ATTENTION IMPERATIVE : si le texte de CET avenant ne modifie EXPLICITEMENT AUCUNE de ces notions (silence total sur le sujet dans cet avenant precis), laisser le champ correspondant de champs_modifies (duree_totale, duree_ferme, break_options, date_effet) a null — ce contexte deja etabli reste applicable tel quel, NE PAS le recalculer "a partir de zero" comme si cet avenant etait le seul document connu sur ce bail. En particulier, NE JAMAIS remplir break_options avec un rythme triennal generique (3/6/9 ans) au seul pretexte que cet avenant fixe/confirme une date d'effet ou une date de fin — cela ecraserait a tort les breaks (ou l'absence de breaks) deja etablis ci-dessus si cet avenant ne parle pas lui-meme de faculte de conge/resiliation.`
+}
+
 const DETECT_PROMPT = `Analyse ce document. Le nom du fichier est un indice important. Reponds UNIQUEMENT avec ce JSON sur une ligne:
 {"type":"bail","pertinent":true,"raison":"","preneur":"","bailleur":"","adresse":"","immeuble":""}
 Regles strictes:
@@ -4962,7 +4989,16 @@ async function reextractOne(row, onProgress) {
     onProgress?.('loading')
     const base64 = await toBase64(file)
     const mediaType = getMediaType(file)
-    const extracted = await callClaude(base64, mediaType, isAv ? AVENANT_PROMPT : EXTRACTION_PROMPT)
+    let promptToUse = EXTRACTION_PROMPT
+    if (isAv) {
+      let parentBailData = null
+      if (row.parent_id) {
+        const { data: parentRow } = await supabase.from('extractions').select('data').eq('id', row.parent_id).maybeSingle()
+        parentBailData = parentRow?.data || null
+      }
+      promptToUse = buildAvenantPrompt(parentBailData)
+    }
+    const extracted = await callClaude(base64, mediaType, promptToUse)
 
     try {
       if (!isAv) {
@@ -5076,7 +5112,10 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
         setProgress(p => ({ ...p, state: 'loading' }))
         const base64 = await toBase64(prepared)
         const mediaType = getMediaType(prepared)
-        const extracted = await callClaude(base64, mediaType, isAv ? AVENANT_PROMPT : EXTRACTION_PROMPT)
+        const promptToUse = isAv
+          ? buildAvenantPrompt((tree.find(b => b.id === row.parent_id) || {}).data || null)
+          : EXTRACTION_PROMPT
+        const extracted = await callClaude(base64, mediaType, promptToUse)
 
         try {
           if (!isAv) {
@@ -5642,7 +5681,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         setAvenantBatchProgress(prev => ({ ...prev, state: 'loading' }))
         const base64 = await toBase64(prepared)
         const mediaType = getMediaType(prepared)
-        const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
+        const extracted = await callClaude(base64, mediaType, buildAvenantPrompt(bailRow.data))
 
         const { data: saved, error } = await supabase.from('extractions').insert({
           file_name: file.name,
@@ -5859,7 +5898,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       setReextractProgress(prev => ({ ...prev, state: 'loading' }))
       const base64 = await toBase64(prepared)
       const mediaType = getMediaType(prepared)
-      const extracted = await callClaude(base64, mediaType, isAv ? AVENANT_PROMPT : EXTRACTION_PROMPT)
+      const promptToUse = isAv
+        ? buildAvenantPrompt((tree.find(b => b.id === row.parent_id) || {}).data || null)
+        : EXTRACTION_PROMPT
+      const extracted = await callClaude(base64, mediaType, promptToUse)
 
       // Mêmes appels complémentaires (breaks + financier) qu'à l'extraction initiale.
       try {
@@ -7649,9 +7691,23 @@ export default function App() {
       try {
         setStatus(i, 'loading')
         if (files[i].size > 30 * 1024 * 1024) throw new Error(`Fichier trop volumineux (${Math.round(files[i].size/1024/1024)} Mo > 30 Mo) — compressez le PDF avant de déposer.`)
+        // Résoudre batch- et dir- id en vrai id — fait AVANT l'appel IA (et non
+        // après comme précédemment) pour pouvoir injecter le contexte du bail
+        // déjà connu dans le prompt de l'avenant (voir buildAvenantPrompt).
+        let parentId = avenantLinks[i] || null
+        if (parentId && parentId.startsWith('batch-')) {
+          const batchIdx = parseInt(parentId.replace('batch-', ''))
+          const realBail = availableBails.find(b => b.file_name === files[batchIdx]?.name)
+          parentId = realBail?.id || null
+        } else if (parentId && parentId.startsWith('dir-')) {
+          const dirIdx = parseInt(parentId.replace('dir-', ''))
+          const realBail = availableBails.find(b => b.file_name === files[dirIdx]?.name)
+          parentId = realBail?.id || null
+        }
+        const parentBailForPrompt = parentId ? availableBails.find(b => b.id === parentId) : null
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
-        const extracted = await callClaude(base64, mediaType, AVENANT_PROMPT)
+        const extracted = await callClaude(base64, mediaType, buildAvenantPrompt(parentBailForPrompt?.data || null))
         // Appel dédié financier pour les avenants
         try {
           const financialResult = await callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null)
@@ -7669,17 +7725,6 @@ export default function App() {
             extracted.champs_modifies = mods
           }
         } catch (_) { /* non bloquant */ }
-        // Résoudre batch- et dir- id en vrai id
-        let parentId = avenantLinks[i] || null
-        if (parentId && parentId.startsWith('batch-')) {
-          const batchIdx = parseInt(parentId.replace('batch-', ''))
-          const realBail = availableBails.find(b => b.file_name === files[batchIdx]?.name)
-          parentId = realBail?.id || null
-        } else if (parentId && parentId.startsWith('dir-')) {
-          const dirIdx = parseInt(parentId.replace('dir-', ''))
-          const realBail = availableBails.find(b => b.file_name === files[dirIdx]?.name)
-          parentId = realBail?.id || null
-        }
         const saved = await saveExtraction(files[i], extracted, 'avenant', parentId, actifGroups[i] || null)
         if (saved) {
           lastSaved = saved
