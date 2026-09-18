@@ -93,8 +93,11 @@ CHAMPS:
 {"adresse":null,"immeuble":null,"ville":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"charges_impots_taxes":[],"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
 
 REGLES PAR CHAMP:
-- duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier; si mentionne explicitement utiliser cette valeur; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible). ATTENTION: NE JAMAIS mettre duree_ferme = duree_totale par defaut quand rien n'est explicitement restreint — un bail SANS renonciation ni restriction du droit de resiliation triennale (art. L.145-4) a en realite une duree_ferme implicite de 3 ans (premiere sortie possible), PAS une duree_ferme egale a la duree totale (ce qui reviendrait a interdire toute sortie anticipee, ce qui n'est pas ce que dit le bail dans ce cas). Si aucune duree ferme n'est explicitement chiffree ET qu'aucune renonciation totale n'est exprimee, laisser duree_ferme a null plutot que de la deviner egale a duree_totale.
-  ATTENTION RENONCIATION A PLUSIEURS ECHEANCES TRIENNALES SANS CHIFFRE DIRECT POUR duree_ferme: quand le texte dit que le preneur renonce a donner conge pour une ou plusieurs echeances triennales nommees (ex: "renonce a la faculte de donner conge pour l'expiration de la premiere et deuxieme periode triennale") SANS que duree_ferme soit chiffree directement ailleurs, chercher D'ABORD si le texte precise EXPLICITEMENT quelle est l'echeance de la premiere sortie possible qui en resulte (ex: "aura la faculte de mettre fin au bail, pour la premiere fois, pour l'expiration de la troisieme periode triennale", "conge possible des la neuvieme annee", "a compter du [date] pour la premiere fois") — si c'est le cas, utiliser DIRECTEMENT cette echeance/periode/date nommee pour duree_ferme (ex: "troisieme periode triennale" = 9 ans), MEME SI cette valeur egale la duree_totale (une renonciation qui couvre toutes les echeances avant le terme final revient legitimement a interdire toute sortie anticipee — ce n'est pas le defaut par manque d'info vise par l'ATTENTION precedente, c'est une consequence explicitement formulee dans le texte). Ne recourir a un calcul (3 x nombre de periodes triennales renoncees + 3) QUE si le texte renonce a des echeances nommees SANS jamais preciser explicitement la consequence (aucune phrase du type "pour la premiere fois pour l'expiration de..." ni date/annee de sortie mentionnee) — et dans ce cas seulement, vérifier deux fois l'arithmetique avant de repondre.
+- duree_totale: duree totale du bail (date_effet a date_fin). duree_ferme: duree pendant laquelle le preneur ne peut pas resilier ; si mentionne explicitement (chiffre en toutes lettres), utiliser cette valeur ; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
+  REGLE duree_ferme — A LIRE EN ENTIER, ELLE CONTIENT UNE EXCEPTION EXPLICITE (ne pas s'arreter a la premiere phrase et repondre null par excès de prudence des qu'un calcul aboutit a duree_totale — lire d'abord si l'EXCEPTION ci-dessous s'applique) :
+  1) CAS GENERAL : un bail SANS aucune renonciation ni restriction du droit de resiliation triennale (art. L.145-4) a une duree_ferme implicite de 3 ans (premiere sortie possible). Si rien n'est chiffre explicitement ET qu'aucune renonciation n'est exprimee, laisser duree_ferme a null — NE JAMAIS la deviner egale a duree_totale dans ce cas precis (cas general uniquement).
+  2) EXCEPTION AU CAS GENERAL (prioritaire sur la regle 1 — s'applique MEME SI le resultat egale duree_totale, ce qui est alors correct et attendu, pas une erreur) : si le texte renonce EXPLICITEMENT a une ou plusieurs echeances triennales nommees ("renonce a la faculte de donner conge pour l'expiration de la premiere et deuxieme periode triennale") ET precise la consequence qui en resulte ("aura la faculte de mettre fin au bail, pour la premiere fois, pour l'expiration de la troisieme periode triennale", "conge possible des la neuvieme annee", une date precise...), alors duree_ferme = cette echeance nommee (ex: troisieme periode triennale = 9 ans). Une renonciation qui couvre toutes les echeances avant le terme final rend logiquement duree_ferme egal a duree_totale : ceci n'est PAS le defaut par manque d'info vise par la regle 1, c'est un calcul explicite tire du texte, et il doit etre rempli, pas laisse a null.
+  3) Si le texte renonce a des echeances nommees SANS jamais preciser explicitement la consequence (aucune date/periode de sortie mentionnee), calculer duree_ferme = 3 x (nombre de periodes triennales renoncees) + 3 annees — verifier deux fois l'arithmetique avant de repondre.
   ATTENTION DEROGATION PARTIELLE CP/CG: quand une clause CP dit "par derogation a l'article CG-X - DUREE, le Contrat est consenti pour une DUREE FERME de N annees, le PRENEUR renoncant a donner conge a l'expiration de la 3eme et de la 6eme annee" (ou formulation equivalente), cette clause CP ne deroge QUE sur le mecanisme de sortie anticipee (duree_ferme = N annees) — elle NE redefinit PAS la duree totale du bail. La duree_totale reste celle fixee par l'article CG-X vise (souvent PLUS LONGUE, ex: 12 ans), sauf si la clause CP dit explicitement autre chose sur la duree totale elle-meme. NE JAMAIS recopier la valeur de la "duree ferme" CP dans duree_totale sans avoir verifie la duree totale dans l'article CG correspondant. Exemple: CP dit "par derogation a l'article CG3 - DUREE, le Contrat est consenti pour une duree ferme de neuf (9) annees, le PRENEUR renoncant a la 3eme et 6eme annee" et CG3 dit "le Contrat est consenti pour une duree de douze (12) annees" → duree_totale=12 ans, duree_ferme=9 ans (PAS duree_totale=9 ans).
 - reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle","date_limite_absolue":null}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. date_limite_absolue: certains baux plafonnent la duree totale possible de la reconduction tacite par une clause du type "en tout etat de cause, la Convention/le Contrat ne pourra exceder N (en toutes lettres) annees et prendra automatiquement fin le [date], sans formalite". Si une telle clause EXPLICITE existe, reporter cette date exacte (format JJ/MM/AAAA) dans date_limite_absolue — c'est un plafond contractuel dur, distinct du preavis de conge habituel. Sinon (reconduction tacite sans limite de duree totale exprimee), laisser date_limite_absolue a null. null pour le champ reconduction_tacite entier si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
 - type_bail: reste CONCIS — un libelle court du type de contrat (ex: "Bail commercial", "Convention d'occupation precaire", "Bail derogatoire", "Bail professionnel"). NE JAMAIS recopier la liste des articles du Code de commerce ou une citation legale complete (ex: "soumis aux articles L.145-1 a L.145-60...") meme si le bail les mentionne explicitement — ces references legales n'apportent rien a un libelle de type de contrat et doivent etre omises.
@@ -3065,7 +3068,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking }) {
+function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
@@ -3093,6 +3096,9 @@ function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant
   const [editingParking, setEditingParking] = useState(false)
   const [parkingInput, setParkingInput] = useState('')
   const [savingParking, setSavingParking] = useState(false)
+  const [editingDureeFerme, setEditingDureeFerme] = useState(false)
+  const [dureeFermeInput, setDureeFermeInput] = useState('')
+  const [savingDureeFerme, setSavingDureeFerme] = useState(false)
   useEffect(() => {
     setInseeIndex(null)
     const indice = d.indexation_indice
@@ -3329,16 +3335,55 @@ function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant
             <Field label="Type de contrat" value={simplifyTypeBail(d.type_bail)} />
             <Field label="Durée totale" value={d.duree_totale} item={item} pages={pages} pageField="duree_totale" />
             {(() => {
-              if (d.duree_ferme) {
-                return <Field label="Durée ferme" value={d.duree_ferme} item={item} pages={pages} pageField="duree_ferme" />
-              }
-              // Pas de durée ferme explicitement chiffrée : si le bail ne
-              // contient pas de renonciation TOTALE au droit de résiliation
-              // triennale (art. L.145-4), le défaut légal de 3 ans s'applique
-              // — on l'affiche plutôt que de laisser le champ vide.
               const hasFullWaiver = detectsFullTriennialWaiver((d.conditions_break || '').toLowerCase())
               const legalDefault = (!isAv && d.duree_totale && !hasFullWaiver) ? '3 ans (défaut légal — art. L.145-4)' : null
-              return <Field label="Durée ferme" value={legalDefault} />
+              const displayValue = d.duree_ferme || legalDefault
+              return (
+                <div className="field">
+                  <div className="field-lbl">Durée ferme</div>
+                  {editingDureeFerme ? (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="text"
+                        value={dureeFermeInput}
+                        onChange={e => setDureeFermeInput(e.target.value)}
+                        placeholder="ex: 9 ans"
+                        autoFocus
+                        style={{ width: '140px', fontSize: '14px', padding: '3px 6px', border: '1px solid var(--border2)', borderRadius: '5px' }}
+                      />
+                      <button
+                        disabled={savingDureeFerme || !dureeFermeInput.trim()}
+                        onClick={async () => {
+                          setSavingDureeFerme(true)
+                          const ok = await onSaveManualDureeFerme?.(item, dureeFermeInput.trim())
+                          setSavingDureeFerme(false)
+                          if (ok) setEditingDureeFerme(false)
+                        }}
+                        title="Enregistrer"
+                        style={{ background: 'var(--success)', color: '#fff', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                        {savingDureeFerme ? '…' : '✓'}
+                      </button>
+                      <button onClick={() => setEditingDureeFerme(false)} title="Annuler"
+                        style={{ background: 'var(--surface2)', color: 'var(--text3)', border: 'none', borderRadius: '5px', width: '24px', height: '24px', cursor: 'pointer', fontSize: '12px' }}>
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div className={`field-val${!displayValue ? ' empty' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {displayValue || 'Non renseigné'}
+                      {d.duree_ferme && <PageJumpIcon item={item} pages={pages} field="duree_ferme" />}
+                      {onSaveManualDureeFerme && !isAv && (
+                        <button
+                          onClick={() => { setDureeFermeInput(d.duree_ferme || ''); setEditingDureeFerme(true) }}
+                          title="Saisir ou corriger la durée ferme — utile quand elle se déduit d'une clause de renonciation que l'extraction n'a pas su chiffrer"
+                          style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                          ✎
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
             })()}
           </div>
         </div>
@@ -7703,6 +7748,20 @@ export default function App() {
     return true
   }
 
+  // Correction manuelle de la durée ferme — filet de sécurité pour les cas où
+  // elle se déduit d'une clause de renonciation (échéances triennales nommées)
+  // que l'extraction n'a pas su chiffrer correctement.
+  async function handleManualDureeFerme(row, newDureeFermeStr) {
+    const newData = { ...row.data, duree_ferme: newDureeFermeStr }
+    const { error: err4 } = await supabase.from('extractions').update({ data: newData }).eq('id', row.id)
+    if (err4) { console.error('Mise à jour de la durée ferme échouée', err4); return false }
+    setHistory(prev => prev.map(b => b.id === row.id
+      ? { ...b, data: newData }
+      : { ...b, avenants: (b.avenants || []).map(a => a.id === row.id ? { ...a, data: newData } : a) }))
+    if (activeItem?.id === row.id) setActiveItem(prev => ({ ...prev, data: newData }))
+    return true
+  }
+
   // Correction manuelle de la surface totale louée — cas rare mais réel :
   // certains baux ne chiffrent la surface exacte que dans une annexe
   // (plan, état des lieux) que l'extraction ne lit pas.
@@ -8090,7 +8149,7 @@ export default function App() {
 
           <div className="content" ref={contentRef}>
             {activeItem ? (
-              <ResultsView item={activeItem} onSaveManualDateEffet={handleManualDateEffet} onSaveManualDateEffetAvenant={handleManualDateEffetAvenant} onSaveManualSurface={handleManualSurface} onSaveManualParking={handleManualParking} />
+              <ResultsView item={activeItem} onSaveManualDateEffet={handleManualDateEffet} onSaveManualDateEffetAvenant={handleManualDateEffetAvenant} onSaveManualSurface={handleManualSurface} onSaveManualParking={handleManualParking} onSaveManualDureeFerme={handleManualDureeFerme} />
             ) : (
               <>
                 <Dashboard
