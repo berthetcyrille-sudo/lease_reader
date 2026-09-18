@@ -4225,6 +4225,70 @@ const EXCEL_COL_SELECTION_KEY = 'leaseReader.excelColumnSelection'
 // avenant elle correspond.
 const MANDATORY_EXCEL_COLS = ['ID', 'Bail lié (ID)', 'Type', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur']
 
+// ─── Sélecteur de "Bail lié" avec recherche, pour la file d'import ──────────
+// Même principe que ActifPicker (popup en portail ancré sur le bouton), pour
+// remplacer un <select> natif peu pratique dès que la liste de baux est longue.
+function BailLinkPicker({ currentValue, options, onSave, onClose, anchorRect }) {
+  const [q, setQ] = useState('')
+  const inputRef = useRef()
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  const filtered = options.filter(o => o.label.toLowerCase().includes(q.trim().toLowerCase()))
+
+  const ESTIMATED_HEIGHT = 280
+  const spaceBelow = anchorRect ? window.innerHeight - anchorRect.bottom : Infinity
+  const openAbove = anchorRect && spaceBelow < ESTIMATED_HEIGHT
+  const style = anchorRect
+    ? openAbove
+      ? { position: 'fixed', bottom: window.innerHeight - anchorRect.top + 4, left: anchorRect.left, maxHeight: `${anchorRect.top - 8}px` }
+      : { position: 'fixed', top: anchorRect.bottom + 4, left: anchorRect.left, maxHeight: `${spaceBelow - 8}px` }
+    : { position: 'absolute', top: '100%', left: 0, marginTop: '2px' }
+
+  return createPortal(
+    <div style={{ ...style,
+      background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
+      boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '280px', overflow: 'hidden', zIndex: 9999,
+      display: 'flex', flexDirection: 'column' }}
+      onClick={e => e.stopPropagation()}>
+      <div style={{ padding: '6px', flexShrink: 0 }}>
+        <input
+          ref={inputRef}
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') onClose() }}
+          placeholder="Rechercher un bail…"
+          style={{ width: '100%', boxSizing: 'border-box', padding: '5px 8px', fontSize: '12px',
+            border: '1px solid var(--border2)', borderRadius: '5px', outline: 'none',
+            background: 'var(--surface2)', color: 'var(--text)' }}
+        />
+      </div>
+      <div style={{ overflowY: 'auto', minHeight: 0, flex: '1 1 auto' }}>
+        {currentValue && (
+          <div onClick={() => onSave('')}
+            style={{ padding: '6px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--danger)',
+              borderTop: '1px solid var(--border)' }}>
+            ✕ Retirer le lien
+          </div>
+        )}
+        {filtered.length === 0 ? (
+          <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--text3)', fontStyle: 'italic' }}>
+            Aucun bail trouvé
+          </div>
+        ) : filtered.map(o => (
+          <div key={o.value} onClick={() => onSave(o.value)}
+            style={{ padding: '6px 12px', fontSize: '12px', cursor: 'pointer', color: 'var(--text)',
+              borderTop: '1px solid var(--border)' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
+            onMouseLeave={e => e.currentTarget.style.background = ''}>
+            {o.label}
+          </div>
+        ))}
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 function ExcelColumnPickerModal({ onClose, onConfirm }) {
   const groups = useMemo(() => buildExcelColumnGroups(), [])
   const allCols = useMemo(() => groups.flatMap(g => g.cols), [groups])
@@ -6955,6 +7019,10 @@ export default function App() {
   const [actifGroups,  setActifGroups]  = useState({})     // index -> nom d'immeuble (actif_group), éditable manuellement
   const [editingActifUpload, setEditingActifUpload] = useState(null) // index de fichier dans la file d'import
   const [editingActifUploadRect, setEditingActifUploadRect] = useState(null)
+  const [editingBailLink, setEditingBailLink] = useState(null) // index de fichier en cours d'édition du bail lié
+  const [editingBailLinkRect, setEditingBailLinkRect] = useState(null)
+  const [editingActifAll, setEditingActifAll] = useState(false) // assignation d'un actif à tous les fichiers de la file
+  const [editingActifAllRect, setEditingActifAllRect] = useState(null)
 
   // Ferme le sélecteur d'actif de la file d'import au clic extérieur
   useEffect(() => {
@@ -6963,6 +7031,20 @@ export default function App() {
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [editingActifUpload])
+
+  useEffect(() => {
+    if (editingBailLink === null) return
+    const handler = () => setEditingBailLink(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [editingBailLink])
+
+  useEffect(() => {
+    if (!editingActifAll) return
+    const handler = () => setEditingActifAll(false)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [editingActifAll])
   const [pertinents,   setPertinents]   = useState([])     // bool per file
   const [raisons,      setRaisons]      = useState([])     // raison non pertinent
   const [lastError,    setLastError]    = useState('')
@@ -7234,10 +7316,17 @@ export default function App() {
           const promptWithName = DETECT_PROMPT + `\n\nNom du fichier: "${newFiles[i].name}"`
           const data = await callClaude(base64, mediaType, promptWithName)
           types[i]      = data?.type === 'avenant' ? 'avenant' : 'bail'
+          // Filet de sécurité indépendant de l'IA : un nom de fichier contenant
+          // "avenant" force ce type, même si la détection IA a conclu "bail"
+          // (ex. avenant sans en-tête explicite, ou mal formulé).
+          if (/avenant/i.test(newFiles[i].name)) types[i] = 'avenant'
           pertinents[i] = data?.pertinent !== false
           raisons[i]    = data?.raison || ''
           detectData[i] = { preneur: data?.preneur, bailleur: data?.bailleur, adresse: data?.adresse, immeuble: data?.immeuble }
-        } catch (_) { types[i] = 'bail'; pertinents[i] = true }
+        } catch (_) {
+          types[i] = /avenant/i.test(newFiles[i].name) ? 'avenant' : 'bail'
+          pertinents[i] = true
+        }
         // Update global state at offset position
         setDocTypes(prev => { const n = [...prev]; n[offset + i] = types[i]; return n })
         setPertinents(prev => { const n = [...prev]; n[offset + i] = pertinents[i]; return n })
@@ -8041,7 +8130,35 @@ export default function App() {
 
                     {files.length > 0 && (
                       <div style={{ marginTop: '10px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '14px', marginBottom: '4px', position: 'relative' }}>
+                          <span
+                            onClick={e => {
+                              if (editingActifAll) { setEditingActifAll(false); return }
+                              setEditingActifAllRect(e.currentTarget.getBoundingClientRect())
+                              setEditingActifAll(true)
+                            }}
+                            style={{ fontSize: '11px', color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}>
+                            🏢 Assigner un actif à tous
+                          </span>
+                          {editingActifAll && (
+                            <ActifPicker
+                              currentValue=""
+                              existingGroups={(immeubles || []).map(im => im.name).sort((a, b) => a.localeCompare(b))}
+                              onSave={v => {
+                                if (v) {
+                                  setActifGroups(prev => {
+                                    const n = { ...prev }
+                                    files.forEach((_, i) => { n[i] = v })
+                                    return n
+                                  })
+                                  ensureImmeubleExists(v).catch(() => {})
+                                }
+                                setEditingActifAll(false)
+                              }}
+                              onClose={() => setEditingActifAll(false)}
+                              anchorRect={editingActifAllRect}
+                            />
+                          )}
                           <button onClick={handleClear} style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: '11px', cursor: 'pointer', textDecoration: 'underline', padding: '2px 4px' }}>
                             Tout effacer
                           </button>
@@ -8076,6 +8193,7 @@ export default function App() {
                               ...history.filter(h => h.document_type === 'bail'),
                               ...batchBails
                             ]
+                            const isDuplicate = files.some((of, oi) => oi !== fileIdx && of.name === f.name && of.size === f.size)
                             return (
                               <div key={fileIdx} className={`queue-item ${st.state || ''}`}
                                 style={{ display: 'grid', gridTemplateColumns: '20px 1fr 90px 110px 150px 190px 32px', gap: '8px', alignItems: 'center', padding: '8px 4px', flexWrap: 'nowrap' }}>
@@ -8092,6 +8210,13 @@ export default function App() {
                                 <div style={{ minWidth: 0 }}>
                                   <div style={{ fontWeight: 500, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                                    {isDuplicate && (
+                                      <span
+                                        title="Doublon probable : un autre fichier de la file a le même nom et la même taille"
+                                        style={{ flexShrink: 0, fontSize: '11px', width: '17px', height: '17px', lineHeight: '15px', textAlign: 'center', background: 'var(--amber-bg)', color: 'var(--amber)', border: '1px solid #DEBB70', borderRadius: '4px', fontWeight: 700, cursor: 'help' }}>
+                                        ⚠
+                                      </span>
+                                    )}
                                     <span
                                       onClick={() => window.open(URL.createObjectURL(f), '_blank')}
                                       title="Voir le fichier tel qu'il sera envoyé à l'extraction (après retrait des annexes / compression)"
@@ -8199,7 +8324,7 @@ export default function App() {
                                 </div>
 
                                 {/* Bail lié */}
-                                <div>
+                                <div style={{ position: 'relative' }}>
                                   {isAvenant && pertinent !== false ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                                       {avenantLinks[fileIdx]?.startsWith?.('dir-') && (
@@ -8207,28 +8332,43 @@ export default function App() {
                                           📁 Lié par répertoire
                                         </span>
                                       )}
-                                      <select
-                                        value={avenantLinks[fileIdx] || ''}
-                                        onChange={e => setAvenantLinks(prev => ({ ...prev, [fileIdx]: e.target.value || null }))}
-                                        style={{ fontSize: '11px', padding: '3px 6px', borderRadius: '6px', border: `1px solid ${avenantLinks[fileIdx]?.startsWith?.('dir-') ? 'var(--success)' : 'var(--border2)'}`, background: 'var(--surface)', color: avenantLinks[fileIdx] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', width: '100%' }}
-                                      >
-                                        <option value="">— Bail lié —</option>
-                                        {/* Option virtuelle pour les liens dir- (avant extraction) */}
-                                        {avenantLinks[fileIdx]?.startsWith?.('dir-') && (() => {
-                                          const bailIdx = parseInt(avenantLinks[fileIdx].replace('dir-', ''))
-                                          const bailFile = files[bailIdx]
-                                          return bailFile ? (
-                                            <option key={avenantLinks[fileIdx]} value={avenantLinks[fileIdx]}>
-                                              {bailFile.name.replace(/\.[^.]+$/, '')}
-                                            </option>
-                                          ) : null
-                                        })()}
-                                        {allBails.map(b => (
-                                          <option key={b.id} value={b.id}>
-                                            {b.data?.immeuble || b.data?.adresse || b.file_name}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      {(() => {
+                                        const dirBailIdx = avenantLinks[fileIdx]?.startsWith?.('dir-') ? parseInt(avenantLinks[fileIdx].replace('dir-', '')) : null
+                                        const dirBailFile = dirBailIdx != null ? files[dirBailIdx] : null
+                                        const currentLabel = dirBailFile
+                                          ? dirBailFile.name.replace(/\.[^.]+$/, '')
+                                          : (allBails.find(b => b.id === avenantLinks[fileIdx])?.data?.immeuble
+                                              || allBails.find(b => b.id === avenantLinks[fileIdx])?.data?.adresse
+                                              || allBails.find(b => b.id === avenantLinks[fileIdx])?.file_name)
+                                        const options = [
+                                          ...(dirBailFile ? [{ value: avenantLinks[fileIdx], label: dirBailFile.name.replace(/\.[^.]+$/, '') }] : []),
+                                          ...allBails.map(b => ({ value: b.id, label: b.data?.immeuble || b.data?.adresse || b.file_name })),
+                                        ]
+                                        return (
+                                          <>
+                                            <span
+                                              onClick={e => {
+                                                e.stopPropagation()
+                                                if (editingBailLink === fileIdx) { setEditingBailLink(null); return }
+                                                setEditingBailLinkRect(e.currentTarget.getBoundingClientRect())
+                                                setEditingBailLink(fileIdx)
+                                              }}
+                                              style={{ fontSize: '11px', padding: '3px 6px', borderRadius: '6px', border: `1px solid ${avenantLinks[fileIdx]?.startsWith?.('dir-') ? 'var(--success)' : 'var(--border2)'}`, background: 'var(--surface)', color: avenantLinks[fileIdx] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                            >
+                                              {currentLabel || '— Bail lié —'}
+                                            </span>
+                                            {editingBailLink === fileIdx && (
+                                              <BailLinkPicker
+                                                currentValue={avenantLinks[fileIdx] || ''}
+                                                options={options}
+                                                onSave={v => { setAvenantLinks(prev => ({ ...prev, [fileIdx]: v || null })); setEditingBailLink(null) }}
+                                                onClose={() => setEditingBailLink(null)}
+                                                anchorRect={editingBailLinkRect}
+                                              />
+                                            )}
+                                          </>
+                                        )
+                                      })()}
                                     </div>
                                   ) : <span/>}
                                 </div>
