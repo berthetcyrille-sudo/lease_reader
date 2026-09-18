@@ -5427,6 +5427,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [linkTarget, setLinkTarget] = useState(null) // avenant row en attente de choix du 2e bail
   const [moveTarget, setMoveTarget] = useState(null) // avenant row en attente de choix du bail de destination
   const [moveProgress, setMoveProgress] = useState(false)
+  const [convertTarget, setConvertTarget] = useState(null) // bail row en attente de choix du bail auquel se rattacher (conversion en avenant)
+  const [convertProgress, setConvertProgress] = useState(false)
   const [linkProgress, setLinkProgress] = useState(false) // duplication en cours (bloquant)
   const [confirmUnlink, setConfirmUnlink] = useState(null) // avenant row en attente de confirmation de déliaison
   const avenantInputRef = useRef(null)
@@ -5690,6 +5692,28 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       showToast('error', `Échec du déplacement : ${err.message || 'Erreur inconnue'}`)
     } finally {
       setMoveProgress(false)
+    }
+  }
+
+  // Convertit un document extrait par erreur comme "bail" en avenant, et le
+  // rattache au vrai bail d'origine — sans réextraction (donc sans nouvel
+  // appel IA). Les données déjà extraites restent en l'état (elles ont la
+  // forme "bail", pas "avenant" : objet_avenant/champs_modifies resteront
+  // vides tant qu'une réextraction n'est pas relancée après coup).
+  async function convertBailToAvenant(row, newBail) {
+    setConvertProgress(true)
+    try {
+      const { error } = await supabase.from('extractions')
+        .update({ document_type: 'avenant', parent_id: newBail.id, actif_group: newBail.actif_group || null })
+        .eq('id', row.id)
+      if (error) throw error
+      setConvertTarget(null)
+      showToast('success', `Converti en avenant et rattaché à « ${newBail.data?.immeuble || newBail.data?.preneur || newBail.file_name} » — clique "Réextraire" pour compléter les données`, 9000)
+      onRefresh?.()
+    } catch (err) {
+      showToast('error', `Échec de la conversion : ${err.message || 'Erreur inconnue'}`)
+    } finally {
+      setConvertProgress(false)
     }
   }
 
@@ -6040,6 +6064,18 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           progressLabel="Déplacement en cours…"
           onConfirm={bail => moveAvenantToBail(moveTarget, bail)}
           onClose={() => !moveProgress && setMoveTarget(null)}
+        />
+      )}
+      {convertTarget && (
+        <BailPickerModal
+          row={convertTarget}
+          bails={tree.filter(b => b.document_type === 'bail' && b.id !== convertTarget.id)}
+          progress={convertProgress}
+          title={`Convertir « ${convertTarget.file_name} » en avenant`}
+          subtitle="Ce document, actuellement classé comme bail, sera reclassé en avenant et rattaché au bail choisi. Les données déjà extraites restent en l'état (au format bail) — pense à cliquer ensuite « Réextraire » sur cette ligne pour les compléter au format avenant."
+          progressLabel="Conversion en cours…"
+          onConfirm={bail => convertBailToAvenant(convertTarget, bail)}
+          onClose={() => !convertProgress && setConvertTarget(null)}
         />
       )}
       {confirmUnlink && (
@@ -6690,6 +6726,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                           !isAv && {
                             icon: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
                             label: 'Ajouter un avenant', onClick: () => openAvenantPicker(row),
+                          },
+                          !isAv && {
+                            icon: <><path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/><path d="M15 19l3 3 3-3"/><path d="M19 9l3 3-3 3"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></>,
+                            label: 'Convertir en avenant et rattacher à un bail', onClick: () => setConvertTarget(row),
                           },
                           row.storage_path && {
                             icon: <><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/></>,
