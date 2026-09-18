@@ -4,7 +4,7 @@
    zoom peut faire apparaître par arrondi de pixel — l'appli n'a de toute
    façon jamais besoin de défiler horizontalement au niveau de la page (les
    tableaux comme .table-wrap gardent leur propre défilement interne). */
-html { zoom: 90%; overflow-x: hidden; }
+html { zoom: 90%; overflow-x: hidden; scrollbar-width: auto; scrollbar-color: var(--border2) transparent; }
 
 /* Polices alignées sur l'outil Mandat : Libre Baskerville pour les titres,
    IBM Plex Sans pour le texte courant, IBM Plex Mono pour les chiffres. */
@@ -38,8 +38,10 @@ html { zoom: 90%; overflow-x: hidden; }
    pour que ces éléments remplissent bien la fenêtre réelle, sans bandeau vide. */
 body { background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; min-height: calc(100vh / 0.9); overflow-x: hidden; }
 button, input { font-family: inherit; cursor: pointer; }
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+::-webkit-scrollbar { width: 12px; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 6px; border: 3px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+::-webkit-scrollbar-track { background: transparent; }
 
 /* ── App ── */
 .app { display: flex; flex-direction: column; height: calc(100vh / 0.9); overflow: hidden; }
