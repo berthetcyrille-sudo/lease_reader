@@ -163,7 +163,7 @@ REGLES POUR date_effet_avenant / date_signature_avenant (champs top-level, PAS d
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
-- break_options: UNIQUEMENT si l'avenant modifie/redefinit les dates de sortie anticipee. Format: TABLEAU DE DATES PURES au format "jj/mm/aaaa" UNIQUEMENT, ex: ["31/12/2030","31/12/2033"]. JAMAIS de phrase descriptive (interdit: "Premiere faculte de conge a l'expiration de la 2e periode triennale le 31/12/2030" — mettre uniquement "31/12/2030"). Si l'avenant dit "renonciation a la resiliation triennale pour la duree ferme de N ans" ou "premier conge possible le jj/mm/aaaa", extraire la ou les date(s) exacte(s) mentionnee(s), pas le texte de la clause (le texte de la clause va dans conditions_break et _sources, pas dans break_options). null si non modifie.
+- break_options: UNIQUEMENT si l'avenant modifie/redefinit EXPLICITEMENT les dates de sortie anticipee — c'est-a-dire si le texte de CET avenant parle lui-meme de faculte de resiliation/conge/break. INTERDICTION ABSOLUE de calculer et remplir des echeances triennales generiques (3/6/9 ans depuis une date d'effet) par reflexe des que cet avenant etablit ou confirme une date d'effet/date de fin — un avenant qui se contente de fixer/confirmer la date d'effet ou la date de fin SANS jamais mentionner de faculte de conge/resiliation doit laisser break_options a null, meme si on peut techniquement calculer des multiples de 3 ans a partir de la nouvelle date d'effet. Format: TABLEAU DE DATES PURES au format "jj/mm/aaaa" UNIQUEMENT, ex: ["31/12/2030","31/12/2033"]. JAMAIS de phrase descriptive (interdit: "Premiere faculte de conge a l'expiration de la 2e periode triennale le 31/12/2030" — mettre uniquement "31/12/2030"). Si l'avenant dit "renonciation a la resiliation triennale pour la duree ferme de N ans" ou "premier conge possible le jj/mm/aaaa", extraire la ou les date(s) exacte(s) mentionnee(s), pas le texte de la clause (le texte de la clause va dans conditions_break et _sources, pas dans break_options). null si non modifie.
 - franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant. ATTENTION: si plusieurs montants sont donnes a des dates anniversaires successives sans duree explicite, NE PAS supposer 12 mois entre deux echeances (voir regle detaillee dans le prompt d'extraction du bail) — calculer duree_mois = round(montant / (loyer_annuel_base/12)). FORMAT SYMETRIQUE (voir regle detaillee dans le prompt d'extraction du bail): si duree explicite et montant manquant, reprendre la duree telle quelle et ecrire "recalcul = <montant> €" dans montant ; si montant explicite et duree manquante, garder le montant en chiffre brut et ecrire "recalcul = <duree> mois" dans duree ; jamais de formule detaillee.
 - frais_redaction_actes: UNIQUEMENT si cet avenant lui-meme mentionne un montant de frais de redaction (le sien propre, et/ou une nouvelle stipulation pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. null si non aborde par cet avenant.
 - charges_impots_taxes / charges_vetuste / charges_force_majeure: UNIQUEMENT si cet avenant modifie explicitement la repartition d'un impot/taxe, de la vetuste ou de la force majeure par rapport au bail initial. Memes formats que dans le prompt d'extraction du bail. null si non aborde par cet avenant (ce champ ecrase completement l'ancien tableau/objet — pour charges_impots_taxes, reprendre TOUS les impots encore pertinents, pas seulement celui modifie).
@@ -2646,25 +2646,29 @@ function EtatLocatifModal({ building, bails, onClose }) {
           toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
             .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
         let confirmedByAvenant = false
-        let hasExplicitDateFin = false
-        let hasExplicitBreaks = false
+        let explicitDateFin = null
+        let explicitBreaks = null
         sortedAvs.forEach(av => {
           const mods = av.data?.champs_modifies || {}
           if (mods.date_effet) confirmedByAvenant = true
-          if (mods.date_fin) hasExplicitDateFin = true
-          if (Array.isArray(mods.break_options) && mods.break_options.length > 0) hasExplicitBreaks = true
+          if (mods.date_fin) explicitDateFin = mods.date_fin
+          if (Array.isArray(mods.break_options) && mods.break_options.length > 0) explicitBreaks = mods.break_options
         })
         if (confirmedByAvenant) {
           const startConfirmed = parseFrDate(d.date_effet)
           if (startConfirmed) {
-            if (!hasExplicitDateFin) {
+            if (explicitDateFin) {
+              d.date_fin = explicitDateFin
+            } else {
               const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
               if (m) {
                 const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
                 d.date_fin = fmtFR(end)
               }
             }
-            if (!hasExplicitBreaks) {
+            if (explicitBreaks) {
+              d.break_options = explicitBreaks
+            } else {
               const recalc = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
               if (recalc.length > 0) d.break_options = recalc
             }
@@ -3125,25 +3129,29 @@ function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant
     const sortedAvs = [...item.avenants].sort((a, b) =>
       toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
         .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
-    let hasExplicitDateFin = false
-    let hasExplicitBreaks = false
+    let explicitDateFin = null
+    let explicitBreaks = null
     sortedAvs.forEach(av => {
       const mods = av.data?.champs_modifies || {}
       if (mods.date_effet) { d.date_effet = mods.date_effet; effetConfirmePar = av }
-      if (mods.date_fin) hasExplicitDateFin = true
-      if (Array.isArray(mods.break_options) && mods.break_options.length > 0) hasExplicitBreaks = true
+      if (mods.date_fin) explicitDateFin = mods.date_fin
+      if (Array.isArray(mods.break_options) && mods.break_options.length > 0) explicitBreaks = mods.break_options
     })
     if (effetConfirmePar) {
       const startConfirmed = parseFrDate(d.date_effet)
       if (startConfirmed) {
-        if (!hasExplicitDateFin) {
+        if (explicitDateFin) {
+          d.date_fin = explicitDateFin
+        } else {
           const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
           if (m) {
             const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
             d.date_fin = fmtFR(end)
           }
         }
-        if (!hasExplicitBreaks) {
+        if (explicitBreaks) {
+          d.break_options = explicitBreaks
+        } else {
           const recalculed = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
           if (recalculed.length > 0) d.break_options = recalculed
         }
