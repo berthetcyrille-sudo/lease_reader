@@ -5667,31 +5667,31 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   useEffect(() => {
     if (!editingActif) return
     const handler = () => setEditingActif(null)
-    document.addEventListener('click', handler, true)
-    return () => document.removeEventListener('click', handler, true)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
   }, [editingActif])
 
   useEffect(() => {
     if (!editingActif2) return
     const handler = () => setEditingActif2(null)
-    document.addEventListener('click', handler, true)
-    return () => document.removeEventListener('click', handler, true)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
   }, [editingActif2])
 
   // Ferme le menu "Actions" au clic extérieur
   useEffect(() => {
     if (!showToolsMenu) return
     const handler = () => setShowToolsMenu(false)
-    document.addEventListener('click', handler, true)
-    return () => document.removeEventListener('click', handler, true)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
   }, [showToolsMenu])
 
   // Ferme le menu "Actions" d'une ligne au clic extérieur
   useEffect(() => {
     if (!openRowMenu) return
     const handler = () => { setOpenRowMenu(null); setOpenRowMenuRect(null) }
-    document.addEventListener('click', handler, true)
-    return () => document.removeEventListener('click', handler, true)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
   }, [openRowMenu])
 
   // Liste des actifs proposés dans le sélecteur : la table maîtresse
@@ -7504,8 +7504,8 @@ export default function App() {
   useEffect(() => {
     if (!showEtatLocatifMenu) return
     const handler = () => setShowEtatLocatifMenu(false)
-    document.addEventListener('click', handler, true)
-    return () => document.removeEventListener('click', handler, true)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
   }, [showEtatLocatifMenu])
 
   const buildingGroups = useMemo(() => {
