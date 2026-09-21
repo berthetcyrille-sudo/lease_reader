@@ -1045,7 +1045,18 @@ function addYearsExpiry(d, n) {
 // détail ET dans la frise de l'État locatif.
 function extractConditionalBreaks(d, cleanBreaksArr) {
   const cleanBreakParsedDates = (cleanBreaksArr || []).map(b => parseFR(b)).filter(Boolean)
+  // Clause "boilerplate" de manquement/défaut, présente quasi systématiquement
+  // dans les baux commerciaux (remboursement des avantages consentis en cas
+  // de non-respect des obligations, de non-prise de possession, ou de départ
+  // anticipé HORS CADRE d'un break prévu) — ce n'est jamais une véritable
+  // indemnité due pour l'exercice VALIDE d'une option de break, même si son
+  // texte mentionne une date de break en passant. Le prompt le dit déjà
+  // explicitement, mais ce cas revient de façon récurrente malgré tout : un
+  // filtre ici, fiable à 100%, vaut mieux qu'une nouvelle formulation de règle
+  // à espérer suivie.
+  const isDefaultBoilerplate = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
   let entries = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
+    .filter(ib => !isDefaultBoilerplate(safeStr(ib.motif)) && !isDefaultBoilerplate(safeStr(ib.calcul)))
     .map(ib => ({ date: ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null, condition: safeStr(ib.motif) || safeStr(ib.calcul) }))
     // Filet de sécurité : une clause de CESSION n'est pas une vraie option de
     // sortie du preneur — jamais une "break conditionnelle", même si l'IA lui
@@ -3306,6 +3317,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // affichée par ailleurs (cf. le filtre condBreakEntries ci-dessus).
   const rawIndemnitesBreak = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
     .filter(ib => !/cession/i.test(safeStr(ib.motif) || '') && !/cession/i.test(safeStr(ib.calcul) || ''))
+    .filter(ib => !/non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(safeStr(ib.motif) || '') && !/non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(safeStr(ib.calcul) || ''))
   function findIndemniteForBreak(breakDateStr) {
     const bd = parseFR(breakDateStr)
     if (!bd) return null
@@ -4169,10 +4181,15 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
 
       {(() => {
         // Même filet de sécurité que pour la carte "Break conditionnelle" :
-        // une clause de cession n'est pas une vraie indemnité de break, même
-        // si l'IA l'a par erreur incluse dans indemnites_break.
+        // une clause de cession, ou une clause standard de manquement/défaut
+        // (non-respect des obligations, non-prise de possession, départ
+        // anticipé hors cadre d'un break prévu — présente dans quasi tous les
+        // baux) n'est jamais une vraie indemnité due pour l'exercice VALIDE
+        // d'une option de break, même si l'IA l'a par erreur incluse ici.
+        const isDefaultBoilerplateRow = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
         const cleanIndemnitesBreak = (d.indemnites_break || []).filter(row =>
-          !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '')
+          !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
+          !isDefaultBoilerplateRow(safeStr(row.motif)) && !isDefaultBoilerplateRow(safeStr(row.calcul))
         )
         if (cleanIndemnitesBreak.length === 0) return null
         return (
