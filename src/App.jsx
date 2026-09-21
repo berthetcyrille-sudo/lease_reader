@@ -3099,10 +3099,20 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-function ResultsView({ item, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme }) {
+function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
+  // Un avenant qui ne redéfinit pas lui-même duree_ferme/conditions_break
+  // n'a, sur SA PROPRE fiche, aucun moyen de savoir ce qui a déjà été établi
+  // par le bail d'origine — sans ce repli, le calcul de breaks ci-dessous
+  // (computeBreaks, qui tourne systématiquement) génère un rythme triennal
+  // générique que rien ne filtre plus ensuite (filterBreaksByDureeFerme ne
+  // peut rien retirer sans connaître la vraie durée ferme).
+  if (isAv && parentBailData) {
+    if (d.duree_ferme == null) d.duree_ferme = parentBailData.duree_ferme
+    if (d.conditions_break == null) d.conditions_break = parentBailData.conditions_break
+  }
   if (!Array.isArray(d.break_options)) d.break_options = d.break_options ? [String(d.break_options)] : []
   if (!Array.isArray(d.franchise_periodes)) d.franchise_periodes = []
   if (!Array.isArray(d.frais_redaction_actes)) d.frais_redaction_actes = []
@@ -8202,7 +8212,15 @@ export default function App() {
 
           <div className="content" ref={contentRef}>
             {activeItem ? (
-              <ResultsView item={activeItem} onSaveManualDateEffet={handleManualDateEffet} onSaveManualDateEffetAvenant={handleManualDateEffetAvenant} onSaveManualSurface={handleManualSurface} onSaveManualParking={handleManualParking} onSaveManualDureeFerme={handleManualDureeFerme} />
+              <ResultsView
+                item={activeItem}
+                parentBailData={activeItem?.document_type === 'avenant' ? history.find(b => b.id === activeItem.parent_id)?.data : null}
+                onSaveManualDateEffet={handleManualDateEffet}
+                onSaveManualDateEffetAvenant={handleManualDateEffetAvenant}
+                onSaveManualSurface={handleManualSurface}
+                onSaveManualParking={handleManualParking}
+                onSaveManualDureeFerme={handleManualDureeFerme}
+              />
             ) : (
               <>
                 <Dashboard
