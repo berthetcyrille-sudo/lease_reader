@@ -1045,7 +1045,7 @@ function addYearsExpiry(d, n) {
 // détail ET dans la frise de l'État locatif.
 function extractConditionalBreaks(d, cleanBreaksArr) {
   const cleanBreakParsedDates = (cleanBreaksArr || []).map(b => parseFR(b)).filter(Boolean)
-  return (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
+  let entries = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
     .map(ib => ({ date: ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null, condition: safeStr(ib.motif) || safeStr(ib.calcul) }))
     // Filet de sécurité : une clause de CESSION n'est pas une vraie option de
     // sortie du preneur — jamais une "break conditionnelle", même si l'IA lui
@@ -1061,6 +1061,17 @@ function extractConditionalBreaks(d, cleanBreaksArr) {
       const isDuplicateOfClean = cleanBreakParsedDates.some(bd => Math.abs(bd - cbParsed) <= 3 * 24 * 60 * 60 * 1000)
       return !isDuplicateOfClean
     })
+  // Même filet que pour les breaks classiques (filterBreaksByDureeFerme) :
+  // une echeance ANTERIEURE a la durée ferme actuellement en vigueur est
+  // forcément caduque — un résidu fréquent quand un avenant remplace
+  // entièrement l'article durée/résiliation du bail (ex: indemnité de dédit
+  // calculée sur l'ancienne clause, jamais recoupée avec la nouvelle durée
+  // ferme). Sans ce filtre, une clause d'origine parfaitement bien extraite à
+  // l'époque redevient trompeuse une fois supplantée par un avenant.
+  const dates = entries.map(e => e.date)
+  const keptDates = new Set(filterBreaksByDureeFerme(dates, d.date_effet, d.duree_ferme))
+  entries = entries.filter(e => keptDates.has(e.date))
+  return entries
 }
 
 function detectsFullTriennialWaiver(clauseTextLower) {
@@ -1090,7 +1101,12 @@ function filterBreaksByDureeFerme(breaks, date_effet_str, duree_ferme_str) {
   if (!Array.isArray(breaks) || !breaks.length || !duree_ferme_str || !date_effet_str) return breaks
   const effet = parseFR(date_effet_str)
   const dfm = String(duree_ferme_str)
-  const ymatch = dfm.match(/(\d+)\s*ans?/), mmatch = dfm.match(/(\d+)\s*mois/)
+  // \(?...\)? : tolère un chiffre entre parenthèses ("neuf (9) ans fermes"),
+  // format très courant dans les baux — sans ça, la parenthèse casse la
+  // contiguïté attendue entre le chiffre et "ans"/"mois" et le calcul entier
+  // est silencieusement ignoré (years=months=0 → aucun filtrage n'a lieu).
+  // \b après ans/mois exclu "années"/"moisson" etc. par erreur.
+  const ymatch = dfm.match(/\(?(\d+)\)?\s*ans?\b/i), mmatch = dfm.match(/\(?(\d+)\)?\s*mois\b/i)
   const years = ymatch ? parseInt(ymatch[1]) : 0, months = mmatch ? parseInt(mmatch[1]) : 0
   if (!effet || (years === 0 && months === 0)) return breaks
   const minBreak = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
@@ -1111,8 +1127,8 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
   // Parse duree_ferme into years+months
   const parseDureeFerme = (str) => {
     if (!str) return null
-    const ymatch = String(str).match(/(\d+)\s*ans?/)
-    const mmatch = String(str).match(/(\d+)\s*mois/)
+    const ymatch = String(str).match(/\(?(\d+)\)?\s*ans?\b/i)
+    const mmatch = String(str).match(/\(?(\d+)\)?\s*mois\b/i)
     const years  = ymatch ? parseInt(ymatch[1]) : 0
     const months = mmatch ? parseInt(mmatch[1]) : 0
     return (years > 0 || months > 0) ? { years, months } : null
@@ -2384,7 +2400,7 @@ const ETAT_LOCATIF_BG     = { stable: '#EAF3DE', risk: '#FAEEDA', vacant: '#F1EF
 // ─── Contrôle qualité : audit heuristique des baux déjà extraits ────────────
 // Ne modifie rien — repère juste des cas suspects à vérifier/réextraire manuellement.
 function parseYearsFromDureeText(s) {
-  const m = String(s || '').match(/(\d+)\s*ans?/i)
+  const m = String(s || '').match(/\(?(\d+)\)?\s*ans?\b/i)
   return m ? parseInt(m[1]) : null
 }
 
@@ -2721,7 +2737,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
             if (explicitDateFin) {
               d.date_fin = explicitDateFin
             } else {
-              const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
+              const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
               if (m) {
                 const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
                 d.date_fin = fmtFR(end)
@@ -2746,7 +2762,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
       // Si on a une date de départ (même prévisionnelle) et une durée totale,
       // on calcule une échéance estimée plutôt que de renoncer à afficher le bail.
       if (start && !end) {
-        const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
+        const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
         if (m) {
           end = new Date(start)
           end.setFullYear(end.getFullYear() + parseInt(m[1]))
@@ -2758,7 +2774,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
         // l'extraction (champ manquant, pas forcément un VEFA) — on la
         // recalcule en remontant depuis la date de fin et la durée totale,
         // plutôt que de perdre le bail dans le filet "dates non déterminées".
-        const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
+        const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
         if (m) {
           start = new Date(end.getFullYear() - parseInt(m[1]), end.getMonth(), end.getDate() + 1)
           estimated = true
@@ -3214,7 +3230,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         if (explicitDateFin) {
           d.date_fin = explicitDateFin
         } else {
-          const m = String(d.duree_totale || '').match(/(\d+)\s*ans?/i)
+          const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
           if (m) {
             const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
             d.date_fin = fmtFR(end)
@@ -7813,7 +7829,7 @@ export default function App() {
     const newData = { ...row.data, date_effet: newDateEffetStr, date_effet_condition: null }
     const startConfirmed = parseFR(newDateEffetStr)
     if (startConfirmed) {
-      const m = String(newData.duree_totale || '').match(/(\d+)\s*ans?/i)
+      const m = String(newData.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
       if (m) {
         const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
         newData.date_fin = fmtFR(end)
