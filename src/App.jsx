@@ -1109,6 +1109,25 @@ function detectsFullTriennialWaiver(clauseTextLower) {
 // ferme, soit un ancien residu de calcul avant correction. Centralise ici
 // pour etre applique de facon identique partout (extraction, tableau de bord,
 // fiche detail, etat locatif) plutot que reimplemente a chaque endroit.
+// Calcule date_fin = date_effet + duree_totale quand la valeur extraite pour
+// date_fin n'est pas une vraie date exploitable (ex: l'IA a parfois recopié
+// une formule en texte, "[date_effet + 9 ans]", faute d'avoir pu calculer une
+// date concrete a l'extraction — frequent quand date_effet etait encore
+// inconnue/conditionnelle a ce moment-la, avant d'etre confirmee par un
+// avenant). Reutilise la meme regex tolerante aux chiffres entre parentheses
+// que le reste de l'appli.
+function computeDateFinFromDuree(date_effet_str, duree_totale_str) {
+  const effet = parseFR(date_effet_str)
+  if (!effet) return null
+  const ymatch = String(duree_totale_str || '').match(/\(?(\d+)\)?\s*ans?\b/i)
+  const mmatch = String(duree_totale_str || '').match(/\(?(\d+)\)?\s*mois\b/i)
+  const years = ymatch ? parseInt(ymatch[1]) : 0
+  const months = mmatch ? parseInt(mmatch[1]) : 0
+  if (years === 0 && months === 0) return null
+  const end = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
+  return fmtFR(end)
+}
+
 function filterBreaksByDureeFerme(breaks, date_effet_str, duree_ferme_str) {
   if (!Array.isArray(breaks) || !breaks.length || !duree_ferme_str || !date_effet_str) return breaks
   const effet = parseFR(date_effet_str)
@@ -6646,8 +6665,17 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             // date d'effet ferme (champs_modifies.date_effet) — dans ce cas,
             // le badge ne doit plus s'afficher sur le bail, même si les
             // données brutes du bail d'origine restent conditionnées.
-            const resolvedByAvenant = !isAv && (row.avenants || []).some(av => av.data?.champs_modifies?.date_effet)
+            const confirmingAvenant = !isAv ? (row.avenants || []).find(av => av.data?.champs_modifies?.date_effet) : null
+            const resolvedByAvenant = !!confirmingAvenant
             const effetCond = (!isAv && !d.date_effet && !resolvedByAvenant) ? d.date_effet_condition : null
+            // Date d'effet "effective" pour un bail : la sienne propre si connue,
+            // sinon celle confirmee par un avenant — sert a calculer une vraie
+            // date_fin ci-dessous quand seul un texte/formule a ete extrait.
+            const effectiveDateEffet = isAv ? d.date_effet : (d.date_effet || confirmingAvenant?.data?.champs_modifies?.date_effet)
+            const normalizedDateFin = normalizeDate(d.date_fin)
+            const cleanDateFin = normalizedDateFin && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizedDateFin)
+              ? normalizedDateFin
+              : (computeDateFinFromDuree(effectiveDateEffet, d.duree_totale) || normalizedDateFin)
             const effetCondOverdue = !!(effetCond && isDatePast(effetCond.date_limite))
             const breaks = filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
             // Un bail replié affiche ses PROPRES données extraites — mais si un
@@ -6863,7 +6891,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 {/* Date fin */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4, overflowWrap: 'anywhere', display: 'inline-block' }}>
-                    {normalizeDate(d.date_fin) || '—'}
+                    {cleanDateFin || '—'}
                     <OverrideMark field="date_fin" formatValue={v => normalizeDate(v) || v} />
                   </span>
                 </div>
