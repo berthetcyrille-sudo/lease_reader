@@ -1895,24 +1895,19 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   const safe = Array.isArray(surfaces) ? surfaces : []
   if (!safe.length) return null
   const isPark = r => { const cat = (r.categorie || r.typologie || '').toLowerCase(); return cat.includes('station') || cat.includes('parking') || cat.includes('place') }
+  // La RIE (restaurant inter-entreprises) est quasi toujours facturée sous
+  // forme de redevance au m² de la surface de BUREAUX elle-même (ex: 16€/m²
+  // en plus des 195€/m² de loyer) — ce n'est pas une surface distincte
+  // louée en plus. La compter dans le total de surface revient à compter
+  // deux fois la même surface de bureaux.
+  const isRie = r => (r.categorie || r.typologie || '').toLowerCase().includes('rie')
   const mainRows = safe.filter(r => !isPark(r))
   const parkRows = safe.filter(r => isPark(r))
-  const total = mainRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
-  const totalLoyer = safe.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
-  const parkTotalLoyer = parkRows.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
-  const mainLoyerSum = mainRows.reduce((a, r) => a + (parseAmount(r.loyer_annuel) || 0), 0)
-  // Si aucune ligne n'a de loyer propre (bail non ventilé par composante), on
-  // retombe sur le loyer global du bail plutôt que d'afficher un total vide.
-  const mainLoyerDisplay = mainLoyerSum > 0 ? mainLoyerSum : (parseAmount(totalLoyerDeclared) || 0)
-  const mainLoyerIsFallback = mainLoyerSum === 0 && mainLoyerDisplay > 0
-  // Écart entre la somme du détail et la surface totale déclarée du bail —
-  // typiquement une quote-part de parties communes (« Surface Exploitée »,
-  // SUBL, surface utile...) non ventilée ligne par ligne.
-  const declared = parseFloat(String(totalDeclared || '').replace(',', '.')) || 0
-  const commonAreaGap = declared > 0 && total > 0 ? declared - total : 0
-  const hasNotableGap = Math.abs(commonAreaGap) > Math.max(1, declared * 0.01)
-
-  // Compute unit price ONLY if both loyer_annuel AND surface_m2 are present
+  // Calcule le loyer d'une ligne : celui indiqué explicitement dans le bail
+  // si présent, sinon celui déductible du prix unitaire × surface (marqué
+  // comme calculé) — sans ce repli, une ligne qui n'a qu'un prix au m²
+  // (cas frequent : loyer et RIE exprimés uniquement en €/m²) affichait "—"
+  // au lieu du montant pourtant calculable.
   const unitPrice = r => {
     if (r.prix_unitaire) return parseAmount(r.prix_unitaire)
     const loyer = parseAmount(r.loyer_annuel)
@@ -1921,6 +1916,34 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
     if (loyer !== null && loyer > 0 && surf > 0) return Math.round(loyer / surf)
     return null // Cannot calculate - don't show
   }
+  const rowLoyerAnnuel = r => {
+    const explicit = parseAmount(r.loyer_annuel)
+    if (explicit) return { value: explicit, computed: false }
+    const up = unitPrice(r)
+    const surf = parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0
+    if (up && surf > 0) return { value: up * surf, computed: true }
+    return { value: null, computed: false }
+  }
+  const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
+  const parkTotalLoyer = parkRows.reduce((acc, r) => acc + (parseAmount(r.loyer_annuel) || 0), 0)
+  const mainLoyerSum = mainRows.reduce((a, r) => a + (rowLoyerAnnuel(r).value || 0), 0)
+  // Si aucune ligne n'a de loyer propre ou calculable (bail non ventilé par
+  // composante), on retombe sur le loyer global du bail plutôt que d'afficher
+  // un total vide.
+  const mainLoyerDisplay = mainLoyerSum > 0 ? mainLoyerSum : (parseAmount(totalLoyerDeclared) || 0)
+  const mainLoyerIsFallback = mainLoyerSum === 0 && mainLoyerDisplay > 0
+  // Le total général doit reprendre le MÊME loyer principal que la ligne
+  // "Total bureaux / locaux" ci-dessus (avec son repli sur le loyer global si
+  // besoin) — et non un total brut recalculé séparément à partir des seules
+  // valeurs explicites, qui ratait les loyers déductibles uniquement d'un
+  // prix au m² et ignorait le repli sur le loyer global du bail.
+  const totalLoyer = mainLoyerDisplay + parkTotalLoyer
+  // Écart entre la somme du détail et la surface totale déclarée du bail —
+  // typiquement une quote-part de parties communes (« Surface Exploitée »,
+  // SUBL, surface utile...) non ventilée ligne par ligne.
+  const declared = parseFloat(String(totalDeclared || '').replace(',', '.')) || 0
+  const commonAreaGap = declared > 0 && total > 0 ? declared - total : 0
+  const hasNotableGap = Math.abs(commonAreaGap) > Math.max(1, declared * 0.01)
 
   return (
     <div>
@@ -1938,16 +1961,20 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
             <tbody>
               {mainRows.map((row, i) => {
                 const up = unitPrice(row)
+                const rl = rowLoyerAnnuel(row)
                 return (
                   <tr key={i}>
-                    <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
+                    <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}{isRie(row) && <span title="Redevance calculée sur la surface de bureaux — non comptée en plus dans le total de surface" style={{ fontSize: '10px', marginLeft: '3px', color: 'var(--text3)', cursor: 'help' }}>†</span>}</td>
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
                     <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 ? `${row.surface_m2} m²` : '—'}</td>
                     <td style={{ textAlign: 'right', color: row.prix_unitaire ? 'var(--text)' : 'var(--text3)', fontStyle: row.prix_unitaire ? 'normal' : 'italic' }}>
                       {up ? `${up.toLocaleString('fr-FR')} €` : '—'}
                       {!row.prix_unitaire && up && <span title="Calculé" style={{ fontSize: '10px', marginLeft: '3px' }}>*</span>}
                     </td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                      {rl.value != null ? fmtEur(rl.value) : '—'}
+                      {rl.computed && <span title="Calculé (prix unitaire × surface)" style={{ fontSize: '10px', marginLeft: '3px', fontWeight: 400 }}>*</span>}
+                    </td>
                   </tr>
                 )
               })}
@@ -1963,6 +1990,13 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                     {mainLoyerIsFallback && <span title="Loyer global du bail — non ventilé par composante dans le document" style={{ fontSize: '10px', marginLeft: '3px', fontWeight: 400, fontStyle: 'italic', color: 'var(--text3)' }}>*</span>}
                   </td>
                 </tr>
+                {safe.some(isRie) && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
+                      † RIE : redevance calculée sur la surface de bureaux, non ajoutée au total de surface (même surface, pas une surface en plus)
+                    </td>
+                  </tr>
+                )}
                 {hasNotableGap && (
                   <tr>
                     <td colSpan={5} style={{ padding: '6px 10px 8px', fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
