@@ -106,7 +106,7 @@ REGLES PAR CHAMP:
 - date_effet_condition: a remplir UNIQUEMENT quand la clause du bail definit elle-meme la date de prise d'effet par reference a un EVENEMENT FUTUR INCERTAIN (pas une date calendaire fixe) — ex: "la date de prise d'effet du Bail est fixee a la date de signature de l'Acte de Vente", "le Bail prendra effet a la date de levee de la condition suspensive de financement", "a la date de reception des travaux". Dans ce cas, date_effet DOIT rester null (aucune date calendaire n'existe reellement dans le document) mais date_effet_condition doit etre rempli pour ne jamais laisser l'information disparaitre purement et simplement. Format: {"libelle":"texte concis de l'evenement dont depend la prise d'effet, ex: Signature de l'Acte de Vente","date_limite":"jj/mm/aaaa si une date limite de realisation de cet evenement est mentionnee (souvent la meme que celle de la condition suspensive correspondante dans conditions_suspensives), sinon null"}. Si cet evenement correspond a une condition suspensive deja listee dans conditions_suspensives, reprendre EXACTEMENT le meme libelle et la meme date_limite_levee ici (coherence entre les deux champs). null si la date de prise d'effet est une date calendaire normale (le cas le plus frequent) ou deductible directement (ex: date de signature, date de mise a disposition).
 - conditions_suspensives: liste de TOUTES les conditions suspensives auxquelles l'entree en vigueur du bail (ou certains de ses effets) est subordonnee — typiquement une clause "Condition(s) Suspensive(s)" prevoyant que le bail ne devient definitif/ne prend effet que si un evenement determine se realise (ex: obtention d'un permis de construire purge de tout recours, obtention d'une autorisation administrative, levee d'une clause de non-recours, achevement de travaux, obtention d'un financement, non-exercice d'un droit de preemption). Format: [{"libelle":"texte concis de la condition","date_limite_levee":"jj/mm/aaaa si mentionnee, sinon null","statut":"levee/en cours/non precise si le document l'indique, sinon null","page":2}]. date_limite_levee: OBLIGATOIRE de chercher systematiquement cette date dans le texte de la clause — c'est la date au-dela de laquelle la condition doit avoir ete realisee/levee, faute de quoi le bail est cense ne pas se former ou etre caduc (formulations typiques: "la presente condition suspensive devra etre levee au plus tard le [date]", "a defaut de realisation de la condition avant le [date]", "dans un delai de N mois a compter de la signature"). Si le delai est exprime en duree relative ("dans un delai de 6 mois a compter de la signature") plutot qu'en date absolue, CALCULER la date resultante a partir de date_signature (ou date_effet si date_signature absente) et la reporter ici au format jj/mm/aaaa — ne pas laisser null uniquement parce que la date n'est pas ecrite en toutes lettres. null UNIQUEMENT si le bail n'indique reellement aucun delai ni date pour cette condition precise. Une condition deja explicitement levee/realisee au moment de la signature (mention "la presente condition est levee/realisee") doit quand meme etre listee, avec statut="levee". [] si le bail ne prevoit aucune condition suspensive.
 - surface_totale_m2: la surface de reference du bail. REGLE: si le bail utilise le terme "Surface Exploitee" (ou variante proche) pour designer la surface globale des locaux, UTILISER CETTE VALEUR pour surface_totale_m2, meme si elle inclut une quote-part des parties communes — c'est la convention de reference dans ce bail. Ne descendre au sous-composant individuel (ex: "Surface de bureaux") QUE si aucune "Surface Exploitee"/surface globale n'est mentionnee. Exemple: "la Surface Exploitee... est de 584,50 m²... les Locaux se decomposent: Surface de bureaux (lot n°11): 510,20 m²" → surface_totale_m2 = 584.50 (la Surface Exploitee), PAS 510.20.
-- surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. Exemple avec ventilation de loyer (toutes les lignes ont un loyer_annuel): [{\"categorie\":\"Bureaux\",\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. IMPORTANT POUR LES LIGNES STATIONNEMENT: pour une ligne categorie="Stationnement", le champ surface_m2 doit contenir le NOMBRE DE PLACES (pas une surface en m²) — reporter ce chiffre meme s'il n'est mentionne que dans une clause separee du bail (souvent la meme clause qui alimente le champ parking_nb_places, ex: "35 emplacements numerotes...1500 €/place/an"). NE JAMAIS laisser surface_m2 vide pour une ligne Stationnement si un nombre de places est identifiable ailleurs dans le document, meme si la clause de loyer stationnement (ligne du tableau) et la clause descriptive du nombre de places (champ parking_nb_places) sont physiquement separees dans le bail. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
+- surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. batiment: nom ou identifiant du BATIMENT auquel appartient cette surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes/identifies (ex: "Pascal", "Batiment A", "Celsius") — mettre null si le bail ne porte que sur un seul batiment, ou si aucun nom de batiment n'est mentionne (ne jamais deviner ou inventer un nom). Ce champ est INDEPENDANT de niveau (qui reste l'etage/niveau au sein de ce batiment) — les deux se completent, ne pas melanger le nom du batiment dans le champ niveau. Exemple avec ventilation de loyer et un seul batiment (toutes les lignes ont un loyer_annuel, batiment=null car non pertinent): [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"batiment\":null,\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement, un seul batiment): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"batiment\":null,\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). Exemple avec plusieurs batiments nommes (ensemble immobilier a plusieurs batiments, chaque surface rattachee au sien): bail dit "332,91 m2 au rez-de-chaussee du batiment A denomme Pascal" et "50 m2 dans l'immeuble denomme Lavoisier" → [{\"categorie\":\"Bureaux\",\"batiment\":\"Pascal\",\"niveau\":\"RDC\",\"surface_m2\":\"332.91\",\"loyer_annuel\":null},{\"categorie\":\"Bureaux\",\"batiment\":\"Lavoisier\",\"niveau\":\"RDC\",\"surface_m2\":\"50\",\"loyer_annuel\":null}]. categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. IMPORTANT POUR LES LIGNES STATIONNEMENT: pour une ligne categorie="Stationnement", le champ surface_m2 doit contenir le NOMBRE DE PLACES (pas une surface en m²) — reporter ce chiffre meme s'il n'est mentionne que dans une clause separee du bail (souvent la meme clause qui alimente le champ parking_nb_places, ex: "35 emplacements numerotes...1500 €/place/an"). NE JAMAIS laisser surface_m2 vide pour une ligne Stationnement si un nombre de places est identifiable ailleurs dans le document, meme si la clause de loyer stationnement (ligne du tableau) et la clause descriptive du nombre de places (champ parking_nb_places) sont physiquement separees dans le bail. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
 - _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ SIMPLE (non-tableau) dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_totale":1,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes (duree_totale et duree_ferme sont presque toujours dans la meme clause, ne pas en oublier un des deux), meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null. IMPORTANT: pour les champs qui sont des TABLEAUX (franchise_periodes, participations_travaux, indemnites_restitution, indemnites_break, conditions_suspensives), la page se met DIRECTEMENT dans chaque objet de la liste (cle "page", voir leurs formats respectifs ci-dessous) — PAS dans cet objet _pages global, qui reste reserve aux champs simples.
@@ -2825,15 +2825,34 @@ function EtatLocatifModal({ building, bails, onClose }) {
       )
       let locationLabel, sortKey, surface
       if (detailRows.length > 0) {
-        const niveaux = [...new Set(detailRows.map(r => r.niveau || r.localisation))]
+        // Une paire (niveau, bâtiment) distincte par ligne — le bâtiment
+        // n'existe que si l'ensemble immobilier en comporte plusieurs
+        // (surfaces_detail[].batiment, null sinon).
+        const pairs = [...new Map(detailRows.map(r => {
+          const niveau = r.niveau || r.localisation
+          const batiment = (r.batiment || '').trim() || null
+          return [`${batiment || ''}|${niveau}`, { niveau, batiment }]
+        })).values()]
         // On n'affiche que l'étage reconnu (RDC, 1er, 2e...), pas le texte brut
         // du bail qui peut contenir des mentions de lot très variables en
         // longueur ("galerie lot 1 voir plan...") — bien plus lisible en badge
         // compact, et le texte complet reste visible dans l'infobulle.
-        const infoList = niveaux
-          .map(n => ({ raw: n, info: extractFloorInfo(n) }))
-          .sort((a, b) => (a.info?.key ?? 9999) - (b.info?.key ?? 9999))
-        locationLabel = infoList.map(x => x.info ? x.info.label : x.raw).join(', ')
+        const infoList = pairs
+          .map(p => ({ raw: p.niveau, batiment: p.batiment, info: extractFloorInfo(p.niveau) }))
+          .sort((a, b) => (a.batiment || '').localeCompare(b.batiment || '') || (a.info?.key ?? 9999) - (b.info?.key ?? 9999))
+        const hasMultipleBuildings = new Set(infoList.map(x => x.batiment).filter(Boolean)).size > 0
+        if (hasMultipleBuildings) {
+          // Regroupe les étages par bâtiment : "Pascal (RDC, 4e étage), Lavoisier (RDC)"
+          const byBuilding = new Map()
+          infoList.forEach(x => {
+            const key = x.batiment || '—'
+            if (!byBuilding.has(key)) byBuilding.set(key, [])
+            byBuilding.get(key).push(x.info ? x.info.label : x.raw)
+          })
+          locationLabel = [...byBuilding.entries()].map(([b, floors]) => `${b} (${floors.join(', ')})`).join(', ')
+        } else {
+          locationLabel = infoList.map(x => x.info ? x.info.label : x.raw).join(', ')
+        }
         sortKey = infoList[0]?.info?.key ?? 9999
         // Un seul étage occupé : la "surface totale" du bail (surface exploitée
         // le cas échéant, incluant la quote-part de parties communes) s'applique
@@ -5648,31 +5667,31 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   useEffect(() => {
     if (!editingActif) return
     const handler = () => setEditingActif(null)
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
   }, [editingActif])
 
   useEffect(() => {
     if (!editingActif2) return
     const handler = () => setEditingActif2(null)
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
   }, [editingActif2])
 
   // Ferme le menu "Actions" au clic extérieur
   useEffect(() => {
     if (!showToolsMenu) return
     const handler = () => setShowToolsMenu(false)
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
   }, [showToolsMenu])
 
   // Ferme le menu "Actions" d'une ligne au clic extérieur
   useEffect(() => {
     if (!openRowMenu) return
     const handler = () => { setOpenRowMenu(null); setOpenRowMenuRect(null) }
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
   }, [openRowMenu])
 
   // Liste des actifs proposés dans le sélecteur : la table maîtresse
@@ -7286,22 +7305,22 @@ export default function App() {
   useEffect(() => {
     if (editingActifUpload === null) return
     const handler = () => setEditingActifUpload(null)
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
   }, [editingActifUpload])
 
   useEffect(() => {
     if (editingBailLink === null) return
     const handler = () => setEditingBailLink(null)
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
   }, [editingBailLink])
 
   useEffect(() => {
     if (!editingActifAll) return
     const handler = () => setEditingActifAll(false)
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
   }, [editingActifAll])
   const [pertinents,   setPertinents]   = useState([])     // bool per file
   const [raisons,      setRaisons]      = useState([])     // raison non pertinent
@@ -7485,8 +7504,8 @@ export default function App() {
   useEffect(() => {
     if (!showEtatLocatifMenu) return
     const handler = () => setShowEtatLocatifMenu(false)
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
   }, [showEtatLocatifMenu])
 
   const buildingGroups = useMemo(() => {
