@@ -4314,13 +4314,25 @@ function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, dange
 function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect }) {
   const [q, setQ] = useState('')
   const inputRef = useRef()
+  const popupRef = useRef()
   useEffect(() => { inputRef.current?.focus() }, [])
+
+  // Fermeture au clic extérieur gérée ICI (pas par le composant parent) : on
+  // vérifie explicitement si le clic tombe DANS le popup (via popupRef) avant
+  // de fermer. Nécessaire en phase de capture pour traverser un éventuel
+  // stopPropagation() sur une modale englobante (ex: "Ajouter un bail") —
+  // mais SANS la vérification d'appartenance, la phase de capture fermerait
+  // aussi le popup AVANT qu'un clic sur une option de la liste n'ait la
+  // chance de s'exécuter (vécu : sélectionner un actif ne faisait plus rien).
+  useEffect(() => {
+    const handler = e => { if (popupRef.current && !popupRef.current.contains(e.target)) onClose() }
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
+  }, [onClose])
 
   const filtered = existingGroups.filter(g => g.toLowerCase().includes(q.toLowerCase()) && g !== currentValue)
   const showCreate = q.trim() && !existingGroups.map(g => g.toLowerCase()).includes(q.trim().toLowerCase())
 
-  // Rendu en portail directement sur <body> : les conteneurs du tableau ont un
-  // overflow (scroll) qui tronquerait un dropdown positionné en absolute normal.
   // Rendu en portail directement sur <body> : les conteneurs du tableau ont un
   // overflow (scroll) qui tronquerait un dropdown positionné en absolute normal.
   // Bascule au-dessus du bouton si pas assez de place en dessous (bas d'écran).
@@ -4335,11 +4347,10 @@ function ActifPicker({ currentValue, existingGroups, onSave, onClose, anchorRect
     : { position: 'absolute', top: '100%', left: 0, marginTop: '2px' }
 
   return createPortal(
-    <div style={{ ...style,
+    <div ref={popupRef} style={{ ...style,
       background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
       boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '220px', overflow: 'hidden', zIndex: 9999,
-      display: 'flex', flexDirection: 'column' }}
-      onClick={e => e.stopPropagation()}>
+      display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '6px', flexShrink: 0 }}>
         <input
           ref={inputRef}
@@ -4446,7 +4457,18 @@ const MANDATORY_EXCEL_COLS = ['ID', 'Bail lié (ID)', 'Type', 'Actif / Immeuble'
 function BailLinkPicker({ currentValue, options, onSave, onClose, anchorRect }) {
   const [q, setQ] = useState('')
   const inputRef = useRef()
+  const popupRef = useRef()
   useEffect(() => { inputRef.current?.focus() }, [])
+
+  // Voir le commentaire équivalent dans ActifPicker : fermeture au clic
+  // extérieur gérée ici via une vérification d'appartenance au DOM du popup,
+  // fiable quelle que soit la modale englobante et sans bloquer les clics sur
+  // les options de la liste elle-même.
+  useEffect(() => {
+    const handler = e => { if (popupRef.current && !popupRef.current.contains(e.target)) onClose() }
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
+  }, [onClose])
 
   const filtered = options.filter(o => o.label.toLowerCase().includes(q.trim().toLowerCase()))
 
@@ -4460,11 +4482,10 @@ function BailLinkPicker({ currentValue, options, onSave, onClose, anchorRect }) 
     : { position: 'absolute', top: '100%', left: 0, marginTop: '2px' }
 
   return createPortal(
-    <div style={{ ...style,
+    <div ref={popupRef} style={{ ...style,
       background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '8px',
       boxShadow: '0 8px 24px rgba(0,0,0,.18)', width: '280px', overflow: 'hidden', zIndex: 9999,
-      display: 'flex', flexDirection: 'column' }}
-      onClick={e => e.stopPropagation()}>
+      display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '6px', flexShrink: 0 }}>
         <input
           ref={inputRef}
@@ -7301,27 +7322,11 @@ export default function App() {
   const [editingActifAll, setEditingActifAll] = useState(false) // assignation d'un actif à tous les fichiers de la file
   const [editingActifAllRect, setEditingActifAllRect] = useState(null)
 
-  // Ferme le sélecteur d'actif de la file d'import au clic extérieur
-  useEffect(() => {
-    if (editingActifUpload === null) return
-    const handler = () => setEditingActifUpload(null)
-    document.addEventListener('click', handler, true)
-    return () => document.removeEventListener('click', handler, true)
-  }, [editingActifUpload])
-
-  useEffect(() => {
-    if (editingBailLink === null) return
-    const handler = () => setEditingBailLink(null)
-    document.addEventListener('click', handler, true)
-    return () => document.removeEventListener('click', handler, true)
-  }, [editingBailLink])
-
-  useEffect(() => {
-    if (!editingActifAll) return
-    const handler = () => setEditingActifAll(false)
-    document.addEventListener('click', handler, true)
-    return () => document.removeEventListener('click', handler, true)
-  }, [editingActifAll])
+  // La fermeture au clic extérieur d'ActifPicker/BailLinkPicker (utilisés pour
+  // editingActifUpload, editingBailLink et editingActifAll) est désormais
+  // gérée par ces composants eux-mêmes (référence DOM + vérification
+  // d'appartenance) — voir leur définition. Un effet ici, en plus, ferait
+  // double emploi.
   const [pertinents,   setPertinents]   = useState([])     // bool per file
   const [raisons,      setRaisons]      = useState([])     // raison non pertinent
   const [lastError,    setLastError]    = useState('')
