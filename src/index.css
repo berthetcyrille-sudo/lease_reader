@@ -1,3 +1,10 @@
+/* Polices alignées sur l'outil Mandat : Libre Baskerville pour les titres,
+   IBM Plex Sans pour le texte courant, IBM Plex Mono pour les chiffres.
+   @import DOIT rester la toute première instruction du fichier (avant toute
+   règle CSS, y compris un simple reset) — sinon Vite échoue à la build avec
+   "@import must precede all other statements". */
+@import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 /* Zoom à 90% pour une densité plus "pro" — voir compensation ci-dessous.
    overflow-x: hidden supprime la fine barre de défilement horizontale que le
@@ -5,10 +12,6 @@
    façon jamais besoin de défiler horizontalement au niveau de la page (les
    tableaux comme .table-wrap gardent leur propre défilement interne). */
 html { zoom: 90%; overflow-x: hidden; scrollbar-width: auto; scrollbar-color: var(--border2) transparent; }
-
-/* Polices alignées sur l'outil Mandat : Libre Baskerville pour les titres,
-   IBM Plex Sans pour le texte courant, IBM Plex Mono pour les chiffres. */
-@import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 :root {
   /* Palette reprise telle quelle de Mandat (variables --ink/--paper/--gold/etc.) */
