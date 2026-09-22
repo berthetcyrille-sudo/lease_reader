@@ -6672,10 +6672,20 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             // sinon celle confirmee par un avenant — sert a calculer une vraie
             // date_fin ci-dessous quand seul un texte/formule a ete extrait.
             const effectiveDateEffet = isAv ? d.date_effet : (d.date_effet || confirmingAvenant?.data?.champs_modifies?.date_effet)
+            // Si un avenant a confirme la date d'effet, sa propre date_fin (si
+            // fournie) prime — sinon on recalcule TOUJOURS a partir de cette
+            // date confirmee, sans se fier a l'ancienne date_fin du bail
+            // d'origine (qui peut ressembler a une date valide tout en etant
+            // perimee/fausse, calculee avant que l'avenant ne confirme quoi
+            // que ce soit — un simple test de format ne suffit pas a la
+            // distinguer d'une vraie date a jour).
+            const avenantExplicitDateFin = confirmingAvenant?.data?.champs_modifies?.date_fin || null
             const normalizedDateFin = normalizeDate(d.date_fin)
-            const cleanDateFin = normalizedDateFin && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizedDateFin)
-              ? normalizedDateFin
-              : (computeDateFinFromDuree(effectiveDateEffet, d.duree_totale) || normalizedDateFin)
+            const cleanDateFin = confirmingAvenant
+              ? (normalizeDate(avenantExplicitDateFin) || computeDateFinFromDuree(effectiveDateEffet, d.duree_totale) || normalizedDateFin)
+              : ((normalizedDateFin && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizedDateFin))
+                  ? normalizedDateFin
+                  : (computeDateFinFromDuree(effectiveDateEffet, d.duree_totale) || normalizedDateFin))
             const effetCondOverdue = !!(effetCond && isDatePast(effetCond.date_limite))
             const breaks = filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
             // Un bail replié affiche ses PROPRES données extraites — mais si un
@@ -6870,8 +6880,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
                 {/* Date effet */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
-                  {d.date_effet ? (
-                    <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>{normalizeDate(d.date_effet)}</span>
+                  {effectiveDateEffet ? (
+                    <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }} title={confirmingAvenant && !d.date_effet ? `Confirmée par avenant du ${confirmingAvenant.data?.date_signature_avenant || confirmingAvenant.data?.date_effet_avenant || ''}` : undefined}>
+                      {normalizeDate(effectiveDateEffet)}
+                      {confirmingAvenant && !d.date_effet && <span style={{ marginLeft: '3px', color: 'var(--accent)' }}>↻</span>}
+                    </span>
                   ) : effetCond ? (
                     <span
                       title={`À la levée de : ${effetCond.libelle || 'condition suspensive'}${effetCond.date_limite ? ` — au plus tard le ${effetCond.date_limite}` : ''}`}
