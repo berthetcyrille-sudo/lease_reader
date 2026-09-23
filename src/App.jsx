@@ -2653,6 +2653,121 @@ function auditBail(row) {
     })
   }
 
+  // 6. Date de fin incohérente avec date d'effet + durée totale — même défaut
+  // que celui trouvé et corrigé côté affichage (dashboard/fiche), mais ici en
+  // contrôle qualité pour repérer les cas où la DONNÉE elle-même reste fausse
+  // en base (pas seulement son affichage, déjà corrigé ailleurs).
+  if (effet && fin && dureeTotaleYears) {
+    const expectedFin = new Date(effet.getFullYear() + dureeTotaleYears, effet.getMonth(), effet.getDate() - 1)
+    const diffDays = Math.abs(fin - expectedFin) / (24 * 60 * 60 * 1000)
+    if (diffDays > 5) {
+      issues.push({
+        type: 'date_fin_incoherente',
+        severity: 'high',
+        detail: `Date de fin (${fmtFR(fin)}) incohérente avec date d'effet + durée totale (${fmtFR(expectedFin)} attendu, soit un écart de ${Math.round(diffDays)} jours) — à vérifier.`,
+      })
+    }
+  }
+
+  // 7. Break postérieure à la date de fin du bail — logiquement impossible,
+  // presque toujours un résidu de calcul erroné ou une confusion de champ.
+  if (fin) {
+    const badBreaks = cleanBreaks.filter(b => { const bd = parseFrDate(b); return bd && bd > fin })
+    if (badBreaks.length > 0) {
+      issues.push({
+        type: 'break_apres_terme',
+        severity: 'high',
+        detail: `Break(s) postérieure(s) à la date de fin du bail (${fmtFR(fin)}) : ${badBreaks.join(', ')} — incohérence à vérifier.`,
+      })
+    }
+  }
+
+  // 8. Durée ferme non déterminée alors qu'une clause de résiliation/break
+  // existe (le texte dit quelque chose, mais rien n'a pu en être déduit) —
+  // volontairement restreint aux cas où conditions_break n'est pas vide, pour
+  // ne pas signaler les baux ordinaires sans restriction (où duree_ferme=null
+  // est le résultat normal et correct, avec le défaut légal de 3 ans affiché).
+  if (!d.duree_ferme && d.conditions_break && dureeTotaleYears) {
+    const hasFullWaiver = detectsFullTriennialWaiver(String(d.conditions_break).toLowerCase())
+    if (!hasFullWaiver) {
+      issues.push({
+        type: 'duree_ferme_indeterminee',
+        severity: 'low',
+        detail: `Une clause de résiliation/renonciation est mentionnée dans le bail, mais la durée ferme n'a pas pu en être déduite automatiquement — à vérifier manuellement sur le document source.`,
+      })
+    }
+  }
+
+  // 9. Indemnité de break "orpheline" — une date sans correspondance dans les
+  // breaks connus, signe possible d'une clause standard mal classée (vécu à
+  // plusieurs reprises : clause de manquement/défaut prise pour une vraie
+  // indemnité de sortie) ou d'un break manquant dans break_options.
+  if (Array.isArray(d.indemnites_break) && d.indemnites_break.length > 0 && cleanBreaks.length > 0) {
+    const cleanBreakDates = cleanBreaks.map(b => parseFrDate(b)).filter(Boolean)
+    const orphans = d.indemnites_break
+      .map(ib => ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null)
+      .filter(Boolean)
+      .filter(bdStr => {
+        const bd = parseFrDate(bdStr)
+        return bd && !cleanBreakDates.some(cb => Math.abs(cb - bd) <= 3 * 24 * 60 * 60 * 1000)
+      })
+    if (orphans.length > 0) {
+      issues.push({
+        type: 'indemnite_orpheline',
+        severity: 'medium',
+        detail: `Indemnité(s) de break dont la date (${[...new Set(orphans)].join(', ')}) ne correspond à aucun break connu du bail — clause standard mal classée possible, ou break manquant dans la liste des échéances.`,
+      })
+    }
+  }
+
+  // 10. Avenants qui confirment chacun une date d'effet DIFFÉRENTE pour le
+  // même bail — incohérence rarement visible à l'œil, puisqu'on examine
+  // généralement un avenant à la fois.
+  if (Array.isArray(row.avenants)) {
+    const confirmedDates = [...new Set(
+      row.avenants.map(av => av.data?.champs_modifies?.date_effet).filter(Boolean).map(v => normalizeDate(safeStr(v)))
+    )]
+    if (confirmedDates.length > 1) {
+      issues.push({
+        type: 'date_effet_avenants_contradictoires',
+        severity: 'high',
+        detail: `Plusieurs avenants fixent une date d'effet différente pour ce bail : ${confirmedDates.join(', ')} — à vérifier lequel fait foi.`,
+      })
+    }
+  }
+
+  // 11. Date de signature postérieure à la date d'effet — illogique pour un
+  // bail d'origine (on ne signe normalement pas un bail déjà en cours),
+  // souvent le signe d'une inversion des deux dates à l'extraction. Marge de
+  // 30 jours pour ne pas signaler les cas de signature/effet quasi simultanés.
+  if (bailSignature && effet && bailSignature > effet) {
+    const diffDays = Math.round((bailSignature - effet) / (24 * 60 * 60 * 1000))
+    if (diffDays > 30) {
+      issues.push({
+        type: 'signature_posterieure_effet',
+        severity: 'medium',
+        detail: `Date de signature (${fmtFR(bailSignature)}) postérieure de ${diffDays} jours à la date d'effet (${fmtFR(effet)}) — vérifier qu'il n'y a pas eu inversion des deux dates à l'extraction.`,
+      })
+    }
+  }
+
+  // 12. Franchises totales excédant 5 mois par année de durée ferme —
+  // seuil de gouvernance interne à STE, pas une règle légale. Somme TOUTES
+  // les franchises (y compris conditionnelles) sur la durée ferme du bail.
+  if (Array.isArray(d.franchise_periodes) && d.franchise_periodes.length > 0 && dureeFermeYears) {
+    const parseMonths = s => { const m = String(s || '').match(/(\d+(?:[.,]\d+)?)\s*mois/i); return m ? parseFloat(m[1].replace(',', '.')) : null }
+    const totalMonths = d.franchise_periodes.reduce((sum, f) => sum + (parseMonths(f.duree) || 0), 0)
+    const threshold = 5 * dureeFermeYears
+    if (totalMonths > threshold) {
+      const hasConditional = d.franchise_periodes.some(f => f.condition)
+      issues.push({
+        type: 'franchise_excessive',
+        severity: 'medium',
+        detail: `Franchises totales de ${totalMonths.toLocaleString('fr-FR')} mois pour une durée ferme de ${dureeFermeYears} ans (seuil interne : ${threshold} mois, soit 5 mois/an) — à vérifier.${hasConditional ? ' Inclut au moins une franchise conditionnelle (peut ne pas se réaliser).' : ''}`,
+      })
+    }
+  }
+
   return { row, label, issues, dismissed: !!d._qc_dismissed }
 }
 
