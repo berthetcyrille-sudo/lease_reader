@@ -3650,7 +3650,9 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                   ) : (
                     <div className={`field-val${!displayValue ? ' empty' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {displayValue || 'Non renseigné'}
-                      {d.duree_ferme && <PageJumpIcon item={item} pages={pages} field="duree_ferme" />}
+                      {d.duree_ferme
+                        ? <PageJumpIcon item={item} pages={pages} field="duree_ferme" />
+                        : (legalDefault && pages?.conditions_break && <PageJumpIcon item={item} pages={pages} field="conditions_break" />)}
                       {onSaveManualDureeFerme && !isAv && (
                         <button
                           onClick={() => { setDureeFermeInput(d.duree_ferme || ''); setEditingDureeFerme(true) }}
