@@ -2690,18 +2690,20 @@ function auditBail(row) {
     }
   }
 
-  // 8. Durée ferme non déterminée alors qu'une clause de résiliation/break
-  // existe (le texte dit quelque chose, mais rien n'a pu en être déduit) —
-  // volontairement restreint aux cas où conditions_break n'est pas vide, pour
-  // ne pas signaler les baux ordinaires sans restriction (où duree_ferme=null
-  // est le résultat normal et correct, avec le défaut légal de 3 ans affiché).
-  if (!d.duree_ferme && d.conditions_break && dureeTotaleYears) {
+  // 8. Durée ferme non déterminée alors qu'une clause de renonciation/
+  // dérogation existe (le texte en dit quelque chose, mais rien n'a pu en être
+  // déduit) — restreint aux cas où conditions_break contient un vrai mot de
+  // renonciation/dérogation, pas simplement le rappel du droit commun ("congé
+  // possible à chaque période triennale" n'est pas une restriction : c'est le
+  // cas normal, duree_ferme=null y est déjà la conclusion exacte, pas un cas
+  // ambigu à vérifier).
+  if (!d.duree_ferme && d.conditions_break && dureeTotaleYears && /renonc|d[ée]rogat/i.test(String(d.conditions_break))) {
     const hasFullWaiver = detectsFullTriennialWaiver(String(d.conditions_break).toLowerCase())
     if (!hasFullWaiver) {
       issues.push({
         type: 'duree_ferme_indeterminee',
         severity: 'low',
-        detail: `Une clause de résiliation/renonciation est mentionnée dans le bail, mais la durée ferme n'a pas pu en être déduite automatiquement — à vérifier manuellement sur le document source.`,
+        detail: `Une clause de renonciation/dérogation est mentionnée dans le bail, mais la durée ferme n'a pas pu en être déduite automatiquement — à vérifier manuellement sur le document source.`,
       })
     }
   }
