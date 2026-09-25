@@ -2450,10 +2450,16 @@ const ETAT_LOCATIF_BG     = { stable: '#EAF3DE', risk: '#FAEEDA', vacant: '#F1EF
 // rapide (pas de champ structuré dédié) : liste volontairement large plutôt
 // qu'exhaustive, à affiner au cas par cas. Vise l'État et ses opérateurs,
 // les collectivités et quelques grandes entreprises publiques usuelles.
+// Mots-clés en MAJUSCULES SANS ACCENT — la comparaison retire aussi les
+// accents du texte à comparer (stripAccents), donc "ÉTAT"/"MINISTÈRE" dans
+// le bail matchent bien "ETAT"/"MINISTERE" sans avoir à lister les deux formes.
+function stripAccents(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
 const PUBLIC_SECTOR_KEYWORDS = [
-  'ETAT FRANCAIS', 'REPUBLIQUE FRANCAISE', 'MINISTERE', 'MINISTÈRE', 'PREFECTURE', 'PREFET',
+  'L\'ETAT', 'ETAT FRANCAIS', 'ETAT REPRESENTE', 'REPUBLIQUE FRANCAISE', 'MINISTERE', 'PREFECTURE', 'PREFET',
   'ETABLISSEMENT PUBLIC', 'EPIC', 'DIRECTION GENERALE', 'DIRECTION DEPARTEMENTALE', 'DIRECTION REGIONALE',
-  'DDT', 'DREAL', 'DIRECCTE', 'DRAAF', 'DGFIP', 'TRESOR PUBLIC', 'DOUANE',
+  'DDT', 'DREAL', 'DIRECCTE', 'DRAAF', 'DGFIP', 'FINANCES PUBLIQUES', 'TRESOR PUBLIC', 'DOUANE',
   'POLE EMPLOI', 'FRANCE TRAVAIL', 'CAF ', 'CPAM', 'URSSAF', 'MSA', 'CNAV', 'CNAM',
   'CROUS', 'RECTORAT', 'ACADEMIE', 'UNIVERSITE', 'CNRS', 'INSERM', 'INRAE', 'CEA ',
   'CENTRE HOSPITALIER', 'HOPITAL', 'AGENCE REGIONALE DE SANTE', ' ARS ',
@@ -2461,11 +2467,11 @@ const PUBLIC_SECTOR_KEYWORDS = [
   'METROPOLE', 'COMMUNAUTE D\'AGGLOMERATION', 'COMMUNAUTE DE COMMUNES', 'SYNDICAT MIXTE',
   'CAISSE DES DEPOTS', 'AGENCE NATIONALE', 'OFFICE NATIONAL', 'CAISSE NATIONALE',
   'SNCF', 'RATP', 'LA POSTE', 'GENDARMERIE', 'ARMEE', 'MINISTERE DE',
-]
+].map(stripAccents)
 function isPublicSectorTenant(preneurStr) {
-  const s = String(preneurStr || '').toUpperCase()
+  const s = stripAccents(preneurStr).toUpperCase()
   if (!s) return false
-  return PUBLIC_SECTOR_KEYWORDS.some(kw => s.includes(kw))
+  return PUBLIC_SECTOR_KEYWORDS.some(kw => s.includes(kw.toUpperCase()))
 }
 
 function parseYearsFromDureeText(s) {
@@ -6663,18 +6669,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
               {f === 'all' ? 'Tous' : f === 'bail' ? 'Baux' : 'Avenants'}
             </button>
           ))}
+          <span style={{ width: '1px', background: 'var(--border)', margin: '4px 2px' }} />
+          <button
+            className={`dash-filter${publicSectorOnly ? ' active' : ''}`}
+            onClick={() => setPublicSectorOnly(v => !v)}
+            title="Filtre par mots-clés sur le nom du preneur (État, ministères, établissements publics, collectivités, quelques grandes entreprises publiques) — meilleur effort, pas exhaustif">
+            🏛 Secteur public
+          </button>
         </div>
-        <button
-          onClick={() => setPublicSectorOnly(v => !v)}
-          title="Filtre par mots-clés sur le nom du preneur (État, ministères, établissements publics, collectivités, quelques grandes entreprises publiques) — meilleur effort, pas exhaustif"
-          style={{
-            padding: '6px 12px', fontSize: '12.5px', fontWeight: 600, borderRadius: '6px', cursor: 'pointer',
-            border: `1px solid ${publicSectorOnly ? 'var(--accent)' : 'var(--border2)'}`,
-            background: publicSectorOnly ? 'var(--accent)' : 'var(--surface)',
-            color: publicSectorOnly ? '#fff' : 'var(--text2)',
-          }}>
-          🏛 Secteur public
-        </button>
         {tree.length > 0 && (
           <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
             <button
