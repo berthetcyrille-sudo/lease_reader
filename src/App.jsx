@@ -2446,6 +2446,28 @@ const ETAT_LOCATIF_BG     = { stable: '#EAF3DE', risk: '#FAEEDA', vacant: '#F1EF
 
 // ─── Contrôle qualité : audit heuristique des baux déjà extraits ────────────
 // Ne modifie rien — repère juste des cas suspects à vérifier/réextraire manuellement.
+// Détection du secteur public par mots-clés sur le nom du preneur — repli
+// rapide (pas de champ structuré dédié) : liste volontairement large plutôt
+// qu'exhaustive, à affiner au cas par cas. Vise l'État et ses opérateurs,
+// les collectivités et quelques grandes entreprises publiques usuelles.
+const PUBLIC_SECTOR_KEYWORDS = [
+  'ETAT FRANCAIS', 'REPUBLIQUE FRANCAISE', 'MINISTERE', 'MINISTÈRE', 'PREFECTURE', 'PREFET',
+  'ETABLISSEMENT PUBLIC', 'EPIC', 'DIRECTION GENERALE', 'DIRECTION DEPARTEMENTALE', 'DIRECTION REGIONALE',
+  'DDT', 'DREAL', 'DIRECCTE', 'DRAAF', 'DGFIP', 'TRESOR PUBLIC', 'DOUANE',
+  'POLE EMPLOI', 'FRANCE TRAVAIL', 'CAF ', 'CPAM', 'URSSAF', 'MSA', 'CNAV', 'CNAM',
+  'CROUS', 'RECTORAT', 'ACADEMIE', 'UNIVERSITE', 'CNRS', 'INSERM', 'INRAE', 'CEA ',
+  'CENTRE HOSPITALIER', 'HOPITAL', 'AGENCE REGIONALE DE SANTE', ' ARS ',
+  'MAIRIE', 'COMMUNE DE', 'CONSEIL DEPARTEMENTAL', 'CONSEIL REGIONAL', 'REGION ILE-DE-FRANCE',
+  'METROPOLE', 'COMMUNAUTE D\'AGGLOMERATION', 'COMMUNAUTE DE COMMUNES', 'SYNDICAT MIXTE',
+  'CAISSE DES DEPOTS', 'AGENCE NATIONALE', 'OFFICE NATIONAL', 'CAISSE NATIONALE',
+  'SNCF', 'RATP', 'LA POSTE', 'GENDARMERIE', 'ARMEE', 'MINISTERE DE',
+]
+function isPublicSectorTenant(preneurStr) {
+  const s = String(preneurStr || '').toUpperCase()
+  if (!s) return false
+  return PUBLIC_SECTOR_KEYWORDS.some(kw => s.includes(kw))
+}
+
 function parseYearsFromDureeText(s) {
   const m = String(s || '').match(/\(?(\d+)\)?\s*ans?\b/i)
   return m ? parseInt(m[1]) : null
@@ -4854,6 +4876,7 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
   const [search, setSearch] = useState('')
+  const [publicSectorOnly, setPublicSectorOnly] = useState(false)
   const [expanded, setExpanded] = useState({}) // { [immeubleName]: bool }
   const [confirmDelete, setConfirmDelete] = useState(null) // { id, name }
 
@@ -6366,7 +6389,16 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     ].filter(Boolean).join(' ').toLowerCase()
     return searchIn.includes(q)
   }
-  const filtered = q ? displayRows.filter(row => rowMatchesSearch(row, q)) : displayRows
+  const filtered = (q ? displayRows.filter(row => rowMatchesSearch(row, q)) : displayRows)
+    .filter(row => {
+      if (!publicSectorOnly) return true
+      const raw = row.data || {}
+      const bailData = row._bailData || {}
+      const mods = raw.champs_modifies || {}
+      const bailRef = raw.bail_reference || {}
+      return isPublicSectorTenant(raw.preneur) || isPublicSectorTenant(bailData.preneur)
+        || isPublicSectorTenant(mods.preneur) || isPublicSectorTenant(bailRef.preneur)
+    })
 
   // Sort top-level bails by actif name or preneur, avenants follow their bail
   const getActifName = row => (row.data?.immeuble || row.data?.adresse || row.file_name || '').toLowerCase()
@@ -6632,6 +6664,17 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             </button>
           ))}
         </div>
+        <button
+          onClick={() => setPublicSectorOnly(v => !v)}
+          title="Filtre par mots-clés sur le nom du preneur (État, ministères, établissements publics, collectivités, quelques grandes entreprises publiques) — meilleur effort, pas exhaustif"
+          style={{
+            padding: '6px 12px', fontSize: '12.5px', fontWeight: 600, borderRadius: '6px', cursor: 'pointer',
+            border: `1px solid ${publicSectorOnly ? 'var(--accent)' : 'var(--border2)'}`,
+            background: publicSectorOnly ? 'var(--accent)' : 'var(--surface)',
+            color: publicSectorOnly ? '#fff' : 'var(--text2)',
+          }}>
+          🏛 Secteur public
+        </button>
         {tree.length > 0 && (
           <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
             <button
