@@ -4876,7 +4876,6 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
   const [search, setSearch] = useState('')
-  const [publicSectorOnly, setPublicSectorOnly] = useState(false)
   const [expanded, setExpanded] = useState({}) // { [immeubleName]: bool }
   const [confirmDelete, setConfirmDelete] = useState(null) // { id, name }
 
@@ -5451,7 +5450,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
         const base64 = await toBase64(prepared)
         const mediaType = getMediaType(prepared)
         const promptToUse = isAv
-          ? buildAvenantPrompt((tree.find(b => b.id === row.parent_id) || {}).data || null)
+          ? buildAvenantPrompt((allRows.find(b => b.id === row.parent_id) || {}).data || null)
           : EXTRACTION_PROMPT
         const extracted = await callClaude(base64, mediaType, promptToUse)
 
@@ -5878,6 +5877,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [sortDir, setSortDir] = useState('asc')
   const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur'
   const [editingActif, setEditingActif] = useState(null) // bail id
+  const [publicSectorOnly, setPublicSectorOnly] = useState(false)
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
   const [editingActif2, setEditingActif2] = useState(null) // bail id (second actif, cas rare)
   const [editingActif2Rect, setEditingActif2Rect] = useState(null)
