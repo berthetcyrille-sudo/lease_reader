@@ -6402,8 +6402,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       const bailData = row._bailData || {}
       const mods = raw.champs_modifies || {}
       const bailRef = raw.bail_reference || {}
-      return isPublicSectorTenant(raw.preneur) || isPublicSectorTenant(bailData.preneur)
-        || isPublicSectorTenant(mods.preneur) || isPublicSectorTenant(bailRef.preneur)
+      // Priorité au preneur propre à CETTE ligne (mods pour un avenant, raw
+      // pour un bail) avant tout repli hérité du bail d'origine — un avenant
+      // de cession/sous-location introduit un nouvel occupant réel, qu'il ne
+      // faut pas masquer derrière le preneur d'origine (souvent différent).
+      const ownPreneur = mods.preneur || raw.preneur
+      if (ownPreneur) return isPublicSectorTenant(ownPreneur)
+      return isPublicSectorTenant(bailData.preneur) || isPublicSectorTenant(bailRef.preneur)
     })
 
   // Sort top-level bails by actif name or preneur, avenants follow their bail
