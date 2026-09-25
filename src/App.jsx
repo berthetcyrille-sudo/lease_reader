@@ -6678,8 +6678,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           <button
             className={`dash-filter${publicSectorOnly ? ' active' : ''}`}
             onClick={() => setPublicSectorOnly(v => !v)}
-            title="Filtre par mots-clés sur le nom du preneur (État, ministères, établissements publics, collectivités, quelques grandes entreprises publiques) — meilleur effort, pas exhaustif">
-            🏛 Secteur public
+            title="Filtre par mots-clés sur le nom du preneur (État, ministères, établissements publics, collectivités, quelques grandes entreprises publiques) — meilleur effort, pas exhaustif"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ fontSize: '12px', lineHeight: 1 }}>🏛</span> Public
           </button>
         </div>
         {tree.length > 0 && (
