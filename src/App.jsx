@@ -2766,7 +2766,19 @@ function auditBail(row) {
     }
   }
 
-  // 12. Franchises totales excédant 5 mois par année de durée ferme —
+  // 12. Break datée alors que la seule clause de sortie anticipée décrite est
+  // "à tout moment" (sans date fixe par nature) — schéma récurrent où l'IA
+  // invente une échéance triennale (souvent l'année 3) au lieu de laisser
+  // break_options vide comme l'exige ce type de clause exceptionnelle.
+  if (cleanBreaks.length > 0 && /a\s+tout\s+moment|n['’]importe\s+quel\s+moment/i.test(String(d.conditions_break || ''))) {
+    issues.push({
+      type: 'break_a_tout_moment_datee',
+      severity: 'medium',
+      detail: `La clause de sortie anticipée décrit une faculté "à tout moment" (sans date fixe par nature), mais break_options contient malgré tout une ou plusieurs dates (${cleanBreaks.join(', ')}) — probablement une échéance inventée par l'extraction, à vérifier sur le document source.`,
+    })
+  }
+
+  // 13. Franchises totales excédant 5 mois par année de durée ferme —
   // seuil de gouvernance interne à STE, pas une règle légale. Somme TOUTES
   // les franchises (y compris conditionnelles) sur la durée ferme du bail.
   if (Array.isArray(d.franchise_periodes) && d.franchise_periodes.length > 0 && dureeFermeYears) {
