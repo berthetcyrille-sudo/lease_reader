@@ -2474,6 +2474,22 @@ function isPublicSectorTenant(preneurStr) {
   return PUBLIC_SECTOR_KEYWORDS.some(kw => s.includes(kw.toUpperCase()))
 }
 
+// Libellé court du badge "Type" sur le dashboard, à partir du texte libre
+// type_bail extrait ("Bail commercial en l'état futur d'achèvement", "Bail
+// SAIJ (relevant du Code civil)"...). Priorité aux régimes les plus
+// spécifiques (dérogatoire, civil, professionnel) avant le repli sur
+// "commercial", qui est de très loin le cas le plus fréquent et sert de
+// valeur par défaut dès que le régime n'est pas explicitement autre chose.
+function bailTypeLabel(typeBailStr) {
+  const s = stripAccents(String(typeBailStr || '')).toLowerCase()
+  if (!s) return 'Bail'
+  if (/derogatoire|precaire|courte duree/.test(s)) return 'Dérogatoire'
+  if (/code civil|bail civil/.test(s)) return 'Civil'
+  if (/professionnel/.test(s)) return 'Professionnel'
+  if (/commercial/.test(s)) return 'Commercial'
+  return 'Bail'
+}
+
 function parseYearsFromDureeText(s) {
   const m = String(s || '').match(/\(?(\d+)\)?\s*ans?\b/i)
   return m ? parseInt(m[1]) : null
@@ -7062,7 +7078,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 {/* Type */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px', flexDirection: 'row', gap: '4px', flexWrap: 'wrap' }}>
                   <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`}>
-                    {isAv ? 'Avenant' : 'Bail'}
+                    {isAv ? 'Avenant' : bailTypeLabel(d.type_bail)}
                   </span>
                   {isExtractionError && (
                     <span title={d.error_message || 'Erreur lors de l\'extraction'} style={{ fontSize: '11px', width: '18px', height: '18px', lineHeight: '16px', textAlign: 'center', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '4px', fontWeight: 600, cursor: 'help', flexShrink: 0 }}>
