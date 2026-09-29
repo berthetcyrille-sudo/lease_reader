@@ -4897,20 +4897,21 @@ function exportSyntheseToExcel(rows) {
   const wb = XLSX.utils.book_new()
 
   // Feuille 1 : une ligne par immeuble
-  const headers1 = ['Immeuble', 'Nombre de baux', 'Nombre total d\'avenants', 'Complet', 'Vérifié']
+  const headers1 = ['Immeuble', 'Nombre de baux', 'Nombre total d\'avenants', 'Complet', 'Vérifié', 'Locataires']
   const dataRows1 = rows.map(r => [
     r.name,
     r.bailCount,
     r.bails.reduce((sum, b) => sum + (b.avenantCount || 0), 0),
     r.done ? 'Oui' : 'Non',
     r.verified ? 'Oui' : 'Non',
+    r.bails.map(b => b.label).join(', '),
   ])
   const ws1 = XLSX.utils.aoa_to_sheet([headers1, ...dataRows1])
   headers1.forEach((_, colIdx) => {
     const addr = XLSX.utils.encode_cell({ r: 0, c: colIdx })
     if (ws1[addr]) ws1[addr].s = { font: { bold: true } }
   })
-  ws1['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }]
+  ws1['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 60 }]
   ws1['!freeze'] = { xSplit: 0, ySplit: 1 }
   XLSX.utils.book_append_sheet(wb, ws1, 'Par immeuble')
 
