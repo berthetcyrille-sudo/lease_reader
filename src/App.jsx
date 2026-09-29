@@ -7100,8 +7100,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 {/* Surface */}
                 <div className="dash-td dash-td-right" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>
-                    {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
-                    <OverrideMark field="surface_totale_m2" formatValue={v => `${v} m²`} />
+                    {(() => {
+                      const n = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.'))
+                      return d.surface_totale_m2 ? (isNaN(n) ? `${d.surface_totale_m2} m²` : `${Math.round(n)} m²`) : '—'
+                    })()}
+                    <OverrideMark field="surface_totale_m2" formatValue={v => { const n = parseFloat(String(v || '').replace(',', '.')); return isNaN(n) ? `${v} m²` : `${Math.round(n)} m²` }} />
                   </span>
                 </div>
 
