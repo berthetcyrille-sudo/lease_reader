@@ -5900,6 +5900,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur'
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [publicSectorOnly, setPublicSectorOnly] = useState(false)
+  const [errorOnly, setErrorOnly] = useState(false)
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
   const [editingActif2, setEditingActif2] = useState(null) // bail id (second actif, cas rare)
   const [editingActif2Rect, setEditingActif2Rect] = useState(null)
@@ -6426,6 +6427,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       if (ownPreneur) return isPublicSectorTenant(ownPreneur)
       return isPublicSectorTenant(bailData.preneur) || isPublicSectorTenant(bailRef.preneur)
     })
+    .filter(row => !errorOnly || row.data?.extraction_error === true)
 
   // Sort top-level bails by actif name or preneur, avenants follow their bail
   const getActifName = row => (row.data?.immeuble || row.data?.adresse || row.file_name || '').toLowerCase()
@@ -6698,6 +6700,19 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
             <span style={{ fontSize: '12px', lineHeight: 1 }}>🏛</span> Public
           </button>
+          {(() => {
+            const errorCount = displayRows.filter(r => r.data?.extraction_error === true).length
+            if (errorCount === 0 && !errorOnly) return null
+            return (
+              <button
+                className={`dash-filter${errorOnly ? ' active' : ''}`}
+                onClick={() => setErrorOnly(v => !v)}
+                title="N'afficher que les extractions en erreur"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: errorOnly ? undefined : 'var(--danger)' }}>
+                ❌ En erreur{errorCount > 0 ? ` (${errorCount})` : ''}
+              </button>
+            )
+          })()}
         </div>
         {tree.length > 0 && (
           <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
