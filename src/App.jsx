@@ -4893,6 +4893,56 @@ const displayPartyName = s => standardizeCase(shortPartyName(s))
 // (seul le compte par bail est pertinent). Permet aussi d'ajouter un immeuble
 // à la table maîtresse `immeubles`, qui alimente ensuite le sélecteur d'actif
 // utilisé lors de la création d'un bail.
+function exportSyntheseToExcel(rows) {
+  const wb = XLSX.utils.book_new()
+
+  // Feuille 1 : une ligne par immeuble
+  const headers1 = ['Immeuble', 'Nombre de baux', 'Nombre total d\'avenants', 'Complet', 'Vérifié']
+  const dataRows1 = rows.map(r => [
+    r.name,
+    r.bailCount,
+    r.bails.reduce((sum, b) => sum + (b.avenantCount || 0), 0),
+    r.done ? 'Oui' : 'Non',
+    r.verified ? 'Oui' : 'Non',
+  ])
+  const ws1 = XLSX.utils.aoa_to_sheet([headers1, ...dataRows1])
+  headers1.forEach((_, colIdx) => {
+    const addr = XLSX.utils.encode_cell({ r: 0, c: colIdx })
+    if (ws1[addr]) ws1[addr].s = { font: { bold: true } }
+  })
+  ws1['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }]
+  ws1['!freeze'] = { xSplit: 0, ySplit: 1 }
+  XLSX.utils.book_append_sheet(wb, ws1, 'Par immeuble')
+
+  // Feuille 2 : une ligne par bail, avec son propre nombre d'avenants
+  const headers2 = ['Immeuble', 'Bail (preneur)', 'Nombre d\'avenants']
+  const dataRows2 = rows.flatMap(r =>
+    r.bails.length > 0
+      ? r.bails.map(b => [r.name, b.label, b.avenantCount])
+      : [[r.name, '(aucun bail)', '']]
+  )
+  const ws2 = XLSX.utils.aoa_to_sheet([headers2, ...dataRows2])
+  headers2.forEach((_, colIdx) => {
+    const addr = XLSX.utils.encode_cell({ r: 0, c: colIdx })
+    if (ws2[addr]) ws2[addr].s = { font: { bold: true } }
+  })
+  ws2['!cols'] = [{ wch: 30 }, { wch: 35 }, { wch: 18 }]
+  ws2['!freeze'] = { xSplit: 0, ySplit: 1 }
+  XLSX.utils.book_append_sheet(wb, ws2, 'Détail par bail')
+
+  const today = new Date().toISOString().slice(0, 10)
+  try {
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true })
+    const blob = new Blob([wbout], { type: 'application/octet-stream' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `synthese_immeubles_${today}.xlsx`
+    document.body.appendChild(a); a.click()
+    setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a) }, 100)
+  } catch {
+    XLSX.writeFile(wb, `synthese_immeubles_${today}.xlsx`)
+  }
+}
+
 function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onToggleDone, onToggleVerified, onSelect, onClose }) {
   const [newName, setNewName] = useState('')
   const [adding, setAdding] = useState(false)
@@ -4972,6 +5022,14 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
             </div>
           </div>
           <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '-4px' }}>
+          <button
+            onClick={() => exportSyntheseToExcel(rows)}
+            title="Exporter un fichier Excel : nombre de baux par immeuble, et nombre d'avenants par bail"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, padding: '6px 12px', borderRadius: 'var(--r)', border: '1px solid var(--border2)', background: 'var(--surface)', color: 'var(--text2)', cursor: 'pointer' }}>
+            ⬇ Exporter
+          </button>
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
