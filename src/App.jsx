@@ -753,7 +753,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     v(d.immeuble || raw.bail_reference?.immeuble),
     v(d.adresse  || raw.bail_reference?.adresse),
     v(d.ville),
-    v(shortPartyName(d.preneur  || raw.bail_reference?.preneur)),
+    v(raw.preneur_substitution || shortPartyName(d.preneur  || raw.bail_reference?.preneur)),
     v(shortPartyName(d.bailleur || raw.bail_reference?.bailleur)),
     v(d.type_bail), v(d.duree_totale), v(d.duree_ferme),
     // Date effet / signature : pour avenant, utiliser les dates propres à l'avenant.
@@ -3388,7 +3388,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme }) {
+function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme, onSaveManualPreneurSub }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
@@ -3429,6 +3429,9 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   const [editingDureeFerme, setEditingDureeFerme] = useState(false)
   const [dureeFermeInput, setDureeFermeInput] = useState('')
   const [savingDureeFerme, setSavingDureeFerme] = useState(false)
+  const [editingPreneurSub, setEditingPreneurSub] = useState(false)
+  const [preneurSubInput, setPreneurSubInput] = useState('')
+  const [savingPreneurSub, setSavingPreneurSub] = useState(false)
   useEffect(() => {
     setInseeIndex(null)
     const indice = d.indexation_indice
@@ -3654,7 +3657,57 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Parties</div></div>
           <div className="gx">
-            {show('preneur') && <div className="party-card"><div className="party-role">Preneur</div><div className="party-name" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>{shortPartyName(d.preneur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}<PageJumpIcon item={item} pages={pages} field="preneur" /></div></div>}
+            {show('preneur') && (
+              <div className="party-card">
+                <div className="party-role">Preneur</div>
+                <div className="party-name" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  {shortPartyName(d.preneur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}
+                  <PageJumpIcon item={item} pages={pages} field="preneur" />
+                </div>
+                {!isAv && (
+                  editingPreneurSub ? (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                      <input
+                        type="text"
+                        value={preneurSubInput}
+                        onChange={e => setPreneurSubInput(e.target.value)}
+                        placeholder="ex: BNP Paribas"
+                        autoFocus
+                        style={{ width: '160px', fontSize: '13px', padding: '3px 6px', border: '1px solid var(--border2)', borderRadius: '5px' }}
+                      />
+                      <button
+                        disabled={savingPreneurSub}
+                        onClick={async () => {
+                          setSavingPreneurSub(true)
+                          const ok = await onSaveManualPreneurSub?.(item, preneurSubInput.trim())
+                          setSavingPreneurSub(false)
+                          if (ok) setEditingPreneurSub(false)
+                        }}
+                        title="Enregistrer"
+                        style={{ background: 'var(--success)', color: '#fff', border: 'none', borderRadius: '5px', width: '22px', height: '22px', cursor: 'pointer', fontSize: '11px' }}>
+                        {savingPreneurSub ? '…' : '✓'}
+                      </button>
+                      <button onClick={() => setEditingPreneurSub(false)} title="Annuler"
+                        style={{ background: 'var(--surface2)', color: 'var(--text3)', border: 'none', borderRadius: '5px', width: '22px', height: '22px', cursor: 'pointer', fontSize: '11px' }}>
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '4px', fontSize: '12px', color: 'var(--text3)' }}>
+                      {d.preneur_substitution
+                        ? <>Affiché comme : <strong style={{ color: 'var(--text2)', fontWeight: 600 }}>{d.preneur_substitution}</strong></>
+                        : <span style={{ fontStyle: 'italic' }}>Aucun nom de substitution</span>}
+                      <button
+                        onClick={() => { setPreneurSubInput(d.preneur_substitution || ''); setEditingPreneurSub(true) }}
+                        title="Nom de substitution — remplace le preneur dans la colonne Preneur du dashboard et des exports Excel, sans modifier la donnée extraite"
+                        style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '10px', lineHeight: 1, padding: 0 }}>
+                        ✎
+                      </button>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
             {show('bailleur') && <div className="party-card"><div className="party-role">Bailleur</div><div className="party-name" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>{shortPartyName(d.bailleur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}<PageJumpIcon item={item} pages={pages} field="bailleur" /></div></div>}
             {show('garant') && d.garant && <div className="party-card" style={{gridColumn:'1/-1'}}><div className="party-role">Garant / Caution</div><div className="party-name">{shortPartyName(d.garant)}</div></div>}
           </div>
@@ -4984,7 +5037,7 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
         bailCount: buildingBails.length,
         bails: buildingBails.map(b => ({
           id: b.id,
-          label: displayPartyName(b.data?.preneur) || b.data?.immeuble || b.file_name,
+          label: b.data?.preneur_substitution || displayPartyName(b.data?.preneur) || b.data?.immeuble || b.file_name,
           avenantCount: (b.avenants || []).length,
           row: b,
         })),
@@ -7145,7 +7198,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 {/* Preneur */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text)', fontWeight: 500, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.35, display: 'block' }}>
-                    {shortPartyName(d.preneur)?.toUpperCase() || '—'}
+                    {(d.preneur_substitution || shortPartyName(d.preneur))?.toUpperCase() || '—'}
                   </span>
                 </div>
 
@@ -8280,6 +8333,21 @@ export default function App() {
     return true
   }
 
+  // Nom de substitution du preneur — jamais rempli par l'extraction, purement
+  // manuel. Remplace le preneur affiché dans la colonne Preneur du dashboard
+  // et des exports Excel, sans jamais modifier la donnée extraite elle-même
+  // (le preneur réel reste visible sur la fiche détail).
+  async function handleManualPreneurSub(row, newValStr) {
+    const newData = { ...row.data, preneur_substitution: newValStr || null }
+    const { error: err5 } = await supabase.from('extractions').update({ data: newData }).eq('id', row.id)
+    if (err5) { console.error('Mise à jour du nom de substitution échouée', err5); return false }
+    setHistory(prev => prev.map(b => b.id === row.id
+      ? { ...b, data: newData }
+      : { ...b, avenants: (b.avenants || []).map(a => a.id === row.id ? { ...a, data: newData } : a) }))
+    if (activeItem?.id === row.id) setActiveItem(prev => ({ ...prev, data: newData }))
+    return true
+  }
+
   // Correction manuelle de la surface totale louée — cas rare mais réel :
   // certains baux ne chiffrent la surface exacte que dans une annexe
   // (plan, état des lieux) que l'extraction ne lit pas.
@@ -8675,6 +8743,7 @@ export default function App() {
                 onSaveManualSurface={handleManualSurface}
                 onSaveManualParking={handleManualParking}
                 onSaveManualDureeFerme={handleManualDureeFerme}
+                onSaveManualPreneurSub={handleManualPreneurSub}
               />
             ) : (
               <>
