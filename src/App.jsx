@@ -1757,12 +1757,29 @@ function stripInternalFields(obj) {
   })
   return out
 }
+// Tronque les chaînes longues (clauses de restitution, destination,
+// maintenance, article 606...) pour tenir dans la limite de tokens de l'API
+// une fois multiplié par ~400 baux — un premier essai sans troncature a
+// dépassé 1,2M tokens (limite : 1M). On garde l'essentiel factuel (dates,
+// montants, listes courtes ne sont presque jamais affectées, elles sont déjà
+// courtes) et on raccourcit le texte narratif, plutôt que de retirer des
+// champs entiers au risque de manquer encore une question.
+function truncateDeep(val, maxLen = 150) {
+  if (typeof val === 'string') return val.length > maxLen ? val.slice(0, maxLen) + '…' : val
+  if (Array.isArray(val)) return val.map(v => truncateDeep(v, maxLen))
+  if (val && typeof val === 'object') {
+    const out = {}
+    Object.keys(val).forEach(k => { out[k] = truncateDeep(val[k], maxLen) })
+    return out
+  }
+  return val
+}
 function buildPortfolioSummaryForChat(history) {
   return history
     .filter(row => row.document_type === 'bail' && !row.data?._archived)
     .map(b => {
       const d = b.data || {}
-      return {
+      return truncateDeep({
         ...stripInternalFields(d),
         immeuble: d.immeuble || d.adresse || b.file_name,
         actif: b.actif_group,
@@ -1774,7 +1791,7 @@ function buildPortfolioSummaryForChat(history) {
           date_effet: a.data?.date_effet_avenant,
           champs_modifies: stripInternalFields(a.data?.champs_modifies),
         })),
-      }
+      })
     })
 }
 
@@ -5388,11 +5405,18 @@ function PortfolioChatModal({ history, onClose, onSelect }) {
     setLoading(true)
     try {
       // Le contexte (instructions + portefeuille) est injecté dans le PREMIER
-      // message envoyé à l'API — pas de champ "system" séparé, pour rester
-      // sur le même schéma messages/content déjà éprouvé par callClaude.
+      // message envoyé à l'API, comme bloc de contenu à part — marqué
+      // "cache_control: ephemeral" pour que l'API le reutilise à tarif réduit
+      // sur les relances suivantes de la même conversation (quelques minutes),
+      // au lieu de le repayer plein tarif à chaque question. Si la fonction
+      // relais ne transmet pas ce champ, il est simplement ignoré sans casser
+      // la requête — aucun risque, juste pas d'économie dans ce cas.
       const apiMessages = nextMessages.map((m, i) =>
         i === 0 && m.role === 'user'
-          ? { role: 'user', content: `${systemPrompt}\n\nQUESTION DE L'UTILISATEUR :\n${m.content}` }
+          ? { role: 'user', content: [
+              { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+              { type: 'text', text: `QUESTION DE L'UTILISATEUR :\n${m.content}` },
+            ] }
           : { role: m.role, content: m.content }
       )
       const reply = await callClaudeChat(apiMessages)
@@ -5418,7 +5442,7 @@ function PortfolioChatModal({ history, onClose, onSelect }) {
           <div>
             <div className="modal-title">Assistant</div>
             <div style={{ fontSize: '11.5px', color: 'var(--text3)', marginTop: '2px' }}>
-              MVP — répond à partir des {portfolioSummary.length} baux chargés (hors archivés). Vérifiez les chiffres importants sur la fiche du bail concerné.
+              MVP — répond à partir des {portfolioSummary.length} baux chargés (hors archivés). Vérifiez les chiffres importants sur la fiche du bail concerné. Chaque question a un coût API réel (le portefeuille entier est envoyé) — à utiliser avec discernement, pas en continu.
             </div>
           </div>
           <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
