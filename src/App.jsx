@@ -5671,12 +5671,12 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
         <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px' }}>
           {allResults.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>
-              Aucun cas suspect détecté sur les {bails.length} bail{bails.length !== 1 ? 'x' : ''} analysé{bails.length !== 1 ? 's' : ''}.
+              Aucun cas suspect détecté sur les {bails.length} {bails.length !== 1 ? 'baux' : 'bail'} analysé{bails.length !== 1 ? 's' : ''}.
             </div>
           ) : (
             <>
               <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '10px' }}>
-                {activeResults.length} bail{activeResults.length !== 1 ? 'x' : ''} sur {bails.length} présentent au moins un point à vérifier.
+                {activeResults.length} {activeResults.length !== 1 ? 'baux' : 'bail'} sur {bails.length} présentent au moins un point à vérifier.
                 {dismissedResults.length > 0 && (
                   <span onClick={() => setShowDismissed(v => !v)} style={{ marginLeft: '8px', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}>
                     {showDismissed ? 'Masquer' : 'Afficher aussi'} les {dismissedResults.length} déjà vérifié{dismissedResults.length !== 1 ? 's' : ''}
