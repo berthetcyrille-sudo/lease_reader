@@ -1740,39 +1740,39 @@ async function callClaudeChat(messages, timeoutMs = 60000) {
 // Construit un résumé léger du portefeuille (champs utiles uniquement — pas
 // les documents, pas les textes de clauses bruts) à envoyer à l'IA pour
 // répondre aux questions de l'Assistant. Un bail archivé est exclu.
+// Champs internes/techniques à ne jamais envoyer (pages/sources de citation,
+// drapeaux UI) — tout le reste du schéma d'extraction passe automatiquement,
+// pour ne plus dépendre d'une liste tenue à jour à la main à chaque nouveau
+// champ ajouté au prompt d'extraction (cause du manque sur
+// participations_travaux, repéré en test).
+const PORTFOLIO_CHAT_EXCLUDED_KEYS = new Set(['_sources', '_pages', 'preneur_substitution', '_qc_dismissed', '_archived'])
+function stripInternalFields(obj) {
+  const out = {}
+  Object.keys(obj || {}).forEach(k => {
+    if (PORTFOLIO_CHAT_EXCLUDED_KEYS.has(k)) return
+    const val = obj[k]
+    if (val === null || val === undefined) return
+    if (Array.isArray(val) && val.length === 0) return
+    out[k] = val
+  })
+  return out
+}
 function buildPortfolioSummaryForChat(history) {
   return history
     .filter(row => row.document_type === 'bail' && !row.data?._archived)
     .map(b => {
       const d = b.data || {}
       return {
+        ...stripInternalFields(d),
         immeuble: d.immeuble || d.adresse || b.file_name,
-        ville: d.ville,
         actif: b.actif_group,
         preneur: d.preneur_substitution || d.preneur,
-        type_bail: d.type_bail,
-        classification_batiment: d.classification_batiment,
-        surface_totale_m2: d.surface_totale_m2,
-        parking_nb_places: d.parking_nb_places,
-        date_signature: d.date_signature,
-        date_effet: d.date_effet,
-        date_effet_condition: d.date_effet_condition,
-        duree_totale: d.duree_totale,
-        duree_ferme: d.duree_ferme,
-        date_fin: d.date_fin,
-        break_options: d.break_options,
-        conditions_break: d.conditions_break,
-        preavis: d.notice,
-        loyer_signature_montant: d.loyer_signature_montant,
-        indexation_indice: d.indexation_indice,
-        franchise_periodes: d.franchise_periodes,
-        depot_garantie_montant: d.depot_garantie_montant,
         nb_avenants: (b.avenants || []).length,
         avenants: (b.avenants || []).map(a => ({
           objet: a.data?.objet_avenant,
           date_signature: a.data?.date_signature_avenant,
           date_effet: a.data?.date_effet_avenant,
-          champs_modifies: a.data?.champs_modifies,
+          champs_modifies: stripInternalFields(a.data?.champs_modifies),
         })),
       }
     })
