@@ -6515,8 +6515,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     // des champs modifiés par l'avenant, ou de la référence bail_reference
     // renvoyée par l'IA — on cherche dans les trois pour ne rien manquer.
     const searchIn = [
-      raw.immeuble, raw.adresse, raw.ville, raw.preneur, raw.bailleur,
-      bailData.immeuble, bailData.adresse, bailData.ville, bailData.preneur, bailData.bailleur,
+      raw.immeuble, raw.adresse, raw.ville, raw.preneur, raw.bailleur, raw.preneur_substitution,
+      bailData.immeuble, bailData.adresse, bailData.ville, bailData.preneur, bailData.bailleur, bailData.preneur_substitution,
       mods.immeuble, mods.adresse, mods.ville, mods.preneur, mods.bailleur,
       bailRef.immeuble, bailRef.adresse, bailRef.preneur, bailRef.bailleur,
       raw.objet_avenant, raw.sous_location, mods.sous_location,
@@ -7003,6 +7003,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   adresse: bailBase.adresse,
                   ville: bailBase.ville,
                   preneur: bailBase.preneur,
+                  preneur_substitution: bailBase.preneur_substitution,
                   loyer_signature_montant: mods.loyer_signature_montant ?? null,
                   date_effet: mods.date_effet || bailBase.date_effet || null,
                   date_fin: mods.date_fin || bailBase.date_fin,
