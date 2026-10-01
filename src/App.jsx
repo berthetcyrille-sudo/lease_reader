@@ -3080,7 +3080,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
       return {
         sortKey,
         tenant: {
-          name: shortPartyName(d.preneur) || row.file_name,
+          name: row.data?.preneur_substitution || shortPartyName(d.preneur) || row.file_name,
           start, end, estimated, estimatedField,
           breaks: mergedBreaks.map(parseFrDate).filter(Boolean),
           conditionalBreaks: conditionalBreaksRaw,
@@ -9074,6 +9074,7 @@ export default function App() {
                                                 setEditingBailLinkRect(e.currentTarget.getBoundingClientRect())
                                                 setEditingBailLink(fileIdx)
                                               }}
+                                              title={currentLabel || '— Bail lié —'}
                                               style={{ fontSize: '11px', padding: '3px 6px', borderRadius: '6px', border: `1px solid ${avenantLinks[fileIdx]?.startsWith?.('dir-') ? 'var(--success)' : 'var(--border2)'}`, background: 'var(--surface)', color: avenantLinks[fileIdx] ? 'var(--text)' : 'var(--text3)', cursor: 'pointer', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                             >
                                               {currentLabel || '— Bail lié —'}
