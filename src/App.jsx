@@ -1703,6 +1703,93 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
 
 // Dual-pass extraction for bail: structural + financial in parallel, then merge
 
+// Appel texte simple (pas de document PDF) pour l'Assistant conversationnel —
+// même point d'entrée que callClaude (la clé API reste côté fonction Supabase,
+// jamais exposée au navigateur), mais sans bloc "document" et sans parsing
+// JSON forcé : on veut une réponse en langage naturel, pas une extraction.
+async function callClaudeChat(messages, timeoutMs = 60000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch('https://vmtmwsbebzkwxfkdpqky.supabase.co/functions/v1/hyper-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: 'claude-sonnet-5', max_tokens: 2000,
+        thinking: { type: 'disabled' },
+        messages,
+      })
+    })
+    clearTimeout(timer)
+    if (!res.ok) throw new Error('Erreur API: ' + res.status)
+    const data = await res.json()
+    if (data.type === 'error') throw new Error(data.error?.message || 'Erreur Anthropic')
+    let raw = ''
+    if (data.content && Array.isArray(data.content)) raw = data.content.map(b => b?.text || '').join('')
+    else if (data.text) raw = data.text
+    else throw new Error('Réponse inattendue : ' + JSON.stringify(data).slice(0, 200))
+    return raw.trim()
+  } catch (e) {
+    clearTimeout(timer)
+    if (e.name === 'AbortError') throw new Error('Timeout (> 1 min) : réessayez, ou posez une question plus ciblée.')
+    throw e
+  }
+}
+
+// Construit un résumé léger du portefeuille (champs utiles uniquement — pas
+// les documents, pas les textes de clauses bruts) à envoyer à l'IA pour
+// répondre aux questions de l'Assistant. Un bail archivé est exclu.
+function buildPortfolioSummaryForChat(history) {
+  return history
+    .filter(row => row.document_type === 'bail' && !row.data?._archived)
+    .map(b => {
+      const d = b.data || {}
+      return {
+        immeuble: d.immeuble || d.adresse || b.file_name,
+        ville: d.ville,
+        actif: b.actif_group,
+        preneur: d.preneur_substitution || d.preneur,
+        type_bail: d.type_bail,
+        classification_batiment: d.classification_batiment,
+        surface_totale_m2: d.surface_totale_m2,
+        parking_nb_places: d.parking_nb_places,
+        date_signature: d.date_signature,
+        date_effet: d.date_effet,
+        date_effet_condition: d.date_effet_condition,
+        duree_totale: d.duree_totale,
+        duree_ferme: d.duree_ferme,
+        date_fin: d.date_fin,
+        break_options: d.break_options,
+        conditions_break: d.conditions_break,
+        preavis: d.notice,
+        loyer_signature_montant: d.loyer_signature_montant,
+        indexation_indice: d.indexation_indice,
+        franchise_periodes: d.franchise_periodes,
+        depot_garantie_montant: d.depot_garantie_montant,
+        nb_avenants: (b.avenants || []).length,
+        avenants: (b.avenants || []).map(a => ({
+          objet: a.data?.objet_avenant,
+          date_signature: a.data?.date_signature_avenant,
+          date_effet: a.data?.date_effet_avenant,
+          champs_modifies: a.data?.champs_modifies,
+        })),
+      }
+    })
+}
+
+const PORTFOLIO_CHAT_SYSTEM_PROMPT = `Tu es l'assistant interne de Lease Reader, un outil d'extraction et de suivi de baux commerciaux pour Société de la Tour Eiffel (STE), une foncière cotée. Tu réponds en français, de façon directe et concrète, à des questions sur le portefeuille de baux ci-dessous (fourni en JSON dans le premier message).
+
+Règles impératives :
+- Base-toi UNIQUEMENT sur les données fournies dans le JSON du portefeuille — ne jamais inventer un bail, un montant ou une date qui n'y figure pas.
+- La date du jour est ${new Date().toLocaleDateString('fr-FR')} — utilise-la pour tout calcul d'échéance ("dans les 12 prochains mois", "déjà dépassé"...).
+- Un champ absent ou null signifie "non renseigné dans l'extraction" — dis-le explicitement plutôt que de l'ignorer silencieusement, si c'est pertinent pour la question posée.
+- Cite les baux concernés par leur "immeuble" et/ou "preneur" pour que l'utilisateur puisse les retrouver dans l'application.
+- Reste concis : des phrases ou une liste courte, pas un rapport. Un tableau simple (texte, pas markdown complexe) est acceptable si la question porte sur plusieurs baux.
+- Si la question demande un calcul agrégé (somme de loyers, surface totale...), fais-le toi-même à partir des champs fournis et montre le résultat, pas le détail du calcul sauf si demandé.
+- Si les données ne permettent pas de répondre avec certitude (champ manquant sur plusieurs baux, ambiguïté), dis-le plutôt que d'extrapoler.
+- Cet assistant est un MVP : en cas de doute sur un chiffre important, rappelle à l'utilisateur de vérifier sur la fiche du bail concerné dans l'application.`
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 // Traverse a FileSystemEntry recursively, returning { file, path }
@@ -5270,6 +5357,132 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
 }
 
 // ─── Modale de contrôle qualité ──────────────────────────────────────────────
+// ─── Assistant conversationnel sur le portefeuille (MVP) ────────────────────
+// Envoie à chaque question un résumé léger de tous les baux (champs utiles
+// uniquement, pas les documents ni le texte brut des clauses) en contexte, et
+// laisse l'IA répondre directement dessus — pas de requête structurée, pas de
+// RAG : volontairement simple pour un premier jet, à faire évoluer si le
+// portefeuille grossit beaucoup ou si les temps de réponse deviennent gênants.
+function PortfolioChatModal({ history, onClose, onSelect }) {
+  const [messages, setMessages] = useState([]) // [{role:'user'|'assistant', content}]
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const scrollRef = useRef()
+
+  const portfolioSummary = useMemo(() => buildPortfolioSummaryForChat(history), [history])
+  const systemPrompt = useMemo(
+    () => `${PORTFOLIO_CHAT_SYSTEM_PROMPT}\n\nPORTEFEUILLE (${portfolioSummary.length} baux) :\n${JSON.stringify(portfolioSummary)}`,
+    [portfolioSummary]
+  )
+
+  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }) }, [messages, loading])
+
+  async function send(question) {
+    const q = (question ?? input).trim()
+    if (!q || loading) return
+    setInput('')
+    setError('')
+    const nextMessages = [...messages, { role: 'user', content: q }]
+    setMessages(nextMessages)
+    setLoading(true)
+    try {
+      // Le contexte (instructions + portefeuille) est injecté dans le PREMIER
+      // message envoyé à l'API — pas de champ "system" séparé, pour rester
+      // sur le même schéma messages/content déjà éprouvé par callClaude.
+      const apiMessages = nextMessages.map((m, i) =>
+        i === 0 && m.role === 'user'
+          ? { role: 'user', content: `${systemPrompt}\n\nQUESTION DE L'UTILISATEUR :\n${m.content}` }
+          : { role: m.role, content: m.content }
+      )
+      const reply = await callClaudeChat(apiMessages)
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }])
+    } catch (e) {
+      setError(e.message || 'Erreur lors de la requête')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const suggestions = [
+    'Quels baux ont un break dans les 12 prochains mois ?',
+    'Quelle est la surface totale du portefeuille ?',
+    'Quels baux ont une durée ferme non déterminée ?',
+    'Liste les baux indexés sur un autre indice que l\'ILAT',
+  ]
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ width: '720px', maxWidth: '92vw', height: '80vh', maxHeight: '800px', display: 'flex', flexDirection: 'column', padding: 0 }} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div>
+            <div className="modal-title">Assistant</div>
+            <div style={{ fontSize: '11.5px', color: 'var(--text3)', marginTop: '2px' }}>
+              MVP — répond à partir des {portfolioSummary.length} baux chargés (hors archivés). Vérifiez les chiffres importants sur la fiche du bail concerné.
+            </div>
+          </div>
+          <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
+        </div>
+
+        <div ref={scrollRef} style={{ flex: '1 1 auto', overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {messages.length === 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text2)' }}>Quelques questions pour démarrer :</div>
+              {suggestions.map((s, i) => (
+                <button key={i} onClick={() => send(s)}
+                  style={{ textAlign: 'left', padding: '9px 12px', fontSize: '12.5px', borderRadius: '8px', border: '1px solid var(--border2)', background: 'var(--surface2)', color: 'var(--text)', cursor: 'pointer' }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <div style={{
+                maxWidth: '85%', padding: '10px 14px', borderRadius: '10px', fontSize: '13.5px', lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                background: m.role === 'user' ? 'var(--accent)' : 'var(--surface2)',
+                color: m.role === 'user' ? '#fff' : 'var(--text)',
+              }}>
+                {m.content}
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+              <div style={{ padding: '10px 14px', borderRadius: '10px', fontSize: '13px', color: 'var(--text3)', fontStyle: 'italic', background: 'var(--surface2)' }}>
+                L'assistant réfléchit…
+              </div>
+            </div>
+          )}
+          {error && (
+            <div style={{ padding: '10px 14px', borderRadius: '8px', fontSize: '12.5px', color: 'var(--danger)', background: 'var(--danger-bg)', border: '1px solid rgba(176,42,42,.2)' }}>
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: '14px 22px', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px', flexShrink: 0 }}>
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            placeholder="Pose une question sur le portefeuille…"
+            disabled={loading}
+            style={{ flex: '1 1 auto', padding: '10px 14px', fontSize: '13.5px', border: '1px solid var(--border2)', borderRadius: '8px', outline: 'none' }}
+          />
+          <button
+            onClick={() => send()}
+            disabled={loading || !input.trim()}
+            style={{ padding: '10px 18px', fontSize: '13px', fontWeight: 600, borderRadius: '8px', border: 'none', cursor: loading || !input.trim() ? 'default' : 'pointer', background: loading || !input.trim() ? 'var(--surface2)' : 'var(--accent)', color: loading || !input.trim() ? 'var(--text3)' : '#fff' }}>
+            Envoyer
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary, onFixSurfaceLoyer }) {
   const [showDismissed, setShowDismissed] = useState(false)
   const [pending, setPending] = useState({}) // { [rowId]: true } — évite double-clic pendant l'écriture
@@ -7703,6 +7916,7 @@ export default function App() {
   const [etatLocatifSearch, setEtatLocatifSearch] = useState('')
   const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
   const [showQualityCheck, setShowQualityCheck] = useState(false)
+  const [showPortfolioChat, setShowPortfolioChat] = useState(false)
   const [showSynthese, setShowSynthese] = useState(false)
   // Recherche/filtre du dashboard remontés ici (plutôt que locaux à Dashboard)
   // pour survivre à la navigation vers une fiche détail et retour.
@@ -8537,6 +8751,19 @@ export default function App() {
             Contrôle qualité
           </button>
 
+          <button
+            onClick={() => setShowPortfolioChat(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '7px', background: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '13px', fontWeight: 600,
+              padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', marginLeft: '10px',
+            }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+            </svg>
+            Assistant
+          </button>
+
           {profile?.is_admin && (
             <button
               onClick={() => setShowAdminPanel(true)}
@@ -8614,6 +8841,14 @@ export default function App() {
               setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
               if (activeItem?.id === rowId) setActiveItem(prev => ({ ...prev, data: newData }))
             }}
+          />
+        )}
+
+        {showPortfolioChat && (
+          <PortfolioChatModal
+            history={history}
+            onClose={() => setShowPortfolioChat(false)}
+            onSelect={row => { setShowPortfolioChat(false); setActiveItem(row); navigate(`/bail/${row.id}`) }}
           />
         )}
 
