@@ -1774,12 +1774,12 @@ function truncateDeep(val, maxLen = 150) {
   }
   return val
 }
-function buildPortfolioSummaryForChat(history) {
+function buildPortfolioSummaryForChat(history, { truncate = true } = {}) {
   return history
     .filter(row => row.document_type === 'bail' && !row.data?._archived)
     .map(b => {
       const d = b.data || {}
-      return truncateDeep({
+      const full = {
         ...stripInternalFields(d),
         immeuble: d.immeuble || d.adresse || b.file_name,
         actif: b.actif_group,
@@ -1791,8 +1791,33 @@ function buildPortfolioSummaryForChat(history) {
           date_effet: a.data?.date_effet_avenant,
           champs_modifies: stripInternalFields(a.data?.champs_modifies),
         })),
-      })
+        _rowId: b.id,
+      }
+      return truncate ? truncateDeep(full) : full
     })
+}
+
+// Pré-filtrage LOCAL (aucun appel API) : repère si la question nomme assez
+// précisément un preneur et/ou un immeuble pour ne cibler QUE ce(s) bail
+// (aux)-là, en détail complet non tronqué — plutôt que d'envoyer tout le
+// portefeuille pour une question qui ne porte que sur un seul bail. Repli sur
+// le portefeuille entier (tronqué) si rien ne ressort clairement : les
+// questions portant sur plusieurs baux ("quels baux ont un break dans 12
+// mois ?") doivent de toute façon voir l'ensemble.
+function findRelevantBails(fullSummary, question) {
+  const qNorm = stripAccents(String(question || '')).toLowerCase()
+  if (!qNorm.trim()) return []
+  const scored = fullSummary.map(b => {
+    let score = 0
+    const preneur = stripAccents(String(b.preneur || '')).toLowerCase()
+    const immeuble = stripAccents(String(b.immeuble || '')).toLowerCase()
+    if (preneur && preneur.length > 2 && qNorm.includes(preneur)) score += 5
+    if (immeuble && immeuble.length > 2 && qNorm.includes(immeuble)) score += 5
+    preneur.split(/[\s,.'-]+/).filter(w => w.length > 3).forEach(w => { if (qNorm.includes(w)) score += 1 })
+    immeuble.split(/[\s,.'-]+/).filter(w => w.length > 3).forEach(w => { if (qNorm.includes(w)) score += 1 })
+    return { b, score }
+  }).filter(x => x.score >= 3).sort((a, b) => b.score - a.score)
+  return scored.map(x => x.b)
 }
 
 const PORTFOLIO_CHAT_SYSTEM_PROMPT = `Tu es l'assistant interne de Lease Reader, un outil d'extraction et de suivi de baux commerciaux pour Société de la Tour Eiffel (STE), une foncière cotée. Tu réponds en français, de façon directe et concrète, à des questions sur le portefeuille de baux ci-dessous (fourni en JSON dans le premier message).
@@ -5381,17 +5406,19 @@ function SyntheseModal({ bails, immeubles, onAddImmeuble, onRemoveImmeuble, onTo
 // RAG : volontairement simple pour un premier jet, à faire évoluer si le
 // portefeuille grossit beaucoup ou si les temps de réponse deviennent gênants.
 function PortfolioChatModal({ history, onClose, onSelect }) {
-  const [messages, setMessages] = useState([]) // [{role:'user'|'assistant', content}]
+  const [messages, setMessages] = useState([]) // [{role:'user'|'assistant', content}] — pour l'affichage
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const scrollRef = useRef()
+  // Historique RÉELLEMENT envoyé à l'API (avec le contexte propre à chaque
+  // tour déjà résolu) — distinct de `messages` (qui ne sert qu'à l'affichage
+  // des bulles) pour pouvoir donner un contexte différent à chaque question
+  // sans avoir à tout reconstruire à chaque fois.
+  const apiHistoryRef = useRef([])
 
   const portfolioSummary = useMemo(() => buildPortfolioSummaryForChat(history), [history])
-  const systemPrompt = useMemo(
-    () => `${PORTFOLIO_CHAT_SYSTEM_PROMPT}\n\nPORTEFEUILLE (${portfolioSummary.length} baux) :\n${JSON.stringify(portfolioSummary)}`,
-    [portfolioSummary]
-  )
+  const portfolioSummaryFull = useMemo(() => buildPortfolioSummaryForChat(history, { truncate: false }), [history])
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }) }, [messages, loading])
 
@@ -5400,26 +5427,39 @@ function PortfolioChatModal({ history, onClose, onSelect }) {
     if (!q || loading) return
     setInput('')
     setError('')
-    const nextMessages = [...messages, { role: 'user', content: q }]
-    setMessages(nextMessages)
+    setMessages(prev => [...prev, { role: 'user', content: q }])
     setLoading(true)
     try {
-      // Le contexte (instructions + portefeuille) est injecté dans le PREMIER
-      // message envoyé à l'API, comme bloc de contenu à part — marqué
+      // Pré-filtrage local (voir findRelevantBails) : si CETTE question nomme
+      // assez précisément 1 à 5 baux, on n'envoie que ceux-là, en détail
+      // complet non tronqué — sinon repli sur tout le portefeuille (tronqué).
+      // Recalculé à chaque question : deux questions successives peuvent
+      // cibler des baux différents, ou l'une être ciblée et l'autre large.
+      const relevant = findRelevantBails(portfolioSummary, q)
+      const useNarrow = relevant.length >= 1 && relevant.length <= 5
+      const dataForContext = (useNarrow
+        ? relevant.map(r => portfolioSummaryFull.find(f => f._rowId === r._rowId) || r)
+        : portfolioSummary
+      ).map(({ _rowId, ...rest }) => rest)
+      const contextLabel = useNarrow
+        ? `BAIL(X) IDENTIFIE(S) COMME PERTINENT(S) POUR CETTE QUESTION (${dataForContext.length}) — si aucun ne correspond vraiment à la question posee, dis-le plutot que de repondre a cote`
+        : `PORTEFEUILLE COMPLET (${dataForContext.length} baux)`
+      const contextText = `${PORTFOLIO_CHAT_SYSTEM_PROMPT}\n\n${contextLabel} :\n${JSON.stringify(dataForContext)}`
+
+      // Le contexte (instructions + baux pertinents À CETTE QUESTION) est
+      // injecté comme bloc de contenu à part dans CE tour — marqué
       // "cache_control: ephemeral" pour que l'API le reutilise à tarif réduit
-      // sur les relances suivantes de la même conversation (quelques minutes),
-      // au lieu de le repayer plein tarif à chaque question. Si la fonction
-      // relais ne transmet pas ce champ, il est simplement ignoré sans casser
-      // la requête — aucun risque, juste pas d'économie dans ce cas.
-      const apiMessages = nextMessages.map((m, i) =>
-        i === 0 && m.role === 'user'
-          ? { role: 'user', content: [
-              { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
-              { type: 'text', text: `QUESTION DE L'UTILISATEUR :\n${m.content}` },
-            ] }
-          : { role: m.role, content: m.content }
-      )
+      // si un tour ultérieur renvoie exactement le même bloc (ex: deux
+      // questions larges d'affilée, portefeuille complet identique). Si la
+      // fonction relais ne transmet pas ce champ, il est simplement ignoré
+      // sans casser la requête — aucun risque, juste pas d'économie.
+      const thisTurn = { role: 'user', content: [
+        { type: 'text', text: contextText, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: `QUESTION DE L'UTILISATEUR :\n${q}` },
+      ] }
+      const apiMessages = [...apiHistoryRef.current, thisTurn]
       const reply = await callClaudeChat(apiMessages)
+      apiHistoryRef.current = [...apiMessages, { role: 'assistant', content: reply }]
       setMessages(prev => [...prev, { role: 'assistant', content: reply }])
     } catch (e) {
       setError(e.message || 'Erreur lors de la requête')
