@@ -167,7 +167,8 @@ REGLES: Guillemets droits ASCII. Champs _montant=chiffres bruts. Dans champs_mod
 surface_change_type: "inchangee"/"ajout"/"retrait"/"substitution"/"mixte".
 surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retirees). Ajouter "sens":"ajout" ou "sens":"retrait". categorie JAMAIS null.
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
-surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie (ex: 2 lignes Bureaux → une seule ligne avec la surface totale). NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
+BATIMENT (surfaces_delta, surfaces_avant, surfaces_apres, et surfaces_detail le cas echeant): chaque ligne porte un champ "batiment" = nom ou identifiant du batiment auquel appartient la surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes (ex: "Pascal", "Batiment A") — null sinon, ne jamais inventer. Independant de "niveau" (l'etage au sein du batiment).
+surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie DANS LE MEME BATIMENT (ex: 2 lignes Bureaux du meme batiment → une seule ligne avec la surface totale) — ne jamais fusionner des surfaces de batiments differents, elles restent sur des lignes distinctes. NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
 {"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
@@ -1350,7 +1351,9 @@ function mergeSurfacesByCategory(rows) {
   if (!Array.isArray(rows) || rows.length <= 1) return rows
   const map = new Map()
   rows.forEach(r => {
-    const cat = r.categorie || r.typologie || '—'
+    // Clé bâtiment + catégorie : les "Bureaux" de deux bâtiments différents
+    // restent deux lignes distinctes.
+    const cat = `${safeStr(r.batiment) || ''}|${r.categorie || r.typologie || '—'}`
     if (!map.has(cat)) {
       map.set(cat, { ...r })
     } else {
@@ -2221,6 +2224,9 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   const isRie = r => (r.categorie || r.typologie || '').toLowerCase().includes('rie')
   const mainRows = safe.filter(r => !isPark(r))
   const parkRows = safe.filter(r => isPark(r))
+  // Colonne Bâtiment affichée seulement si le bail porte sur plusieurs
+  // bâtiments (au moins une ligne renseignée) — invisible sinon.
+  const hasBat = safe.some(r => safeStr(r.batiment))
   // Calcule le loyer d'une ligne : celui indiqué explicitement dans le bail
   // si présent, sinon celui déductible du prix unitaire × surface (marqué
   // comme calculé) — sans ce repli, une ligne qui n'a qu'un prix au m²
@@ -2270,7 +2276,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
           <table className="indemnites-table">
             <thead>
               <tr>
-                <th>Catégorie</th><th>Niveau / Localisation</th>
+                <th>Catégorie</th>{hasBat && <th>Bâtiment</th>}<th>Niveau / Localisation</th>
                 <th style={{ textAlign: 'right' }}>Surface (m²)</th>
                 <th style={{ textAlign: 'right' }}>Prix (€/m²/an)</th>
                 <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
@@ -2283,6 +2289,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                 return (
                   <tr key={i}>
                     <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}{isRie(row) && <span title="Redevance calculée sur la surface de bureaux — non comptée en plus dans le total de surface" style={{ fontSize: '10px', marginLeft: '3px', color: 'var(--text3)', cursor: 'help' }}>†</span>}</td>
+                    {hasBat && <td style={{ fontWeight: 500 }}>{safeStr(row.batiment) || '—'}</td>}
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
                     <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 ? `${row.surface_m2} m²` : '—'}</td>
                     <td style={{ textAlign: 'right', color: row.prix_unitaire ? 'var(--text)' : 'var(--text3)', fontStyle: row.prix_unitaire ? 'normal' : 'italic' }}>
@@ -2300,7 +2307,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
             {total > 0 && (
               <tfoot>
                 <tr style={{ borderTop: '1px solid var(--border2)' }}>
-                  <td colSpan={2} style={{ fontWeight: 600, padding: '8px 10px' }}>Total bureaux / locaux</td>
+                  <td colSpan={hasBat ? 3 : 2} style={{ fontWeight: 600, padding: '8px 10px' }}>Total bureaux / locaux</td>
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{total.toLocaleString('fr-FR')} m²</td>
                   <td />
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>
@@ -2310,14 +2317,14 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                 </tr>
                 {safe.some(isRie) && (
                   <tr>
-                    <td colSpan={5} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
+                    <td colSpan={hasBat ? 6 : 5} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
                       † RIE : redevance calculée sur la surface de bureaux, non ajoutée au total de surface (même surface, pas une surface en plus)
                     </td>
                   </tr>
                 )}
                 {hasNotableGap && (
                   <tr>
-                    <td colSpan={5} style={{ padding: '6px 10px 8px', fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
+                    <td colSpan={hasBat ? 6 : 5} style={{ padding: '6px 10px 8px', fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
                       {commonAreaGap > 0
                         ? <>Écart de <strong>+{commonAreaGap.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m²</strong> avec la surface totale louée ({declared.toLocaleString('fr-FR')} m²) — probablement une quote-part de parties communes non ventilée (bail parlant de « Surface Exploitée », SUBL, ou surface utile).</>
                         : <>La surface totale louée déclarée ({declared.toLocaleString('fr-FR')} m²) est inférieure de {Math.abs(commonAreaGap).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m² à la somme du détail ci-dessus — à vérifier.</>
@@ -2327,7 +2334,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                 )}
                 {mainLoyerIsFallback && (
                   <tr>
-                    <td colSpan={5} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
+                    <td colSpan={hasBat ? 6 : 5} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
                       * loyer global du bail, non ventilé par composante dans le document source
                     </td>
                   </tr>
@@ -2342,7 +2349,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
           <table className="indemnites-table">
             <thead>
               <tr>
-                <th>Stationnement</th><th>Localisation</th>
+                <th>Stationnement</th>{hasBat && <th>Bâtiment</th>}<th>Localisation</th>
                 <th style={{ textAlign: 'right' }}>Nb places</th>
                 <th style={{ textAlign: 'right' }}>Prix (€/place/an)</th>
                 <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
@@ -2361,6 +2368,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                 return (
                   <tr key={i}>
                     <td style={{ fontWeight: 500 }}>{row.categorie || 'Stationnement'}</td>
+                    {hasBat && <td style={{ fontWeight: 500 }}>{safeStr(row.batiment) || '—'}</td>}
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
                     <td style={{ textAlign: 'right' }}>{surf > 0 ? `${surf} pl.` : '—'}</td>
                     <td style={{ textAlign: 'right', color: up ? 'var(--text)' : 'var(--text3)', fontStyle: up ? 'normal' : 'italic' }}>
@@ -2375,7 +2383,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
             {parkTotalLoyer > 0 && (
               <tfoot>
                 <tr style={{ borderTop: '1px solid var(--border2)' }}>
-                  <td colSpan={4} style={{ fontWeight: 600, padding: '8px 10px' }}>Total stationnement</td>
+                  <td colSpan={hasBat ? 5 : 4} style={{ fontWeight: 600, padding: '8px 10px' }}>Total stationnement</td>
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{fmtEur(parkTotalLoyer)}</td>
                 </tr>
               </tfoot>
@@ -3144,6 +3152,9 @@ function findDuplicateBails(bails) {
   const groups = {}
   bails.forEach(row => {
     const d = row.data || {}
+    // Un bail archivé n'est plus actif : il ne peut pas faire doublon avec un
+    // bail en cours (ex: ancien bail archivé + nouveau bail même preneur).
+    if (d._archived) return
     const building = (d.immeuble || d.adresse || '').toLowerCase().trim()
     const tenant = (shortPartyName(d.preneur) || '').toLowerCase().trim()
     if (!building || !tenant) return
@@ -3201,6 +3212,7 @@ function mergedBailData(row) {
         // la clause du bail INITIAL, ne doit plus venir y rajouter les
         // anciennes échéances superseded par cet avenant.
         if (k === 'break_options') base._breakOptionsFromAvenant = true
+        if (k === 'duree_ferme') base._dureeFermeFromAvenant = true
       }
     })
     // surfaces_apres (champ séparé, hors champs_modifies) reflète l'assiette
@@ -3322,7 +3334,13 @@ function EtatLocatifModal({ building, bails, onClose }) {
       // antérieur à date_effet + duree_ferme est forcément un résidu (ancien
       // calcul, ou stocké avant une renonciation explicite) — sans ce filtre,
       // il réapparaîtrait ici alors qu'il est déjà filtré dans la fiche détail.
-      mergedBreaks = filterBreaksByDureeFerme(mergedBreaks, d.date_effet, d.duree_ferme)
+      // Breaks redéfinis par un avenant (ex: renouvellement 3/6/9) sans durée
+      // ferme redonnée : la durée ferme connue est celle de l'ANCIEN bail —
+      // l'appliquer depuis la nouvelle date d'effet supprimerait à tort les
+      // échéances du renouvellement.
+      if (!(d._breakOptionsFromAvenant && !d._dureeFermeFromAvenant)) {
+        mergedBreaks = filterBreaksByDureeFerme(mergedBreaks, d.date_effet, d.duree_ferme)
+      }
       // Échéances lues dans le texte disponibles : elles font foi (aucun calcul
       // ni filtre par-dessus), comme dans la fiche du bail.
       const elExits = getExitEvents(d)
@@ -3766,6 +3784,8 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // break_options à partir d'elle, sauf si un avenant a lui-même déjà fourni
   // une valeur explicite pour ces champs (auquel cas elle prime).
   let effetConfirmePar = null
+  let breaksFromAvenantSansFerme = false // voir commentaire au filtre par durée ferme
+  let breaksFromAvenant = false
   if (!isAv && Array.isArray(item.avenants) && item.avenants.length > 0) {
     const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
     const sortedAvs = [...item.avenants].sort((a, b) =>
@@ -3774,13 +3794,17 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     let explicitDateFin = null
     let explicitBreaks = null
     let avenantExits = null
+    let avenantDureeFerme = false
     sortedAvs.forEach(av => {
       const mods = av.data?.champs_modifies || {}
       if (mods.date_effet) { d.date_effet = mods.date_effet; effetConfirmePar = av }
       if (mods.date_fin) explicitDateFin = mods.date_fin
       if (Array.isArray(mods.break_options) && mods.break_options.length > 0) explicitBreaks = mods.break_options
       if (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0) avenantExits = mods.echeances_sortie
+      if (mods.duree_ferme) avenantDureeFerme = true
     })
+    breaksFromAvenant = !!explicitBreaks
+    breaksFromAvenantSansFerme = !!explicitBreaks && !avenantDureeFerme
     // Échéances de sortie : un avenant qui les redéfinit fait foi. S'il ne fait
     // que confirmer la date d'effet sans les redonner, celles du bail peuvent
     // avoir été calculées sur l'ancienne date (prévisionnelle) → on retombe sur
@@ -3834,7 +3858,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // les extractions faites avant le renforcement de ce calcul (ex: 3e break
   // triennale manquante alors que les 2 premières étaient déjà en base).
   let breaks = sanitizeBreakDates(d.break_options || [])
-  const computedBreaks = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
+  const computedBreaks = breaksFromAvenant ? [] : computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
   if (computedBreaks.length > 0) {
     const existingSet = new Set(breaks.map(b => b.trim()))
     computedBreaks.forEach(c => { if (!existingSet.has(c)) { breaks.push(c); existingSet.add(c) } })
@@ -3842,7 +3866,9 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   }
 
   // Si duree_ferme est renseignée, supprimer les breaks AVANT date_effet + duree_ferme
-  breaks = filterBreaksByDureeFerme(breaks, d.date_effet, d.duree_ferme)
+  // — sauf si les breaks viennent d'un avenant (ex: renouvellement 3/6/9) qui
+  // n'a pas redonné de durée ferme : celle connue est celle de l'ancien bail.
+  if (!breaksFromAvenantSansFerme) breaks = filterBreaksByDureeFerme(breaks, d.date_effet, d.duree_ferme)
   // Dédoublonner (ex: 29/06/2031 et 30/06/2031 = même date à 1 jour près)
   breaks = [...new Map(breaks.map(b => {
     const bd = parseFR(b)
