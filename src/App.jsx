@@ -1091,16 +1091,15 @@ function extractConditionalBreaks(d, cleanBreaksArr) {
       const isDuplicateOfClean = cleanBreakParsedDates.some(bd => Math.abs(bd - cbParsed) <= 3 * 24 * 60 * 60 * 1000)
       return !isDuplicateOfClean
     })
-  // Même filet que pour les breaks classiques (filterBreaksByDureeFerme) :
-  // une echeance ANTERIEURE a la durée ferme actuellement en vigueur est
-  // forcément caduque — un résidu fréquent quand un avenant remplace
-  // entièrement l'article durée/résiliation du bail (ex: indemnité de dédit
-  // calculée sur l'ancienne clause, jamais recoupée avec la nouvelle durée
-  // ferme). Sans ce filtre, une clause d'origine parfaitement bien extraite à
-  // l'époque redevient trompeuse une fois supplantée par un avenant.
-  const dates = entries.map(e => e.date)
-  const keptDates = new Set(filterBreaksByDureeFerme(dates, d.date_effet, d.duree_ferme))
-  entries = entries.filter(e => keptDates.has(e.date))
+  // PAS de filtre de péremption par date ici (contrairement aux breaks
+  // "propres" de break_options, qui peuvent être de purs résidus de calcul) :
+  // une entrée d'indemnites_break n'existe que parce que l'IA a trouvé un
+  // motif/une formule explicites dans le texte — elle peut être antérieure à
+  // la durée ferme par une EXCEPTION réellement négociée (ex: un break
+  // exceptionnel accordé malgré une renonciation triennale par ailleurs), pas
+  // forcément un résidu. Un filtre par date ne peut pas distinguer les deux
+  // cas de façon fiable (vécu : a fait disparaître une vraie exception
+  // négociée en la traitant comme caduque).
   return entries
 }
 
@@ -3718,16 +3717,10 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // décrite dans indemnites_break pour la MÊME échéance (à quelques jours près)
   // — plutôt que de la perdre simplement parce qu'elle décrit une date déjà
   // affichée par ailleurs (cf. le filtre condBreakEntries ci-dessus).
-  const rawIndemnitesBreakDates = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
-    .map(ib => ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null)
-  const rawIndemnitesBreakKeptDates = new Set(filterBreaksByDureeFerme(rawIndemnitesBreakDates.filter(Boolean), d.date_effet, d.duree_ferme))
+  // Pas de filtre de péremption par date (voir note dans extractConditionalBreaks)
   const rawIndemnitesBreak = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
     .filter(ib => !/cession/i.test(safeStr(ib.motif) || '') && !/cession/i.test(safeStr(ib.calcul) || ''))
     .filter(ib => !/non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(safeStr(ib.motif) || '') && !/non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(safeStr(ib.calcul) || ''))
-    .filter(ib => {
-      const bdate = ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null
-      return !bdate || rawIndemnitesBreakKeptDates.has(bdate)
-    })
   function findIndemniteForBreak(breakDateStr) {
     const bd = parseFR(breakDateStr)
     if (!bd) return null
@@ -4612,12 +4605,9 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
           seulement celle qui lui est spécifiquement dédiée. */}
       {(() => {
         const isDefaultBoilerplateRow2 = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
-        const breakIndemDates = (d.indemnites_break || []).map(row => row.break_date ? normalizeDate(safeStr(row.break_date)) : null)
-        const keptBreakIndemDates = new Set(filterBreaksByDureeFerme(breakIndemDates.filter(Boolean), d.date_effet, d.duree_ferme))
-        const cleanBreakIndem = (d.indemnites_break || []).filter((row, i) =>
+        const cleanBreakIndem = (d.indemnites_break || []).filter((row) =>
           !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
-          !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul)) &&
-          (!breakIndemDates[i] || keptBreakIndemDates.has(breakIndemDates[i]))
+          !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul))
         ).map(row => ({ terme: row.break_date, due_par: 'Preneur', motif: row.motif, montant: row.montant, calcul: row.calcul, page: row.page }))
         const combined = [...(d.indemnites_restitution || []), ...cleanBreakIndem]
         if (combined.length === 0) return null
@@ -4672,18 +4662,16 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         // Le filtre par mots-clés seul ne suffit pas : l'IA paraphrase souvent
         // le motif ("résiliation du bail avant le [date]"), perdant les mots
         // ("non-respect"...) qui trahissaient l'origine "clause de défaut".
-        // Un filtre par PÉREMPTION DE DATE est bien plus robuste, indépendant
-        // du texte : une échéance de break antérieure à la durée ferme
-        // actuellement en vigueur est de toute façon caduque, peu importe son
-        // libellé (résidu fréquent d'un avenant qui a changé la date d'effet
-        // et/ou la durée ferme sans que ce champ ne soit recalculé).
+        // Pas de filtre de péremption par date : une entrée indemnites_break
+        // est toujours adossée à un motif/une formule explicites trouvés dans
+        // le texte, jamais un pur résidu de calcul — elle peut légitimement
+        // précéder la durée ferme (exception réellement négociée). Un filtre
+        // par date ne peut pas distinguer ça d'un résidu, voir note détaillée
+        // dans extractConditionalBreaks.
         const isDefaultBoilerplateRow = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
-        const indemnitesDates = (d.indemnites_break || []).map(row => row.break_date ? normalizeDate(safeStr(row.break_date)) : null)
-        const keptIndemnitesDates = new Set(filterBreaksByDureeFerme(indemnitesDates.filter(Boolean), d.date_effet, d.duree_ferme))
-        const cleanIndemnitesBreak = (d.indemnites_break || []).filter((row, i) =>
+        const cleanIndemnitesBreak = (d.indemnites_break || []).filter((row) =>
           !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
-          !isDefaultBoilerplateRow(safeStr(row.motif)) && !isDefaultBoilerplateRow(safeStr(row.calcul)) &&
-          (!indemnitesDates[i] || keptIndemnitesDates.has(indemnitesDates[i]))
+          !isDefaultBoilerplateRow(safeStr(row.motif)) && !isDefaultBoilerplateRow(safeStr(row.calcul))
         )
         if (cleanIndemnitesBreak.length === 0) return null
         return (
