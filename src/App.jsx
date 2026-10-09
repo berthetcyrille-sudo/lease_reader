@@ -3260,16 +3260,17 @@ function EtatLocatifModal({ building, bails, onClose }) {
   const domainMs = domainEnd - domainStart
   const allYears = []
   for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) allYears.push(y)
-  // Sur une étendue large (beaucoup d'années), répartir un nombre limité
-  // d'étiquettes UNIFORMÉMENT sur toute la largeur (premier et dernier inclus)
-  // plutôt qu'un espacement fixe + ajout forcé du dernier — qui pouvait coller
-  // les deux dernières années l'une contre l'autre quand le pas ne tombait pas
-  // juste en fin de plage.
-  const maxLabels = allYears.length > 24 ? 8 : allYears.length > 13 ? 11 : allYears.length
-  const years = allYears.length <= maxLabels || maxLabels <= 1
-    ? allYears
-    : [...new Set(Array.from({ length: maxLabels }, (_, i) =>
-        allYears[Math.round(i * (allYears.length - 1) / (maxLabels - 1))]))]
+  // Largeur minimale garantie par année : la zone de frise ne descend jamais
+  // en dessous de allYears.length * MIN_YEAR_PX — sur un écran étroit ou une
+  // longue période, la frise devient alors plus large que son cadre et défile
+  // horizontalement, plutôt que de tasser les étiquettes jusqu'à ce qu'elles
+  // se chevauchent. Chaque année a donc TOUJOURS sa place : plus de collision
+  // possible, quel que soit le nombre d'années — donc plus besoin de réduire
+  // le nombre d'étiquettes affichées, on les montre toutes.
+  const MIN_YEAR_PX = 50
+  const timelineMinWidth = allYears.length * MIN_YEAR_PX
+  const useShortYears = allYears.length > 15
+  const years = allYears
 
   function fmt(d) { return d ? d.toLocaleDateString('fr-FR') : '—' }
 
@@ -3373,28 +3374,28 @@ function EtatLocatifModal({ building, bails, onClose }) {
           ) : (() => {
             const COL_W = [190, 75, 100, 100]
             return (
-            <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflowX: 'auto', overflowY: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'stretch', height: '34px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
-                {['Preneur', 'Surface', 'Loyer', 'Niveau'].map((h, i) => (
-                  <div key={h} style={{ width: `${COL_W[i]}px`, flexShrink: 0, display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</div>
-                ))}
-                <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface2)' }}>
+                  {['Preneur', 'Surface', 'Loyer', 'Niveau'].map((h, i) => (
+                    <div key={h} style={{ width: `${COL_W[i]}px`, flexShrink: 0, display: 'flex', alignItems: 'center', paddingLeft: '10px', fontSize: '10px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</div>
+                  ))}
+                </div>
+                <div style={{ flex: 1, minWidth: `${timelineMinWidth}px`, position: 'relative' }}>
                   {years.map(y => {
                     const yd = new Date(y, 0, 1)
                     const rawPct = ((yd - domainStart) / domainMs) * 100
                     // Cadrer entre 0 et 100 : sans ça, la toute première (ou
-                    // dernière) année peut tomber légèrement hors du cadre
-                    // (ex: -1%), et comme le conteneur a overflow:hidden, le
-                    // début du texte se fait couper (ex: "2012" affiché "12").
+                    // dernière) année peut tomber légèrement hors du cadre.
                     const pct = Math.min(100, Math.max(0, rawPct))
                     // Éviter que l'étiquette de bord (première/dernière année)
-                    // ne dépasse du cadre et se fasse couper/chevaucher — on la
-                    // cale contre son trait plutôt que de la centrer dessus.
+                    // ne dépasse du cadre — on la cale contre son trait plutôt
+                    // que de la centrer dessus.
                     const align = pct < 4 ? 'left' : pct > 96 ? 'right' : 'center'
                     const transform = align === 'left' ? 'translateX(0)' : align === 'right' ? 'translateX(-100%)' : 'translateX(-50%)'
                     return (
                       <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
-                        <span style={{ position: 'absolute', top: '9px', left: 0, transform, fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>{y}</span>
+                        <span style={{ position: 'absolute', top: '9px', left: 0, transform, fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>{useShortYears ? `'${String(y).slice(2)}` : y}</span>
                       </div>
                     )
                   })}
@@ -3405,29 +3406,31 @@ function EtatLocatifModal({ building, bails, onClose }) {
                 const status = t.start && t.end ? tenantStatus(t, today) : null
                 return (
                   <div key={t.row.id} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', height: `${ROW_H}px` }}>
-                    <div
-                      onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
-                      style={{ width: `${COL_W[0]}px`, flexShrink: 0, paddingLeft: '10px', paddingRight: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text)', cursor: t.row ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', lineHeight: 1.3 }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-                      {status === 'risk' && <span title="Échéance de sortie dans moins de 18 mois" style={{
-                        flexShrink: 0, fontSize: '9.5px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px',
-                        background: '#FAEEDA', color: '#B8860B', whiteSpace: 'nowrap',
-                      }}>Échéance proche</span>}
-                      {t.estimated && <span title={t.estimatedField === 'start' ? 'Date d\'effet non extraite — recalculée à partir de la date de fin et de la durée totale' : 'Échéance estimée (VEFA)'} style={{ flexShrink: 0, color: 'var(--text3)' }}>≈</span>}
-                      {t.reconductionTacite && <span title={`Reconduction tacite${t.reconductionTacite.periodicite ? ' ' + t.reconductionTacite.periodicite : ''}${t.reconductionTacite.preavis ? ', préavis ' + t.reconductionTacite.preavis : ''}`} style={{ flexShrink: 0, color: 'var(--accent)' }}>↻</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', position: 'sticky', left: 0, zIndex: 1, background: 'var(--surface)', height: '100%' }}>
+                      <div
+                        onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                        style={{ width: `${COL_W[0]}px`, flexShrink: 0, paddingLeft: '10px', paddingRight: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text)', cursor: t.row ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', lineHeight: 1.3 }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                        {status === 'risk' && <span title="Échéance de sortie dans moins de 18 mois" style={{
+                          flexShrink: 0, fontSize: '9.5px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px',
+                          background: '#FAEEDA', color: '#B8860B', whiteSpace: 'nowrap',
+                        }}>Échéance proche</span>}
+                        {t.estimated && <span title={t.estimatedField === 'start' ? 'Date d\'effet non extraite — recalculée à partir de la date de fin et de la durée totale' : 'Échéance estimée (VEFA)'} style={{ flexShrink: 0, color: 'var(--text3)' }}>≈</span>}
+                        {t.reconductionTacite && <span title={`Reconduction tacite${t.reconductionTacite.periodicite ? ' ' + t.reconductionTacite.periodicite : ''}${t.reconductionTacite.preavis ? ', préavis ' + t.reconductionTacite.preavis : ''}`} style={{ flexShrink: 0, color: 'var(--accent)' }}>↻</span>}
+                      </div>
+                      <div style={{ width: `${COL_W[1]}px`, flexShrink: 0, fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px' }}>{t.surface > 0 ? `${Math.round(t.surface)} m²` : '—'}</div>
+                      <div style={{ width: `${COL_W[2]}px`, flexShrink: 0, fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.loyer > 0 ? fmtEur(t.loyer) : '—'}</div>
+                      <div style={{ width: `${COL_W[3]}px`, flexShrink: 0, paddingLeft: '10px' }}>
+                        <span title={t.locationLabel} style={{
+                          fontSize: '11px', fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-bg)',
+                          padding: '3px 9px', borderRadius: '999px', display: 'inline-block', maxWidth: '100%',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {t.locationLabel}
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ width: `${COL_W[1]}px`, flexShrink: 0, fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px' }}>{t.surface > 0 ? `${Math.round(t.surface)} m²` : '—'}</div>
-                    <div style={{ width: `${COL_W[2]}px`, flexShrink: 0, fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.loyer > 0 ? fmtEur(t.loyer) : '—'}</div>
-                    <div style={{ width: `${COL_W[3]}px`, flexShrink: 0, paddingLeft: '10px' }}>
-                      <span title={t.locationLabel} style={{
-                        fontSize: '11px', fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-bg)',
-                        padding: '3px 9px', borderRadius: '999px', display: 'inline-block', maxWidth: '100%',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>
-                        {t.locationLabel}
-                      </span>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0, position: 'relative', height: `${ROW_H}px` }}>
+                    <div style={{ flex: 1, minWidth: `${timelineMinWidth}px`, position: 'relative', height: `${ROW_H}px` }}>
                       {(() => {
                         if (!t.start || !t.end) {
                           // Dates non exploitables ni calculables (ni date_effet+durée, ni date_fin+durée)
