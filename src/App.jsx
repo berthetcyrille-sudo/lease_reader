@@ -170,7 +170,7 @@ surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet ave
 BATIMENT (surfaces_delta, surfaces_avant, surfaces_apres, et surfaces_detail le cas echeant): chaque ligne porte un champ "batiment" = nom ou identifiant du batiment auquel appartient la surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes (ex: "Pascal", "Batiment A") — null sinon, ne jamais inventer. Independant de "niveau" (l'etage au sein du batiment).
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie DANS LE MEME BATIMENT (ex: 2 lignes Bureaux du meme batiment → une seule ligne avec la surface totale) — ne jamais fusionner des surfaces de batiments differents, elles restent sur des lignes distinctes. NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"suivi_conditions_suspensives":null,"prise_effet_par_levee_cs":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
 REGLES POUR date_effet_avenant / date_signature_avenant (champs top-level, PAS dans champs_modifies) :
 - date_signature_avenant: chercher SYSTEMATIQUEMENT cette date dans TOUT le document, meme quand l'avenant ne modifie pas date_effet — c'est elle qui sert a classer chronologiquement les avenants d'un meme bail entre eux quand aucune date d'effet propre n'est disponible (voir date_effet_avenant ci-dessous). Se trouve generalement en toute fin d'acte (bloc de signature "Fait a ..., le [date]", juste avant les annexes), mais peut aussi figurer sur un certificat de signature electronique separe (DocuSign, Yousign ou equivalent) si le PDF en contient un. Si les parties signent a des dates differentes, retenir la DERNIERE date de signature. null UNIQUEMENT si aucune date n'est identifiable nulle part dans le document (ligne "Fait le" laissee vierge, page de signature absente du PDF fourni).
@@ -188,6 +188,10 @@ REGLES PAR CHAMP (champs_modifies):
 - date_effet: champ SOUVENT LAISSE A TORT rempli par erreur — a remplir UNIQUEMENT si cet avenant REDEFINIT la date de prise d'effet GLOBALE du bail dans son ensemble (typiquement : reformulation complete de l'article CP2/DUREE-PRISE D'EFFET, ou constat d'achevement/mise a disposition qui fixait jusque-la une date conditionnelle — voir date_effet_condition ci-dessous). NE JAMAIS y mettre une date qui n'est que la date d'effet d'une MODIFICATION PARTIELLE du bail deja en cours (ex: date a laquelle des locaux complementaires sont pris a bail en plus des locaux existants, date de restitution/liberation d'un lot, date a partir de laquelle un nouveau loyer recalcule s'applique suite a un changement de surface, date d'entree en vigueur d'une clause modifiee comme la destination des locaux) — ces dates concernent UNIQUEMENT la modification en question, pas le bail dans son ensemble, et ne doivent PAS toucher a date_effet (qui reste celle du bail d'origine, inchangee). Si l'avenant reprend/recopie telle quelle la clause CP2-DUREE-PRISE D'EFFET du bail SANS en changer la date de depart, NE PAS remplir date_effet non plus (rien n'est modifie, c'est une simple citation/confirmation de l'existant). En cas de doute entre "modification partielle avec sa propre date d'effet" et "redefinition de la date d'effet du bail entier", TOUJOURS pencher vers null — l'absence de mise a jour est sans consequence, alors qu'une fausse date d'effet fausse tout l'echeancier du bail (breaks, date de fin, indexation).
 - date_effet_condition: mettre a null des que cet avenant fixe une date_effet calendaire ferme (le plus frequent : l'avenant constate la realisation de l'evenement, ex: signature de l'Acte de Vente, et fixe donc la vraie date de prise d'effet dans champs_modifies.date_effet) — dans ce cas champs_modifies.date_effet remplace definitivement la mention conditionnelle. Ne renseigner date_effet_condition que si cet avenant modifie ou reformule le texte de la condition dont depend la prise d'effet SANS encore fournir de date calendaire ferme. null si non aborde par cet avenant.
 - conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","date_limite_levee":"jj/mm/aaaa ou null","statut":"levee/en cours/non precise","page":2}]. date_limite_levee: meme regle que dans le prompt d'extraction du bail — chercher systematiquement cette date (ou la calculer si exprimee en delai relatif depuis la date de l'avenant). Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
+
+REGLES POUR suivi_conditions_suspensives / prise_effet_par_levee_cs (champs top-level, PAS dans champs_modifies) :
+- suivi_conditions_suspensives: des que le bail d'origine comporte des conditions suspensives (voir CONTEXTE DEJA CONNU en fin de prompt), examiner SYSTEMATIQUEMENT, UNE PAR UNE, ce que CET avenant dit de chacune — y compris si l'avenant n'en parle que dans un considerant/expose prealable ("Il est rappele que...", "Les Parties constatent que..."). UNE ENTREE PAR CONDITION DU BAIL: {"libelle":"libelle EXACT de la condition tel que donne dans le contexte","statut":"levee|renoncee|defaillie|prorogee|modifiee|non_abordee","date_levee":"jj/mm/aaaa ou null","nouvelle_date_limite":"jj/mm/aaaa si prorogee, sinon null","commentaire":"justification courte tiree du texte, sinon null","page":numero de page ou null}. statut: levee = la condition est realisee/levee/obtenue/purgee ("le permis de construire a ete obtenu le ... et est purge de tout recours", "l'acte de vente a ete signe le ...", "les Parties constatent la realisation de la condition") ; renoncee = le beneficiaire renonce a s'en prevaloir ; defaillie = non realisee dans le delai ; prorogee = delai de levee repousse ; modifiee = contenu change ; non_abordee = l'avenant ne dit rien de cette condition. date_levee: la date de realisation/levee/renonciation telle qu'ECRITE dans l'avenant (date d'obtention, de purge des recours, de signature de l'acte...) ; si l'avenant constate la levee sans donner de date propre, prendre date_signature_avenant et l'indiquer dans commentaire ("date de l'avenant, aucune date de levee propre"). Une formule globale ("l'ensemble des conditions suspensives sont levees/realisees") vaut levee pour CHACUNE (une entree par condition, meme date). Si le contexte ne fournit aucune condition mais que l'avenant en mentionne la levee, creer quand meme une entree par condition citee. null UNIQUEMENT si le bail n'a aucune condition suspensive connue ET que l'avenant n'en parle pas.
+- prise_effet_par_levee_cs: a remplir quand la prise d'effet du bail est subordonnee a la levee des conditions suspensives (ou a l'evenement de date_effet_condition du contexte, ex: signature de l'acte de vente, purge du permis). Format: {"declenchee":true|false,"date_effet":"jj/mm/aaaa ou null","commentaire":"texte court"}. declenchee=true si CET avenant constate que TOUTES les conditions dont depend la prise d'effet sont levees (ou que l'evenement est survenu) : date_effet = la date de prise d'effet qui en resulte (souvent la date de levee de la DERNIERE condition, ou la date que l'avenant fixe expressement) — et dans ce cas reporter OBLIGATOIREMENT cette meme date dans champs_modifies.date_effet et mettre champs_modifies.date_effet_condition a null. declenchee=false si certaines conditions dont depend la prise d'effet restent pendantes (commentaire = lesquelles). null si la prise d'effet du bail ne depend pas des conditions suspensives ou si l'avenant n'aborde pas le sujet.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
 - _pages: objet AU MEME NIVEAU que champs_modifies (pas dedans) avec le numero de PAGE du PDF ou se trouve chaque champ RENSEIGNE (non-null) de champs_modifies, plus objet_avenant, date_effet_avenant et date_signature_avenant si applicable. Format: {"loyer_signature_montant":2,"date_effet_avenant":1,"objet_avenant":1}. Ne pas inclure les champs restes null.`
@@ -212,6 +216,11 @@ function buildAvenantPrompt(parentBailData) {
     : `break_options actuels du bail : aucun (le preneur ne dispose d'aucune faculté de sortie anticipée connue à ce jour)`)
   if (parentBailData.date_effet) ctx.push(`date_effet actuelle du bail : ${parentBailData.date_effet}`)
   if (Array.isArray(parentBailData.echeances_sortie)) ctx.push(`echeances_sortie actuelles du bail : ${JSON.stringify(parentBailData.echeances_sortie)}`)
+  // Conditions suspensives du bail : l'avenant doit dire, une par une, si
+  // elles sont levées (voir suivi_conditions_suspensives dans AVENANT_PROMPT).
+  const csList = Array.isArray(parentBailData.conditions_suspensives) ? parentBailData.conditions_suspensives : []
+  if (csList.length) ctx.push(`conditions_suspensives du bail (a examiner UNE PAR UNE dans suivi_conditions_suspensives) : ${JSON.stringify(csList.map(c => ({ libelle: c?.libelle ?? null, date_limite_levee: c?.date_limite_levee ?? null, statut: c?.statut ?? null })))}`)
+  if (parentBailData.date_effet_condition) ctx.push(`date_effet_condition du bail (la prise d'effet depend de cet evenement — voir prise_effet_par_levee_cs) : ${JSON.stringify(parentBailData.date_effet_condition)}`)
   if (!ctx.length) return AVENANT_PROMPT
   return AVENANT_PROMPT + `
 
@@ -1876,6 +1885,18 @@ function sanitizeExtracted(data) {
     d.champs_modifies.charges_impots_taxes = ensureArray(d.champs_modifies.charges_impots_taxes)
     d.champs_modifies.indemnites         = ensureArray(d.champs_modifies.indemnites)
   }
+  // Avenant : suivi, condition par condition, des CS du bail (champ racine)
+  if (d.suivi_conditions_suspensives != null) d.suivi_conditions_suspensives = ensureArray(d.suivi_conditions_suspensives)
+  // Filet de sécurité : si l'avenant constate que la levée des CS déclenche la
+  // prise d'effet, cette date DOIT devenir la date d'effet du bail
+  // (champs_modifies.date_effet, lue par la fiche, l'état locatif et le
+  // tableau de bord) — même si le modèle a oublié de l'y reporter.
+  const pe = d.prise_effet_par_levee_cs
+  const peDate = pe && (pe.declenchee === true || pe.declenchee === 'true') ? normalizeDate(pe.date_effet) : null
+  if (peDate && /^\d{2}\/\d{2}\/\d{4}$/.test(peDate) && d.champs_modifies && !d.champs_modifies.date_effet) {
+    d.champs_modifies.date_effet = peDate
+    d.champs_modifies.date_effet_condition = null
+  }
   return d
 }
 
@@ -2800,7 +2821,117 @@ function FraisActesTable({ frais }) {
   )
 }
 
-function ConditionsSuspensivesBoxes({ conditions, item }) {
+// ─── Suivi des conditions suspensives par les avenants ──────────────────────
+// Chaque avenant extrait porte suivi_conditions_suspensives (une entrée par CS
+// du bail : levée / renoncée / défaillie / prorogée / modifiée / non abordée,
+// avec la date de levée) et éventuellement prise_effet_par_levee_cs (la
+// levée de toutes les CS déclenche la prise d'effet du bail).
+const CS_STATUT_LABELS = {
+  levee: { label: 'Levée', cls: 'pill-green' }, renoncee: { label: 'Renoncée', cls: 'pill-green' },
+  defaillie: { label: 'Défaillie', cls: 'pill-danger' }, prorogee: { label: 'Prorogée', cls: 'pill-blue' },
+  modifiee: { label: 'Modifiée', cls: 'pill-blue' }, non_abordee: { label: 'Non abordée', cls: '' },
+}
+function csStatutKey(v) {
+  const s = stripAccents(String(v || '')).toLowerCase()
+  if (/non.?abord/.test(s)) return 'non_abordee'
+  if (/renonc/.test(s)) return 'renoncee'
+  if (/defaill|caduc/.test(s)) return 'defaillie'
+  if (/prorog|report/.test(s)) return 'prorogee'
+  if (/modif/.test(s)) return 'modifiee'
+  if (/leve|realis|obten|purg/.test(s)) return 'levee'
+  return null
+}
+// Rapproche deux libellés de CS (bail vs avenant), formulés différemment :
+// mots de 4 lettres et plus en commun, rapportés au libellé le plus court.
+function csLibelleScore(a, b) {
+  const toks = t => new Set(stripAccents(String(t || '')).toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 4))
+  const A = toks(a), B = toks(b)
+  if (!A.size || !B.size) return 0
+  let inter = 0
+  A.forEach(w => { if (B.has(w)) inter++ })
+  return inter / Math.min(A.size, B.size)
+}
+function avenantShortLabel(av) {
+  return safeStr(av?.data?.objet_avenant) || `Avenant du ${normalizeDate(av?.data?.date_signature_avenant || av?.data?.date_effet_avenant) || '?'}`
+}
+// Pour un bail : statut le plus récent de chaque CS d'après ses avenants
+// (ordre chronologique), et éventuel déclenchement de la prise d'effet.
+function computeCsSuiviFromAvenants(conditions, avenants) {
+  const toSortable = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
+  const sorted = [...(avenants || [])].sort((a, b) =>
+    toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
+      .localeCompare(toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
+  const perCondition = (conditions || []).map(() => null)
+  let priseEffet = null
+  sorted.forEach(av => {
+    const suivi = Array.isArray(av.data?.suivi_conditions_suspensives) ? av.data.suivi_conditions_suspensives : []
+    suivi.forEach(entry => {
+      const key = csStatutKey(entry?.statut)
+      if (!key || key === 'non_abordee') return
+      let best = -1, bestScore = 0
+      ;(conditions || []).forEach((c, i) => { const sc = csLibelleScore(c?.libelle, entry?.libelle); if (sc > bestScore) { bestScore = sc; best = i } })
+      if (best < 0 || bestScore < 0.5) return
+      perCondition[best] = { ...entry, statutKey: key, avenant: av }
+    })
+    const pe = av.data?.prise_effet_par_levee_cs
+    if (pe && typeof pe === 'object' && pe.declenchee !== undefined && pe.declenchee !== null) priseEffet = { ...pe, avenant: av }
+  })
+  return { perCondition, priseEffet }
+}
+
+function PriseEffetLeveeBanner({ pe, showAvenant }) {
+  if (!pe) return null
+  const ok = pe.declenchee === true || pe.declenchee === 'true'
+  return (
+    <div style={{ padding: '9px 12px', borderRadius: 'var(--r)', fontSize: '12.5px', lineHeight: 1.45, marginBottom: '10px',
+      background: ok ? 'var(--success-bg)' : 'var(--accent-bg)', color: ok ? 'var(--success)' : 'var(--text2)' }}>
+      {ok
+        ? <><strong>Prise d'effet du bail déclenchée par la levée des conditions suspensives</strong>{normalizeDate(pe.date_effet) ? <> — le <strong>{normalizeDate(pe.date_effet)}</strong></> : ''}</>
+        : <><strong>Prise d'effet du bail toujours suspendue</strong> — toutes les conditions dont elle dépend ne sont pas encore levées</>}
+      {safeStr(pe.commentaire) && <span style={{ color: 'var(--text3)' }}> · {safeStr(pe.commentaire)}</span>}
+      {showAvenant && pe.avenant && <span style={{ color: 'var(--text3)' }}> ({avenantShortLabel(pe.avenant)})</span>}
+    </div>
+  )
+}
+
+// Fiche AVENANT : ce que cet avenant dit de chaque condition suspensive du bail.
+function CsSuiviAvenantSection({ suivi, priseEffet, item }) {
+  const rows = Array.isArray(suivi) ? suivi : []
+  if (!rows.length && !priseEffet) return null
+  return (
+    <div className="sec">
+      <div className="sec-hd"><div className="sec-label">Suivi des conditions suspensives du bail</div></div>
+      <PriseEffetLeveeBanner pe={priseEffet} />
+      <div className="gx">
+        {rows.map((c, i) => {
+          const st = CS_STATUT_LABELS[csStatutKey(c?.statut)] || null
+          return (
+            <div key={i} className="field full" style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5, flex: 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {safeStr(c?.libelle) || '—'}
+                  {c?.page && <PageJumpIcon item={item} page={c.page} />}
+                </div>
+                {st && <span className={`pill ${st.cls}`} style={{ flexShrink: 0 }}>{st.label}</span>}
+              </div>
+              {normalizeDate(c?.date_levee) && (
+                <div style={{ fontSize: '12px', color: 'var(--text2)' }}>
+                  {csStatutKey(c?.statut) === 'renoncee' ? 'Renonciation' : 'Levée'} le <strong>{normalizeDate(c.date_levee)}</strong>
+                </div>
+              )}
+              {normalizeDate(c?.nouvelle_date_limite) && (
+                <div style={{ fontSize: '12px', color: 'var(--text2)' }}>Nouvelle date limite de levée : <strong>{normalizeDate(c.nouvelle_date_limite)}</strong></div>
+              )}
+              {safeStr(c?.commentaire) && <div style={{ fontSize: '11px', color: 'var(--text3)', lineHeight: 1.4 }}>{safeStr(c.commentaire)}</div>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ConditionsSuspensivesBoxes({ conditions, item, suivis }) {
   const safe = Array.isArray(conditions) ? conditions : []
   if (!safe.length) return null
   const statutStyle = (statut) => {
@@ -2820,10 +2951,23 @@ function ConditionsSuspensivesBoxes({ conditions, item }) {
                 {safeStr(c.libelle) || '—'}
                 <PageJumpIcon item={item} page={c.page} />
               </div>
-              {st && <span className={`pill ${st.cls}`} style={{ flexShrink: 0 }}>{st.label}</span>}
+              {(() => {
+                const sv = suivis?.[i]
+                const svSt = sv ? CS_STATUT_LABELS[sv.statutKey] : null
+                if (svSt) return <span className={`pill ${svSt.cls}`} style={{ flexShrink: 0 }}>{svSt.label}</span>
+                return st && <span className={`pill ${st.cls}`} style={{ flexShrink: 0 }}>{st.label}</span>
+              })()}
             </div>
             {c.date_limite_levee && (
               <div style={{ fontSize: '11px', color: 'var(--text3)' }}>Date limite de levée : <strong style={{ color: 'var(--text2)' }}>{safeStr(c.date_limite_levee)}</strong></div>
+            )}
+            {suivis?.[i] && (
+              <div style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>
+                {suivis[i].statutKey === 'renoncee' ? 'Renonciation' : suivis[i].statutKey === 'prorogee' ? 'Prorogation' : suivis[i].statutKey === 'defaillie' ? 'Défaillance' : suivis[i].statutKey === 'modifiee' ? 'Modification' : 'Levée'}
+                {normalizeDate(suivis[i].date_levee) ? <> le <strong>{normalizeDate(suivis[i].date_levee)}</strong></> : ''}
+                {normalizeDate(suivis[i].nouvelle_date_limite) ? <> — nouvelle date limite <strong>{normalizeDate(suivis[i].nouvelle_date_limite)}</strong></> : ''}
+                <span style={{ color: 'var(--text3)' }}> — {avenantShortLabel(suivis[i].avenant)}</span>
+              </div>
             )}
           </div>
         )
@@ -4391,13 +4535,22 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         </div>
       )}
 
-      {/* Conditions suspensives */}
-      {d.conditions_suspensives?.length > 0 && (
-        <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Conditions suspensives</div></div>
-          <ConditionsSuspensivesBoxes conditions={d.conditions_suspensives} item={item} />
-        </div>
+      {/* Avenant : suivi, une par une, des conditions suspensives du bail */}
+      {isAv && (
+        <CsSuiviAvenantSection suivi={meta.suivi_conditions_suspensives} priseEffet={meta.prise_effet_par_levee_cs} item={item} />
       )}
+
+      {/* Conditions suspensives */}
+      {d.conditions_suspensives?.length > 0 && (() => {
+        const csSuivi = !isAv ? computeCsSuiviFromAvenants(d.conditions_suspensives, item.avenants) : null
+        return (
+          <div className="sec">
+            <div className="sec-hd"><div className="sec-label">Conditions suspensives</div></div>
+            {csSuivi?.priseEffet && <PriseEffetLeveeBanner pe={csSuivi.priseEffet} showAvenant />}
+            <ConditionsSuspensivesBoxes conditions={d.conditions_suspensives} item={item} suivis={csSuivi?.perCondition} />
+          </div>
+        )
+      })()}
 
       {/* Contrat */}
       {(show('type_bail') || show('duree_totale') || show('duree_ferme')) && (
@@ -6675,6 +6828,10 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
   // extraction) : « extraits strictement avant le JJ/MM/AAAA », avec option
   // d'inclure les documents SANS date — extraits avant la mise en place de
   // l'horodatage, donc forcément les plus anciens.
+  // Ne cibler que les avenants des baux à conditions suspensives (pour
+  // remplir leur suivi des CS sans réextraire tout le portefeuille).
+  const [csAvenantsOnly, setCsAvenantsOnly] = useState(false)
+  const csBailIds = useMemo(() => new Set(tree.filter(b => (Array.isArray(b.data?.conditions_suspensives) && b.data.conditions_suspensives.length > 0) || b.data?.date_effet_condition).map(b => b.id)), [tree])
   const [dateFilterOn, setDateFilterOn] = useState(false)
   const [cutoffDay, setCutoffDay] = useState('') // 'AAAA-MM-JJ' (date locale), '' = aucune date choisie
   const [includeUndated, setIncludeUndated] = useState(true)
@@ -6701,6 +6858,7 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
     if (scope === 'avenant' && r.document_type !== 'avenant') return false
     if (buildingFilter && r.actif_group !== buildingFilter) return false
     if (excludeArchived && r.data?._archived) return false
+    if (csAvenantsOnly && (r.document_type !== 'avenant' || !csBailIds.has(r.parent_id))) return false
     return true
   }
   const matchesDate = r => {
@@ -6718,7 +6876,8 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
   const passesOthers = (r, ignore) =>
     (ignore === 'scope' || !((scope === 'bail' && r.document_type !== 'bail') || (scope === 'avenant' && r.document_type !== 'avenant'))) &&
     (ignore === 'building' || !buildingFilter || r.actif_group === buildingFilter) &&
-    !(excludeArchived && r.data?._archived) && matchesDate(r)
+    !(excludeArchived && r.data?._archived) && matchesDate(r) &&
+    !(csAvenantsOnly && (r.document_type !== 'avenant' || !csBailIds.has(r.parent_id)))
   const scopeCounts = {
     all: withSource.filter(r => passesOthers(r, 'scope')).length,
     bail: withSource.filter(r => r.document_type === 'bail' && passesOthers(r, 'scope')).length,
@@ -6743,7 +6902,7 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
       return { day, label: new Date(`${day}T00:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }), before: baseRows.filter(r => { const at = extractedAt(r); return at && at < limit }).length, sameDay: baseRows.filter(r => { const at = extractedAt(r); return at && dayKey(at) === day }).length }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allRows, scope, buildingFilter, excludeArchived])
+  }, [allRows, scope, buildingFilter, excludeArchived, csAvenantsOnly])
 
   async function runBulkReextract() {
     setRunning(true)
@@ -6851,6 +7010,10 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '12px', cursor: 'pointer' }}>
               <input type="checkbox" checked={excludeArchived} onChange={e => setExcludeArchived(e.target.checked)} />
               Exclure les baux archivés
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '12px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={csAvenantsOnly} onChange={e => setCsAvenantsOnly(e.target.checked)} />
+              Seulement les avenants des baux à conditions suspensives ({csBailIds.size} {csBailIds.size > 1 ? 'baux concernés' : 'bail concerné'})
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: dateFilterOn ? '8px' : '16px', cursor: 'pointer', fontWeight: 600 }}>
               <input type="checkbox" checked={dateFilterOn} onChange={e => setDateFilterOn(e.target.checked)} />
