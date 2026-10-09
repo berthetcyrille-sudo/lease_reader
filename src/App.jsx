@@ -775,7 +775,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     // reporter ce texte plutôt que de laisser la cellule vide.
     isAv ? v(meta.date_effet_avenant) : v(d.date_effet || (d.date_effet_condition ? `À la levée de : ${d.date_effet_condition.libelle || ''}${d.date_effet_condition.date_limite ? ` (au plus tard le ${d.date_effet_condition.date_limite})` : ''}` : '')),
     isAv ? v(meta.date_signature_avenant) : v(d.date_signature),
-    v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
+    getDateLimiteAbsolue(d) || v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
     ...breakVals,
     v(d.conditions_break),
     surf(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', pkUnit || '', v(d.rie),
@@ -7780,6 +7780,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   : (computeDateFinFromDuree(effectiveDateEffet, d.duree_totale) || normalizedDateFin))
             const effetCondOverdue = !!(effetCond && isDatePast(effetCond.date_limite))
             const dashExits = getExitEvents(d)
+            const dashLimiteAbsolue = getDateLimiteAbsolue(d)
             const breaks = dashExits
               ? dashExits.map(e => e.date).filter(Boolean)
               : filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
@@ -8002,7 +8003,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 {/* Date fin */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4, overflowWrap: 'anywhere', display: 'inline-block' }}>
-                    {cleanDateFin || '—'}
+                    {dashLimiteAbsolue ? (
+                      <span title={`Terme absolu (reconduction tacite plafonnée) — premier terme le ${cleanDateFin || '?'}`}>
+                        {dashLimiteAbsolue}
+                        <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>↻ terme absolu</span>
+                      </span>
+                    ) : (cleanDateFin || '—')}
                     <OverrideMark field="date_fin" formatValue={v => normalizeDate(v) || v} />
                   </span>
                 </div>
