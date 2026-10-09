@@ -1609,6 +1609,25 @@ function formatIndemnityForCard(row) {
   return calc || mt || safeStr(row?.motif) || null
 }
 
+// Durée entre la prise d'effet et une échéance de sortie, exprimée en années
+// et mois. L'échéance tombe la veille de l'anniversaire (convention des baux),
+// d'où le +1 jour avant de compter. "≈" si le compte ne tombe pas juste.
+function formatDureeBetween(startStr, endStr) {
+  const a = parseFR(startStr), b = parseFR(endStr)
+  if (!a || !b || b <= a) return null
+  const end = new Date(b.getFullYear(), b.getMonth(), b.getDate() + 1)
+  let months = (end.getFullYear() - a.getFullYear()) * 12 + (end.getMonth() - a.getMonth())
+  let anchorDate = new Date(a.getFullYear(), a.getMonth() + months, a.getDate())
+  if (anchorDate > end) { months--; anchorDate = new Date(a.getFullYear(), a.getMonth() + months, a.getDate()) }
+  const days = Math.round((end - anchorDate) / 86400000)
+  const y = Math.floor(months / 12), m = months % 12
+  const parts = []
+  if (y) parts.push(`${y} an${y > 1 ? 's' : ''}`)
+  if (m) parts.push(`${m} mois`)
+  if (!parts.length) return `${days} jours`
+  return `${days > 0 ? '≈ ' : ''}${parts.join(' et ')}`
+}
+
 // Échéances de sortie anticipée du preneur, telles que lues dans le bail
 // (champ echeances_sortie, produit en UNE seule lecture de la clause par
 // BREAK_PROMPT : chaque entrée porte sa date ET ce qui s'y rattache —
@@ -4062,7 +4081,25 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
             {(() => {
               const hasFullWaiver = detectsFullTriennialWaiver((d.conditions_break || '').toLowerCase())
               const legalDefault = (!isAv && d.duree_totale && !hasFullWaiver) ? '3 ans (défaut légal — art. L.145-4)' : null
-              const displayValue = d.duree_ferme || legalDefault
+              // Pas de durée ferme explicite : déduite des dates clés affichées —
+              // de la prise d'effet jusqu'au premier break. Aucune sortie
+              // anticipée possible → durée ferme = durée totale. Une faculté
+              // "à tout moment" empêche ce calcul (pas de période ferme nette).
+              const datedExits = exitEvents
+                ? (exitEvents.some(e => e.type === 'a_tout_moment') ? [] : exitEvents.map(e => e.date).filter(Boolean))
+                : [...breaks]
+              datedExits.sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
+              const firstExit = datedExits[0] || null
+              const noExitAtAll = Array.isArray(exitEvents) && exitEvents.length === 0
+              let computedFerme = null
+              if (!d.duree_ferme && !isAv) {
+                if (noExitAtAll && d.duree_totale) computedFerme = `${d.duree_totale} (aucune sortie anticipée prévue)`
+                else if (firstExit && d.date_effet) {
+                  const f = formatDureeBetween(d.date_effet, firstExit)
+                  if (f) computedFerme = `${f} (jusqu'au 1er break, ${firstExit})`
+                }
+              }
+              const displayValue = d.duree_ferme || computedFerme || legalDefault
               return (
                 <div className="field">
                   <div className="field-lbl">Durée ferme</div>
@@ -4098,7 +4135,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                       {displayValue || 'Non renseigné'}
                       {d.duree_ferme
                         ? <PageJumpIcon item={item} pages={pages} field="duree_ferme" />
-                        : (legalDefault && pages?.conditions_break && <PageJumpIcon item={item} pages={pages} field="conditions_break" />)}
+                        : ((computedFerme || legalDefault) && pages?.conditions_break && <PageJumpIcon item={item} pages={pages} field="conditions_break" />)}
                       {onSaveManualDureeFerme && !isAv && (
                         <button
                           onClick={() => { setDureeFermeInput(d.duree_ferme || ''); setEditingDureeFerme(true) }}
