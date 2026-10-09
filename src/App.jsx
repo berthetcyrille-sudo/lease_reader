@@ -1146,6 +1146,25 @@ function detectsFullTriennialWaiver(clauseTextLower) {
   return !(isPartialDureeFerme || (waivesFirstPeriodOnly && mentionsLaterYear))
 }
 
+// Lecture d'une durée en années, commune à toute l'appli. Accepte « 9 ans »,
+// « neuf (9) ans », mais aussi « 9 années », « neuf (9) années entières et
+// consécutives » et le nombre en toutes lettres seul (« neuf années ») —
+// formulations fréquentes dans les avenants de renouvellement. Avant, seul
+// « an(s) » collé au chiffre était reconnu : une durée « 9 années » était
+// ignorée en silence (aucune date de fin recalculée, bail invisible dans
+// l'État locatif). Renvoie un tableau façon String.match ([texte, "9"]) pour
+// rester compatible avec les appels existants qui lisent m[1].
+const NOMBRES_EN_LETTRES = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, 'dix-sept': 17, 'dix-huit': 18, 'dix-neuf': 19, vingt: 20 }
+function durMatch(input) {
+  const str = String(input || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  if (!str) return null
+  let m = str.match(/\(?(\d+)\)?\s*(?:ans?|annees?)\b/)
+  if (m) return [m[0], m[1]]
+  m = str.match(/\b(dix[- ]sept|dix[- ]huit|dix[- ]neuf|une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|vingt)\s+(?:ans?|annees?)\b/)
+  if (m) { const n = NOMBRES_EN_LETTRES[m[1].replace(' ', '-')]; return n ? [m[0], String(n)] : null }
+  return null
+}
+
 // Retire d'une liste de breaks (dates "jj/mm/aaaa") celles antérieures à
 // date_effet + duree_ferme — un résidu frequent : soit un calcul triennal
 // generique renvoye par l'IA malgre une renonciation explicite pour la duree
@@ -1162,7 +1181,7 @@ function detectsFullTriennialWaiver(clauseTextLower) {
 function computeDateFinFromDuree(date_effet_str, duree_totale_str) {
   const effet = parseFR(date_effet_str)
   if (!effet) return null
-  const ymatch = String(duree_totale_str || '').match(/\(?(\d+)\)?\s*ans?\b/i)
+  const ymatch = durMatch(duree_totale_str)
   const mmatch = String(duree_totale_str || '').match(/\(?(\d+)\)?\s*mois\b/i)
   const years = ymatch ? parseInt(ymatch[1]) : 0
   const months = mmatch ? parseInt(mmatch[1]) : 0
@@ -1179,8 +1198,9 @@ function filterBreaksByDureeFerme(breaks, date_effet_str, duree_ferme_str) {
   // format très courant dans les baux — sans ça, la parenthèse casse la
   // contiguïté attendue entre le chiffre et "ans"/"mois" et le calcul entier
   // est silencieusement ignoré (years=months=0 → aucun filtrage n'a lieu).
-  // \b après ans/mois exclu "années"/"moisson" etc. par erreur.
-  const ymatch = dfm.match(/\(?(\d+)\)?\s*ans?\b/i), mmatch = dfm.match(/\(?(\d+)\)?\s*mois\b/i)
+  // Les années passent par durMatch (« ans » comme « années », chiffres ou
+  // lettres) ; \b après « mois » évite de matcher « moisson » etc.
+  const ymatch = durMatch(dfm), mmatch = dfm.match(/\(?(\d+)\)?\s*mois\b/i)
   const years = ymatch ? parseInt(ymatch[1]) : 0, months = mmatch ? parseInt(mmatch[1]) : 0
   if (!effet || (years === 0 && months === 0)) return breaks
   const minBreak = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
@@ -1201,7 +1221,7 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
   // Parse duree_ferme into years+months
   const parseDureeFerme = (str) => {
     if (!str) return null
-    const ymatch = String(str).match(/\(?(\d+)\)?\s*ans?\b/i)
+    const ymatch = durMatch(str)
     const mmatch = String(str).match(/\(?(\d+)\)?\s*mois\b/i)
     const years  = ymatch ? parseInt(ymatch[1]) : 0
     const months = mmatch ? parseInt(mmatch[1]) : 0
@@ -2792,7 +2812,7 @@ function bailTypeLabel(typeBailStr) {
 }
 
 function parseYearsFromDureeText(s) {
-  const m = String(s || '').match(/\(?(\d+)\)?\s*ans?\b/i)
+  const m = durMatch(s)
   return m ? parseInt(m[1]) : null
 }
 
@@ -3295,7 +3315,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
             if (explicitDateFin) {
               d.date_fin = explicitDateFin
             } else {
-              const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
+              const m = durMatch(d.duree_totale)
               if (m) {
                 const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
                 d.date_fin = fmtFR(end)
@@ -3315,12 +3335,19 @@ function EtatLocatifModal({ building, bails, onClose }) {
       let end = parseFrDate(d.date_fin)
       let estimated = false
       let estimatedField = null // 'end' | 'start' — précise quelle date a été calculée
+      // Date de fin ANTÉRIEURE à la date d'effet (typiquement : avenant de
+      // renouvellement qui fixe une nouvelle date d'effet sans que la nouvelle
+      // date de fin ait pu être recalculée — l'ancienne fin reste en place) :
+      // la barre aurait une largeur négative et le bail disparaîtrait
+      // silencieusement de la frise. On écarte cette fin incohérente pour
+      // laisser le calcul ci-dessous la ré-estimer depuis la durée totale.
+      if (start && end && end <= start) end = null
       // Cas VEFA : la date de fin est souvent formulée en relatif
       // ("9 ans à compter de la Date de Livraison") plutôt qu'en date fixe.
       // Si on a une date de départ (même prévisionnelle) et une durée totale,
       // on calcule une échéance estimée plutôt que de renoncer à afficher le bail.
       if (start && !end) {
-        const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
+        const m = durMatch(d.duree_totale)
         if (m) {
           end = new Date(start)
           end.setFullYear(end.getFullYear() + parseInt(m[1]))
@@ -3332,7 +3359,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
         // l'extraction (champ manquant, pas forcément un VEFA) — on la
         // recalcule en remontant depuis la date de fin et la durée totale,
         // plutôt que de perdre le bail dans le filet "dates non déterminées".
-        const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
+        const m = durMatch(d.duree_totale)
         if (m) {
           start = new Date(end.getFullYear() - parseInt(m[1]), end.getMonth(), end.getDate() + 1)
           estimated = true
@@ -3474,11 +3501,18 @@ function EtatLocatifModal({ building, bails, onClose }) {
     return cutoff > t.end ? cutoff : t.end // jamais avant le terme ferme lui-même
   }
   const effectiveEnd = t => reconductionCutoff(t)
-  const domainStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
-  const domainEnd = withDates.length ? new Date(Math.max(...withDates.map(t => effectiveEnd(t))) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
+  // Domaine calé sur des années ENTIÈRES (1er janvier → 1er janvier) : avant,
+  // il démarrait en cours d'année (première date − 6 mois), si bien que le
+  // 1er janvier de la première année tombait AVANT le bord gauche, était
+  // rabattu à 0 % et venait s'empiler sur l'étiquette de l'année suivante
+  // (« '18 » par-dessus « '19 »). Désormais chaque étiquette a sa colonne.
+  const rawStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
+  const rawEnd = withDates.length ? new Date(Math.max(...withDates.map(t => effectiveEnd(t))) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
+  const domainStart = new Date(rawStart.getFullYear(), 0, 1)
+  const domainEnd = new Date(rawEnd.getFullYear() + 1, 0, 1)
   const domainMs = domainEnd - domainStart
   const allYears = []
-  for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) allYears.push(y)
+  for (let y = domainStart.getFullYear(); y < domainEnd.getFullYear(); y++) allYears.push(y)
   // Largeur minimale garantie par année : la zone de frise ne descend jamais
   // en dessous de allYears.length * MIN_YEAR_PX — sur un écran étroit ou une
   // longue période, la frise devient alors plus large que son cadre et défile
@@ -3610,7 +3644,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                     // Éviter que l'étiquette de bord (première/dernière année)
                     // ne dépasse du cadre — on la cale contre son trait plutôt
                     // que de la centrer dessus.
-                    const align = pct < 4 ? 'left' : pct > 96 ? 'right' : 'center'
+                    const align = pct <= 0 ? 'left' : pct >= 100 ? 'right' : 'center'
                     const transform = align === 'left' ? 'translateX(0)' : align === 'right' ? 'translateX(-100%)' : 'translateX(-50%)'
                     return (
                       <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
@@ -3852,7 +3886,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         if (explicitDateFin) {
           d.date_fin = explicitDateFin
         } else {
-          const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
+          const m = durMatch(d.duree_totale)
           if (m) {
             const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
             d.date_fin = fmtFR(end)
@@ -8917,7 +8951,7 @@ export default function App() {
     }
     const startConfirmed = parseFR(newDateEffetStr)
     if (startConfirmed) {
-      const m = String(newData.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
+      const m = durMatch(newData.duree_totale)
       if (m) {
         const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
         newData.date_fin = fmtFR(end)
