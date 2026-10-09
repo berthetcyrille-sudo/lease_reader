@@ -960,6 +960,7 @@ REGLES :
 5) Une faculte de resiliation "a tout moment" (generalement sous condition de motif) = une entree type "a_tout_moment", date null, avec ses conditions et son preavis.
 6) break_options = exactement les dates (non nulles) de echeances_sortie, triees. Les deux doivent toujours concorder.
 7) Aucune sortie anticipee possible (ex: duree ferme egale a la duree totale) → echeances_sortie=[] et break_options=[].
+8) FACULTE TRIENNALE LEGALE RESIDUELLE (art. L.145-4): le preneur conserve de plein droit la faculte de donner conge a l'expiration de CHAQUE periode triennale a laquelle il n'a pas EXPRESSEMENT renonce. Une renonciation limitee a certaines periodes (ex: la premiere seulement) laisse donc subsister TOUTES les echeances triennales suivantes jusqu'a date_fin (exclue) — chacune doit avoir SA propre entree, MEME SI la clause ne decrit en detail qu'une seule echeance (souvent celle assortie d'une indemnite) et ne mentionne pas les suivantes. Une date citee seulement comme report d'effet du conge dans les conditions d'une autre echeance ("a defaut de versement, le conge prendra effet au 31/10/2027, fin de la 3eme periode triennale") ne remplace pas son entree : cette echeance est elle-meme une sortie possible. L'indemnite/les conditions d'une echeance ne se reportent sur les echeances suivantes que si le texte les rattache a toutes (ex: "a chaque echeance triennale"). EXEMPLE REEL: effet 01/11/2018, duree 12 ans (date_fin 31/10/2030), renonciation a la seule premiere periode triennale, conge possible a l'expiration de la deuxieme periode triennale moyennant une indemnite de 3 mois de loyer → echeances_sortie = 31/10/2024 (triennale, 2eme periode, indemnite 3 mois) ET 31/10/2027 (triennale, 3eme periode, indemnite_sortie null sauf si le texte l'y rattache) ; PAS 31/10/2021 (renoncee) ni 31/10/2030 (date_fin) → break_options=["31/10/2024","31/10/2027"].
 EXEMPLE (bail de 10 ans dont 9 fermes, effet 12/05/2026) : "Le Preneur renonce a sa faculte de resiliation triennale pour la duree ferme. Il aura la faculte de donner conge a l'expiration de la troisieme periode triennale soit le 11 mai 2035 pour la premiere fois, preavis 6 mois. Les Parties conviennent toutefois que le Preneur aura la faculte de delivrer un conge pour le 30 septembre 2033 ; il devra alors verser une indemnite correspondant aux deux derniers mois de loyer factures a la date d'envoi du conge ; ce conge devra etre delivre par acte extrajudiciaire entre neuf et six mois avant l'echeance et accompagne d'un cheque de banque" → echeances_sortie=[{"date":"30/09/2033","type":"exceptionnelle","libelle":"Conge exceptionnel convenu entre les parties","preavis":"entre 9 et 6 mois avant l'echeance, par acte extrajudiciaire","indemnite_sortie":"2 derniers mois de loyer factures a la date d'envoi du conge","montant_indemnite":null,"compensation_maintien":null,"conditions":"Conge accompagne d'un cheque de banque du montant de l'indemnite","page":8},{"date":"11/05/2035","type":"triennale","libelle":"Expiration de la 3eme periode triennale","preavis":"6 mois, par acte extrajudiciaire ou LRAR","indemnite_sortie":null,"montant_indemnite":null,"compensation_maintien":null,"conditions":null,"page":8}] et break_options=["30/09/2033","11/05/2035"].`
 
 const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
@@ -1652,6 +1653,47 @@ function formatDureeBetween(startStr, endStr) {
   return `${days > 0 ? '≈ ' : ''}${parts.join(' et ')}`
 }
 
+// Faculté triennale légale résiduelle (art. L.145-4) : le preneur garde la
+// faculté de congé à CHAQUE échéance triennale à laquelle il n'a pas
+// expressément renoncé. Fréquent : la clause renonce à la 1re période,
+// détaille la 2e (avec indemnité) et ne dit plus rien de la 3e — l'extraction
+// s'arrête alors à celle qui est détaillée. Complément volontairement
+// étroit : seulement si au moins une échéance triennale est déjà lue dans le
+// texte (régime triennal avéré), seulement APRÈS la dernière lue et avant le
+// terme, et jamais pour une période dont la renonciation est écrite. Chaque
+// ajout est marqué « déduite » dans son libellé pour rester distinguable de
+// ce qui est réellement écrit dans le bail.
+const ORDINAUX_TRIENNAUX = ['', 'premi', 'deuxi|second', 'troisi', 'quatri', 'cinqui', 'sixi']
+const ORDINAUX_LIBELLES = ['', '1re', '2e', '3e', '4e', '5e', '6e']
+function addResidualTriennialExits(events, d) {
+  const effet = parseFR(d?.date_effet), fin = parseFR(d?.date_fin)
+  if (!effet || !fin) return events
+  const triennales = events.filter(e => e.type === 'triennale' && e.date && parseFR(e.date))
+  if (!triennales.length) return events
+  const lastTri = Math.max(...triennales.map(e => parseFR(e.date).getTime()))
+  const txt = stripAccents([d.conditions_break, d._sources?.break_options, d._sources?.duree_ferme, ...events.map(e => e.libelle)]
+    .filter(Boolean).map(String).join(' ')).toLowerCase()
+  const existing = new Set(events.map(e => e.date).filter(Boolean))
+  const ref = triennales[triennales.length - 1]
+  const added = []
+  for (let k = 1; k < ORDINAUX_TRIENNAUX.length; k++) {
+    const dt = new Date(effet.getFullYear() + 3 * k, effet.getMonth(), effet.getDate() - 1)
+    if (dt >= fin) break
+    if (dt.getTime() <= lastTri) continue
+    const str = fmtFR(dt)
+    if (existing.has(str)) continue
+    const renonceeRe = new RegExp(`renon\\w*[^.;]{0,80}?(?:(?:${ORDINAUX_TRIENNAUX[k]})\\w*[^.;]{0,40}?(?:periode|echeance)|${3 * k}\\s*(?:e|eme)\\s+annee)`)
+    if (renonceeRe.test(txt)) continue
+    added.push({
+      date: str, type: 'triennale',
+      libelle: `Expiration de la ${ORDINAUX_LIBELLES[k]} période triennale — déduite (faculté légale art. L.145-4 non renoncée, non détaillée dans la clause)`,
+      preavis: ref.preavis || null, indemnite_sortie: null, montant_indemnite: null, compensation_maintien: null, conditions: null,
+      page: ref.page ?? null, _deduite: true,
+    })
+  }
+  return added.length ? [...events, ...added] : events
+}
+
 // Échéances de sortie anticipée du preneur, telles que lues dans le bail
 // (champ echeances_sortie, produit en UNE seule lecture de la clause par
 // BREAK_PROMPT : chaque entrée porte sa date ET ce qui s'y rattache —
@@ -1664,7 +1706,7 @@ function formatDureeBetween(startStr, endStr) {
 function getExitEvents(d) {
   if (!d || !Array.isArray(d.echeances_sortie)) return null
   const toDate = v => { const s = normalizeDate(safeStr(v)); return s && /^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s : null }
-  return d.echeances_sortie
+  const events = d.echeances_sortie
     .filter(e => e && typeof e === 'object')
     // Une formulation du type "aucune indemnité…" n'est pas une indemnité :
     // le champ est vidé pour ne jamais afficher de faux "Si départ : …".
@@ -1672,6 +1714,7 @@ function getExitEvents(d) {
       const empty = v => { const t = safeStr(v); return !t || /^\s*(?:(?:aucun|aucune|pas d|pas de|n[ée]ant|sans objet|sans indemnit|non pr[ée]vu|non applicable|null)\b|[—-]+\s*$)/i.test(t) ? null : t }
       return { ...e, date: toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
     })
+  return addResidualTriennialExits(events, d)
     .sort((a, b) => {
       const da = a.date ? parseFR(a.date) : null, db = b.date ? parseFR(b.date) : null
       if (da && db) return da - db
