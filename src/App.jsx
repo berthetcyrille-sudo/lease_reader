@@ -169,7 +169,7 @@ surfaces_delta: surfaces UNIQUEMENT concernees par la modif (ajoutees ou retiree
 surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet avenant, tel que decrit dans le bail d'origine mentionne dans ce document. categorie JAMAIS null. null si surface_change_type="inchangee".
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie (ex: 2 lignes Bureaux → une seule ligne avec la surface totale). NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
 REGLES POUR date_effet_avenant / date_signature_avenant (champs top-level, PAS dans champs_modifies) :
 - date_signature_avenant: chercher SYSTEMATIQUEMENT cette date dans TOUT le document, meme quand l'avenant ne modifie pas date_effet — c'est elle qui sert a classer chronologiquement les avenants d'un meme bail entre eux quand aucune date d'effet propre n'est disponible (voir date_effet_avenant ci-dessous). Se trouve generalement en toute fin d'acte (bloc de signature "Fait a ..., le [date]", juste avant les annexes), mais peut aussi figurer sur un certificat de signature electronique separe (DocuSign, Yousign ou equivalent) si le PDF en contient un. Si les parties signent a des dates differentes, retenir la DERNIERE date de signature. null UNIQUEMENT si aucune date n'est identifiable nulle part dans le document (ligne "Fait le" laissee vierge, page de signature absente du PDF fourni).
@@ -178,6 +178,7 @@ REGLES POUR date_effet_avenant / date_signature_avenant (champs top-level, PAS d
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
 - break_options: UNIQUEMENT si l'avenant modifie/redefinit EXPLICITEMENT les dates de sortie anticipee — c'est-a-dire si le texte de CET avenant parle lui-meme de faculte de resiliation/conge/break. INTERDICTION ABSOLUE de calculer et remplir des echeances triennales generiques (3/6/9 ans depuis une date d'effet) par reflexe des que cet avenant etablit ou confirme une date d'effet/date de fin — un avenant qui se contente de fixer/confirmer la date d'effet ou la date de fin SANS jamais mentionner de faculte de conge/resiliation doit laisser break_options a null, meme si on peut techniquement calculer des multiples de 3 ans a partir de la nouvelle date d'effet. Format: TABLEAU DE DATES PURES au format "jj/mm/aaaa" UNIQUEMENT, ex: ["31/12/2030","31/12/2033"]. JAMAIS de phrase descriptive (interdit: "Premiere faculte de conge a l'expiration de la 2e periode triennale le 31/12/2030" — mettre uniquement "31/12/2030"). Si l'avenant dit "renonciation a la resiliation triennale pour la duree ferme de N ans" ou "premier conge possible le jj/mm/aaaa", extraire la ou les date(s) exacte(s) mentionnee(s), pas le texte de la clause (le texte de la clause va dans conditions_break et _sources, pas dans break_options). null si non modifie.
+- echeances_sortie: UNIQUEMENT si cet avenant cree, supprime, deplace ou modifie une ou plusieurs facultes de sortie anticipee du preneur (dates de conge, indemnite de depart, compensation si maintien), OU s'il fixe/confirme une nouvelle date d'effet ou de fin qui decale les echeances de sortie existantes. Dans ce cas, fournir la LISTE COMPLETE des echeances de sortie EN VIGUEUR APRES cet avenant (pas seulement celles qui changent), une entree par echeance : {"date":"jj/mm/aaaa ou null","type":"triennale|exceptionnelle|a_tout_moment|autre","libelle":"fondement court","preavis":"...","indemnite_sortie":"formule/montant tel qu'ecrit si le preneur part, sinon null","montant_indemnite":"chiffre brut si ecrit, sinon null","compensation_maintien":"ce que le bailleur accorde si le preneur reste, tel qu'ecrit, sinon null","conditions":"conditions propres a cette sortie, sinon null","page":N}. Reprendre les echeances du bail que l'avenant ne modifie pas (voir contexte du bail fourni le cas echeant) en recalculant leurs dates si la date d'effet a change. Chaque indemnite/compensation est rattachee a l'echeance du paragraphe qui la stipule. break_options = les dates non nulles de cette liste. null si l'avenant ne touche ni aux facultes de sortie ni aux dates d'effet/fin.
 - franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant. ATTENTION: si plusieurs montants sont donnes a des dates anniversaires successives sans duree explicite, NE PAS supposer 12 mois entre deux echeances (voir regle detaillee dans le prompt d'extraction du bail) — calculer duree_mois = round(montant / (loyer_annuel_base/12)). FORMAT SYMETRIQUE (voir regle detaillee dans le prompt d'extraction du bail): si duree explicite et montant manquant, reprendre la duree telle quelle et ecrire "recalcul = <montant> €" dans montant ; si montant explicite et duree manquante, garder le montant en chiffre brut et ecrire "recalcul = <duree> mois" dans duree ; jamais de formule detaillee. ATTENTION DOUBLON: si l'avenant donne un montant GLOBAL de franchise PUIS son detail ventile en plusieurs tranches, NE CREER QU'UNE LIGNE PAR TRANCHE — ne jamais ajouter en plus une ligne reprenant le total global (voir regle detaillee dans le prompt d'extraction du bail). Le montant global va dans le champ texte "franchise" ci-dessous, jamais comme ligne supplementaire.
 - franchise: OBLIGATOIRE DES QUE franchise_periodes CONTIENT AU MOINS UNE ENTREE (voir regle detaillee dans le prompt d'extraction du bail) — texte VERBEUX reprenant fidelement la redaction de la clause de franchise de CET avenant, redige INDEPENDAMMENT de ta propre lecture du texte, pas en reformulant les lignes de franchise_periodes. null UNIQUEMENT si franchise_periodes est aussi vide.
 - frais_redaction_actes: UNIQUEMENT si cet avenant lui-meme mentionne un montant de frais de redaction (le sien propre, et/ou une nouvelle stipulation pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. null si non aborde par cet avenant.
@@ -209,6 +210,7 @@ function buildAvenantPrompt(parentBailData) {
     ? `break_options actuels du bail : ${JSON.stringify(parentBailData.break_options)}`
     : `break_options actuels du bail : aucun (le preneur ne dispose d'aucune faculté de sortie anticipée connue à ce jour)`)
   if (parentBailData.date_effet) ctx.push(`date_effet actuelle du bail : ${parentBailData.date_effet}`)
+  if (Array.isArray(parentBailData.echeances_sortie)) ctx.push(`echeances_sortie actuelles du bail : ${JSON.stringify(parentBailData.echeances_sortie)}`)
   if (!ctx.length) return AVENANT_PROMPT
   return AVENANT_PROMPT + `
 
@@ -714,7 +716,16 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   const trav      = Array.isArray(d.participations_travaux) ? d.participations_travaux : []
   const paliers   = Array.isArray(d.paliers_loyer)          ? d.paliers_loyer          : []
   const abats     = Array.isArray(d.abattements)            ? d.abattements            : []
-  const ibs       = Array.isArray(d.indemnites_break)       ? d.indemnites_break       : []
+  // Export : si les échéances de sortie lues dans le texte existent, les
+  // indemnités de départ en sont tirées (même source que la fiche) plutôt
+  // que de l'ancien champ indemnites_break.
+  const exitsForExport = getExitEvents(d)
+  const ibs       = exitsForExport
+    ? exitsForExport.filter(e => safeStr(e.indemnite_sortie) || e.montant_indemnite).map(e => ({
+        break_date: e.date || (e.type === 'a_tout_moment' ? 'À tout moment' : safeStr(e.libelle)),
+        motif: safeStr(e.libelle), montant: e.montant_indemnite, calcul: safeStr(e.indemnite_sortie),
+      }))
+    : (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
 
   const breakVals = Array.from({ length: MAX_BREAKS },    (_, i) => v(breaks[i]) )
   const fracVals  = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
@@ -922,7 +933,7 @@ function exportAllToExcel(tree, onErrors, selectedCols = null) {
   if (errors.length > 0) onErrors?.(errors)
 }
 
-const BREAK_PROMPT = `Expert baux commerciaux français. Analyse UNIQUEMENT la clause de durée et de résiliation de ce bail. Retourne UNIQUEMENT un JSON minifié sur UNE SEULE LIGNE : {"date_effet":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","break_options":["jj/mm/aaaa",...]}
+const BREAK_PROMPT = `Expert baux commerciaux français. Analyse UNIQUEMENT la clause de durée et de résiliation de ce bail. Retourne UNIQUEMENT un JSON minifié sur UNE SEULE LIGNE : {"date_effet":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","break_options":["jj/mm/aaaa",...],"echeances_sortie":[...]}
 
 REGLE ABSOLUE pour break_options : liste COMPLETE et EXHAUSTIVE.
 REGLE ABSOLUE CONVENTION DE DATE: toute date calculee par addition d'annees entieres a date_effet s'exprime au JOUR ANNIVERSAIRE MOINS 1 JOUR (convention standard des baux commerciaux). Exemple: date_effet=15/10/2020, echeance a 6 ans → 14/10/2026 (PAS 15/10/2026). Ne s'applique pas si le bail donne une date EXPLICITE en toutes lettres.
@@ -934,7 +945,20 @@ REGLES DE CALCUL (lire attentivement la clause, ne pas appliquer mecaniquement):
 3bis) "renonce a sa faculte de resiliation triennale pour la duree ferme" avec duree_ferme NON multiple de 3 (ex: 4 ou 7 ans) et une premiere sortie explicite ("au plus tot", "pour la premiere fois", "a l'expiration de la Neme annee") EVENTUELLEMENT suivie d'une reference a une echeance triennale suivante SANS date explicite ("ainsi que pour la deuxieme echeance triennale") → cette premiere date (date_effet + duree_ferme) est la premiere break. La ou les echeance(s) suivante(s), MEME NOMMEE "deuxieme echeance" dans le texte juste apres, se calculent TOUJOURS depuis date_effet (PROCHAIN multiple de 3 strictement superieur a duree_ferme), JAMAIS depuis la premiere break. EXEMPLE 1 (duree_ferme=7 ans): date_effet=01/09/2022, conge au plus tot 31/08/2029 → premiere break=31/08/2029 (annee 7) ; prochain multiple de 3 apres 7 = annee 9 → echeance suivante=31/08/2031 (PAS annee 7+3=2032) ; date_fin=31/08/2034 (annee 12, EXCLUE) → ["31/08/2029","31/08/2031"]. EXEMPLE 2 (duree_ferme=4 ans): date_effet=01/05/2024, "conge a l'expiration de la 4eme annee, soit le 30/04/2028 pour la premiere fois, ainsi que pour la deuxieme echeance triennale" → premiere break=30/04/2028 (annee 4) ; prochain multiple de 3 apres 4 = annee 6 (PAS annee 4+3=2031) → echeance suivante=30/04/2030 ; date_fin=30/04/2033 (annee 9, EXCLUE) → ["30/04/2028","30/04/2030"]
 4) "a l'expiration de la Neme annee" → date_effet + N ans
 5) "renoncant expressement a sa faculte de donner conge a l'expiration de la Neme et de la Mieme Annee du Contrat" (ENUMERATION EXPLICITE des annees renoncees, formulation DIFFERENTE de "duree ferme" ou "Nieme fois") → calculer TOUTES les echeances triennales standard (multiples de 3 depuis date_effet: annee 3,6,9,12...) jusqu'a duree_totale, PUIS RETIRER les annees explicitement nommees comme renoncees — meme si une annee renoncee tombe sur un multiple de 3. EXEMPLE (piege frequent): date_effet=31/03/2021, duree_totale=12 ans (date_fin=30/03/2033), "renoncant a sa faculte de donner conge a l'expiration de la 3eme et de la 6eme Annee" → echeances standard = annees 3,6,9,12 → retirer 3 ET 6 (toutes les deux explicitement renoncees) → il ne reste que l'annee 9 (annee 12 exclue = date_fin) → break_options=["30/03/2030"] UNIQUEMENT (PAS "30/03/2027" = annee 6, explicitement renoncee)
-CP priment toujours sur CG. Trier chronologiquement. Ne PAS inclure date_fin.`
+CP priment toujours sur CG. Trier chronologiquement. Ne PAS inclure date_fin.
+
+ECHEANCES_SORTIE — SOURCE DE VERITE UNIQUE DES SORTIES ANTICIPEES DU PRENEUR (le plus important de ce JSON) :
+Lis l'INTEGRALITE des clauses qui fondent ou restreignent le droit du preneur de donner conge avant le terme du bail — en Conditions Particulieres ET en Conditions Generales (les CP priment ; une faculte ecrite en CG s'applique tant que les CP ne la suppriment pas). Produis UNE ENTREE PAR POSSIBILITE DE SORTIE ANTICIPEE, avec TOUT ce que le texte rattache a CETTE possibilite precise :
+{"date":"jj/mm/aaaa ou null","type":"triennale|exceptionnelle|a_tout_moment|autre","libelle":"fondement court, ex: Expiration de la 3eme periode triennale / Conge exceptionnel convenu entre les parties","preavis":"ex: 6 mois, par acte extrajudiciaire ou LRAR","indemnite_sortie":"si le preneur PART a cette echeance et doit verser quelque chose : la formule ou le montant TEL QU'ECRIT (ex: 2 derniers mois de loyer factures a la date d'envoi du conge), sinon null","montant_indemnite":"chiffre brut seulement si un montant est ecrit en toutes lettres, sinon null","compensation_maintien":"si le preneur RESTE (ne donne pas conge a cette echeance) et que le bailleur lui accorde quelque chose en contrepartie : franchise supplementaire, reduction de loyer, etc. TEL QU'ECRIT, sinon null","conditions":"autres conditions de validite ou de forme propres a cette sortie (ex: conge delivre entre 9 et 6 mois avant l'echeance, accompagne d'un cheque de banque ; motif a justifier), sinon null","page":numero de page du PDF}
+REGLES :
+1) Une echeance = une entree. Un bail peut cumuler des echeances triennales classiques ET une ou plusieurs echeances exceptionnelles a des dates precises (souvent introduites par "toutefois", "par exception", "en outre", "les parties conviennent que le preneur aura la faculte de delivrer un conge pour le [date]"), eventuellement ANTERIEURES aux echeances triennales ou a la fin de la duree ferme. Elles se cumulent : ne jamais en fusionner deux, ne jamais en omettre une parce qu'une autre clause dit "pour la premiere fois".
+2) Ce qui est rattache a une echeance (indemnite si depart, compensation si maintien, conditions, preavis) vient du MEME paragraphe/de la MEME stipulation que celle qui ouvre cette faculte de sortie. Ne jamais rattacher l'indemnite d'une echeance a une autre date.
+3) Dates : appliquer les regles de calcul ci-dessus (convention jour anniversaire moins 1 jour, multiples de 3 ans depuis date_effet, renonciations). Une date ecrite en toutes lettres dans le texte se reprend telle quelle. Si la date ne peut pas etre calculee (date d'effet inconnue/conditionnelle), date=null et libelle explicite.
+4) Exclure : les echeances auxquelles le preneur a renonce ; la date de fin du bail elle-meme (date_fin n'est pas une sortie anticipee) ; les clauses de resiliation pour faute/manquement, de non-prise de possession, de cession — ce ne sont pas des facultes de sortie.
+5) Une faculte de resiliation "a tout moment" (generalement sous condition de motif) = une entree type "a_tout_moment", date null, avec ses conditions et son preavis.
+6) break_options = exactement les dates (non nulles) de echeances_sortie, triees. Les deux doivent toujours concorder.
+7) Aucune sortie anticipee possible (ex: duree ferme egale a la duree totale) → echeances_sortie=[] et break_options=[].
+EXEMPLE (bail de 10 ans dont 9 fermes, effet 12/05/2026) : "Le Preneur renonce a sa faculte de resiliation triennale pour la duree ferme. Il aura la faculte de donner conge a l'expiration de la troisieme periode triennale soit le 11 mai 2035 pour la premiere fois, preavis 6 mois. Les Parties conviennent toutefois que le Preneur aura la faculte de delivrer un conge pour le 30 septembre 2033 ; il devra alors verser une indemnite correspondant aux deux derniers mois de loyer factures a la date d'envoi du conge ; ce conge devra etre delivre par acte extrajudiciaire entre neuf et six mois avant l'echeance et accompagne d'un cheque de banque" → echeances_sortie=[{"date":"30/09/2033","type":"exceptionnelle","libelle":"Conge exceptionnel convenu entre les parties","preavis":"entre 9 et 6 mois avant l'echeance, par acte extrajudiciaire","indemnite_sortie":"2 derniers mois de loyer factures a la date d'envoi du conge","montant_indemnite":null,"compensation_maintien":null,"conditions":"Conge accompagne d'un cheque de banque du montant de l'indemnite","page":8},{"date":"11/05/2035","type":"triennale","libelle":"Expiration de la 3eme periode triennale","preavis":"6 mois, par acte extrajudiciaire ou LRAR","indemnite_sortie":null,"montant_indemnite":null,"compensation_maintien":null,"conditions":null,"page":8}] et break_options=["30/09/2033","11/05/2035"].`
 
 const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
 
@@ -1541,6 +1565,30 @@ function sanitizeBreakDates(arr) {
   }).filter(Boolean)
 }
 
+// Échéances de sortie anticipée du preneur, telles que lues dans le bail
+// (champ echeances_sortie, produit en UNE seule lecture de la clause par
+// BREAK_PROMPT : chaque entrée porte sa date ET ce qui s'y rattache —
+// indemnité si départ, compensation si maintien, préavis, conditions).
+// Renvoie null si le bail n'a pas encore ce champ (extraction antérieure) :
+// l'affichage retombe alors sur l'ancienne logique (break_options +
+// indemnites_break appariés par date). Quand le champ existe, il fait foi :
+// aucun calcul arithmétique ni filtre par durée ferme n'est appliqué par
+// dessus — tout vient du texte.
+function getExitEvents(d) {
+  if (!d || !Array.isArray(d.echeances_sortie)) return null
+  const toDate = v => { const s = normalizeDate(safeStr(v)); return s && /^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s : null }
+  return d.echeances_sortie
+    .filter(e => e && typeof e === 'object')
+    .map(e => ({ ...e, date: toDate(e.date) }))
+    .sort((a, b) => {
+      const da = a.date ? parseFR(a.date) : null, db = b.date ? parseFR(b.date) : null
+      if (da && db) return da - db
+      if (da) return -1
+      if (db) return 1
+      return 0
+    })
+}
+
 // Horodate une extraction (ou réextraction) avec la date/heure exacte du
 // traitement — stocké DANS le JSON `data` plutôt que dans une colonne dédiée,
 // pour n'exiger aucune migration de la table Supabase. Toujours appelé juste
@@ -1553,13 +1601,21 @@ function sanitizeExtracted(data) {
   if (!data || typeof data !== 'object') return data
   const d = { ...data }
   d.break_options = sanitizeBreakDates(ensureArray(d.break_options))
+  const exitEventsAtSource = getExitEvents(d)
+  if (exitEventsAtSource) {
+    // Source de vérité textuelle disponible : break_options = ses dates,
+    // telles quelles (pas de complément calculé, pas de filtre par durée
+    // ferme — une échéance exceptionnelle antérieure à la fin de la durée
+    // ferme est légitime si le texte l'accorde).
+    d.break_options = exitEventsAtSource.map(e => e.date).filter(Boolean)
+  }
   // Enrichir les breaks par calcul côté code — fiable à 100%, contrairement à
   // l'IA qui peut être incomplète (ex: s'arrêter après la 1ère échéance
   // triennale au lieu de continuer tous les 3 ans). On calcule TOUJOURS les
   // dates théoriques et on les FUSIONNE avec ce que l'IA a trouvé (union,
   // dédupliquée, triée) — plutôt que de ne s'en servir qu'en absence totale
   // de résultat de l'IA.
-  if (d.date_effet && d.date_fin) {
+  if (!exitEventsAtSource && d.date_effet && d.date_fin) {
     const computed = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
     if (computed.length > 0) {
       const existing = new Set((d.break_options || []).map(b => b.trim()))
@@ -2929,7 +2985,7 @@ function auditBail(row) {
   // breaks connus, signe possible d'une clause standard mal classée (vécu à
   // plusieurs reprises : clause de manquement/défaut prise pour une vraie
   // indemnité de sortie) ou d'un break manquant dans break_options.
-  if (Array.isArray(d.indemnites_break) && d.indemnites_break.length > 0 && cleanBreaks.length > 0) {
+  if (!Array.isArray(d.echeances_sortie) && Array.isArray(d.indemnites_break) && d.indemnites_break.length > 0 && cleanBreaks.length > 0) {
     const cleanBreakDates = cleanBreaks.map(b => parseFrDate(b)).filter(Boolean)
     const orphans = d.indemnites_break
       .map(ib => ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null)
@@ -3113,12 +3169,16 @@ function EtatLocatifModal({ building, bails, onClose }) {
         let confirmedByAvenant = false
         let explicitDateFin = null
         let explicitBreaks = null
+        let avenantExitsEL = null
         sortedAvs.forEach(av => {
           const mods = av.data?.champs_modifies || {}
           if (mods.date_effet) confirmedByAvenant = true
           if (mods.date_fin) explicitDateFin = mods.date_fin
           if (Array.isArray(mods.break_options) && mods.break_options.length > 0) explicitBreaks = mods.break_options
+          if (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0) avenantExitsEL = mods.echeances_sortie
         })
+        if (avenantExitsEL) d.echeances_sortie = avenantExitsEL
+        else if (confirmedByAvenant) delete d.echeances_sortie
         if (confirmedByAvenant) {
           const startConfirmed = parseFrDate(d.date_effet)
           if (startConfirmed) {
@@ -3185,11 +3245,15 @@ function EtatLocatifModal({ building, bails, onClose }) {
       // calcul, ou stocké avant une renonciation explicite) — sans ce filtre,
       // il réapparaîtrait ici alors qu'il est déjà filtré dans la fiche détail.
       mergedBreaks = filterBreaksByDureeFerme(mergedBreaks, d.date_effet, d.duree_ferme)
+      // Échéances lues dans le texte disponibles : elles font foi (aucun calcul
+      // ni filtre par-dessus), comme dans la fiche du bail.
+      const elExits = getExitEvents(d)
+      if (elExits) mergedBreaks = elExits.map(e => e.date).filter(Boolean)
 
       // Breaks conditionnelles (voir extractConditionalBreaks) — remontées
       // dans la frise avec un repère visuel distinct, puisqu'elles ne sont
       // pas des échéances certaines comme les segments colorés.
-      const conditionalBreaksRaw = extractConditionalBreaks(d, mergedBreaks)
+      const conditionalBreaksRaw = (elExits ? [] : extractConditionalBreaks(d, mergedBreaks))
         .map(cb => ({ date: parseFrDate(cb.date), condition: cb.condition }))
         .filter(cb => cb.date)
 
@@ -3631,12 +3695,20 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
     let explicitDateFin = null
     let explicitBreaks = null
+    let avenantExits = null
     sortedAvs.forEach(av => {
       const mods = av.data?.champs_modifies || {}
       if (mods.date_effet) { d.date_effet = mods.date_effet; effetConfirmePar = av }
       if (mods.date_fin) explicitDateFin = mods.date_fin
       if (Array.isArray(mods.break_options) && mods.break_options.length > 0) explicitBreaks = mods.break_options
+      if (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0) avenantExits = mods.echeances_sortie
     })
+    // Échéances de sortie : un avenant qui les redéfinit fait foi. S'il ne fait
+    // que confirmer la date d'effet sans les redonner, celles du bail peuvent
+    // avoir été calculées sur l'ancienne date (prévisionnelle) → on retombe sur
+    // l'ancien recalcul plutôt que d'afficher des dates périmées.
+    if (avenantExits) d.echeances_sortie = avenantExits
+    else if (effetConfirmePar) delete d.echeances_sortie
     if (effetConfirmePar) {
       const startConfirmed = parseFrDate(d.date_effet)
       if (startConfirmed) {
@@ -3736,12 +3808,31 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     ...condBreakEntries.map(cb => ({ val: cb.date, conditional: true, condition: cb.condition })),
   ].sort((a, b) => { const da = parseFR(a.val), db = parseFR(b.val); return (da && db) ? da - db : 0 })
 
+  // Échéances de sortie lues dans le texte (une box par échéance, avec ce qui
+  // s'y rattache) — quand le champ existe, il remplace entièrement l'ancienne
+  // reconstitution (dates calculées + indemnités appariées par date).
+  const exitEvents = getExitEvents(d)
+  const exitCards = exitEvents ? exitEvents.map((e, i) => {
+    const hasIndem = !!(safeStr(e.indemnite_sortie) || e.montant_indemnite)
+    const hasComp = !!safeStr(e.compensation_maintien)
+    const kind = e.type === 'a_tout_moment' ? 'Faculté de résiliation'
+      : hasIndem ? 'Break avec indemnité'
+      : hasComp ? 'Break avec compensation si maintien'
+      : 'Break option'
+    return {
+      key: `exit_${i}`, type: 'exit', exit: e, val: e.date,
+      label: `${kind}${exitEvents.length > 1 ? ' ' + (i + 1) : ''}`,
+      bNum: i + 1, hasIndem, hasComp,
+    }
+  }) : null
+
   let bNum = 0
   const primaryDates = [
     d.date_effet
       ? { key: 'date_effet', label: "Prise d'effet", type: 'primary', confirmedByAvenant: effetConfirmePar }
       : (d.date_effet_condition ? { key: 'date_effet_condition', label: "Prise d'effet", type: 'effet_conditionnel', condition: d.date_effet_condition } : null),
-    ...breakItems.map((item, i) => {
+    ...(exitCards || []),
+    ...(exitCards ? [] : breakItems).map((item, i) => {
       if (!item.conditional) bNum++
       return {
         key: `break_${i}`,
@@ -3960,6 +4051,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
             <div className="date-strip" style={{ gridTemplateColumns: `repeat(${Math.min(primaryDates.length, 5)}, 1fr)`, marginBottom: '12px' }}>
               {primaryDates.map(f => {
                 const isCondBreak = f.type === 'break_conditionnel'
+                const isExit = f.type === 'exit'
                 const isEffetCond = f.type === 'effet_conditionnel'
                 // La carte "Prise d'effet" — connue (type 'primary', key 'date_effet')
                 // ou conditionnelle (type 'effet_conditionnel') — reste éditable
@@ -3973,20 +4065,25 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                 // littéralement : à défaut d'une date explicite (pages.break_options), on
                 // renvoie vers la clause générale qui fonde le droit (durée ferme /
                 // clause de résiliation), plutôt que de laisser la carte sans référence.
-                const resolvedPage = f.type === 'break'
+                const resolvedPage = isExit
+                  ? (f.exit.page || pages.conditions_break || pages.break_options || pages.duree_ferme || null)
+                  : f.type === 'break'
                   ? (pages.break_options || pages.conditions_break || pages.duree_ferme || null)
                   : isCondBreak
                   ? (pages.indemnites_break || pages.conditions_break || null)
                   : pages[f.key]
                 return (
-                <div key={f.key} className={`date-card${f.type === 'break' ? ' date-card-break' : ''}`}
-                  style={(isCondBreak || isEffetCond) ? { background: '#FAEEDA', border: '1px solid #EF9F27' } : undefined}>
+                <div key={f.key} className={`date-card${(f.type === 'break' || isExit) ? ' date-card-break' : ''}`}
+                  style={(isCondBreak || isEffetCond || (isExit && f.hasIndem)) ? { background: '#FAEEDA', border: '1px solid #EF9F27' }
+                    : (isExit && f.hasComp) ? { background: 'var(--success-bg)', border: '1px solid rgba(14,107,80,0.35)' }
+                    : undefined}>
                   <div className="date-lbl">
                     {f.type === 'break' && <span className="break-tag">B{breakItems.filter(x => !x.conditional).length > 1 ? f.bNum : ''}</span>}
+                    {isExit && <span className="break-tag" style={f.hasIndem ? { background: '#EF9F27' } : f.hasComp ? { background: 'var(--success)' } : undefined}>B{exitCards.length > 1 ? f.bNum : ''}</span>}
                     {(isCondBreak || isEffetCond) && <span className="break-tag" style={{ background: '#EF9F27' }} title="Date conditionnelle — voir le détail ci-dessous">⚠</span>}
                     {' '}{f.label}
                   </div>
-                  <div className={`date-val${(f.type === 'break' || isCondBreak || isEffetCond) ? ' break' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', color: (isCondBreak || isEffetCond) ? '#B8860B' : undefined }}>
+                  <div className={`date-val${(f.type === 'break' || isExit || isCondBreak || isEffetCond) ? ' break' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', color: (isCondBreak || isEffetCond || (isExit && f.hasIndem)) ? '#B8860B' : (isExit && f.hasComp) ? 'var(--success)' : undefined }}>
                     {isEffetField && editingEffet ? (
                       <>
                         <input
@@ -4016,7 +4113,9 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                       </>
                     ) : (
                       <>
-                        {isEffetCond ? 'Non connue' : (f.val || d[f.key])}
+                        {isEffetCond ? 'Non connue'
+                          : isExit ? (f.val || (f.exit.type === 'a_tout_moment' ? 'À tout moment' : (safeStr(f.exit.libelle) || 'Date non déterminée')))
+                          : (f.val || d[f.key])}
                         <PageJumpIcon item={item} pages={pages} page={resolvedPage} />
                         {isEffetField && !isAv && onSaveManualDateEffet && (
                           <button
@@ -4030,6 +4129,15 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                     )}
                   </div>
                   {f.type === 'break' && d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
+                  {isExit && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px', fontSize: '11px', lineHeight: 1.4 }}>
+                      {f.val && safeStr(f.exit.libelle) && <div style={{ color: 'var(--text3)' }}>{safeStr(f.exit.libelle)}</div>}
+                      {(safeStr(f.exit.preavis) || d.notice) && <div style={{ color: 'var(--text3)' }}>Préavis : {safeStr(f.exit.preavis) || d.notice}</div>}
+                      {f.hasIndem && <div style={{ color: '#B8860B' }}><strong>Si départ :</strong> {safeStr(f.exit.indemnite_sortie) || ''}{f.exit.montant_indemnite ? `${safeStr(f.exit.indemnite_sortie) ? ' — ' : ''}${fmtEur(f.exit.montant_indemnite)}` : ''}</div>}
+                      {f.hasComp && <div style={{ color: 'var(--success)' }}><strong>Si maintien :</strong> {safeStr(f.exit.compensation_maintien)}</div>}
+                      {safeStr(f.exit.conditions) && <div style={{ color: 'var(--text2)' }}><strong>Conditions :</strong> {safeStr(f.exit.conditions)}</div>}
+                    </div>
+                  )}
                   {f.type === 'break' && f.indemnite && <div style={{ fontSize: '11px', color: '#B8860B', marginTop: '4px' }}>Indemnité si exercée : {f.indemnite}</div>}
                   {isCondBreak && f.condition && <div style={{ fontSize: '11px', color: '#B8860B', marginTop: '4px' }}>Conditionnelle : {f.condition}</div>}
                   {isEffetCond && f.condition && (
@@ -4609,7 +4717,21 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
           !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
           !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul))
         ).map(row => ({ terme: row.break_date, due_par: 'Preneur', motif: row.motif, montant: row.montant, calcul: row.calcul, page: row.page }))
-        const combined = [...(d.indemnites_restitution || []), ...cleanBreakIndem]
+        // Quand les échéances de sortie sont disponibles (lues avec leur texte),
+        // elles remplacent indemnites_break : indemnité si départ (due par le
+        // preneur) et compensation si maintien (due par le bailleur).
+        const exitTerme = e => e.date || (e.type === 'a_tout_moment' ? 'À tout moment' : (safeStr(e.libelle) || '—'))
+        const fromExits = exitEvents ? [
+          ...exitEvents.filter(e => safeStr(e.indemnite_sortie) || e.montant_indemnite).map(e => ({
+            terme: exitTerme(e), due_par: 'Preneur', motif: `Indemnité si départ${safeStr(e.libelle) ? ' — ' + safeStr(e.libelle) : ''}`,
+            montant: e.montant_indemnite, calcul: safeStr(e.indemnite_sortie), page: e.page,
+          })),
+          ...exitEvents.filter(e => safeStr(e.compensation_maintien)).map(e => ({
+            terme: exitTerme(e), due_par: 'Bailleur', motif: `Compensation si maintien${safeStr(e.libelle) ? ' — ' + safeStr(e.libelle) : ''}`,
+            montant: null, calcul: safeStr(e.compensation_maintien), page: e.page,
+          })),
+        ] : null
+        const combined = [...(d.indemnites_restitution || []), ...(fromExits || cleanBreakIndem)]
         if (combined.length === 0) return null
         return (
           <div className="sec">
@@ -4673,7 +4795,13 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
           !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
           !isDefaultBoilerplateRow(safeStr(row.motif)) && !isDefaultBoilerplateRow(safeStr(row.calcul))
         )
-        if (cleanIndemnitesBreak.length === 0) return null
+        const indemRows = exitEvents
+          ? exitEvents.filter(e => safeStr(e.indemnite_sortie) || e.montant_indemnite).map(e => ({
+              break_date: e.date || (e.type === 'a_tout_moment' ? 'À tout moment' : safeStr(e.libelle)),
+              motif: safeStr(e.libelle), montant: e.montant_indemnite, calcul: safeStr(e.indemnite_sortie), page: e.page,
+            }))
+          : cleanIndemnitesBreak
+        if (indemRows.length === 0) return null
         return (
           <div className="sec">
             <div className="sec-hd"><div className="sec-label">Indemnités dues par le preneur en cas d'exercice d'une option de break</div></div>
@@ -4686,7 +4814,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                   <th>Base de calcul / Formule</th>
                 </tr></thead>
                 <tbody>
-                  {cleanIndemnitesBreak.map((row, i) => (
+                  {indemRows.map((row, i) => (
                     <tr key={i}>
                       <td style={{ whiteSpace: 'nowrap' }}>{safeStr(row.break_date) || '—'}</td>
                       <td>{safeStr(row.motif) || '—'}</td>
@@ -5806,6 +5934,13 @@ async function reextractOne(row, onProgress) {
           callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
         ])
         if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
+        // echeances_sortie (source unique : chaque sortie anticipée avec son
+        // indemnité/compensation, lues ensemble dans la même clause) — fait foi
+        // sur break_options, y compris quand elle est vide (aucune sortie possible).
+        if (Array.isArray(breakResult?.echeances_sortie)) {
+          extracted.echeances_sortie = breakResult.echeances_sortie
+          extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
+        }
         if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
         if (financialResult) {
           const f = financialResult
@@ -5923,6 +6058,13 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
             ])
             if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
+            // echeances_sortie (source unique : chaque sortie anticipée avec son
+            // indemnité/compensation, lues ensemble dans la même clause) — fait foi
+            // sur break_options, y compris quand elle est vide (aucune sortie possible).
+            if (Array.isArray(breakResult?.echeances_sortie)) {
+              extracted.echeances_sortie = breakResult.echeances_sortie
+              extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
+            }
             if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
             if (financialResult) {
               const f = financialResult
@@ -6712,6 +6854,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
           ])
           if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
+          // echeances_sortie (source unique : chaque sortie anticipée avec son
+          // indemnité/compensation, lues ensemble dans la même clause) — fait foi
+          // sur break_options, y compris quand elle est vide (aucune sortie possible).
+          if (Array.isArray(breakResult?.echeances_sortie)) {
+            extracted.echeances_sortie = breakResult.echeances_sortie
+            extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
+          }
           if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
           if (financialResult) {
             const f = financialResult
@@ -7336,6 +7485,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   date_effet: mods.date_effet || bailBase.date_effet || null,
                   date_fin: mods.date_fin || bailBase.date_fin,
                   break_options: mods.break_options || bailBase.break_options,
+                  echeances_sortie: (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0) ? mods.echeances_sortie : bailBase.echeances_sortie,
                   surface_totale_m2: mods.surface_totale_m2 ?? bailBase.surface_totale_m2,
                   objet_avenant: row.data?.objet_avenant,
                 }
@@ -7370,7 +7520,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   ? normalizedDateFin
                   : (computeDateFinFromDuree(effectiveDateEffet, d.duree_totale) || normalizedDateFin))
             const effetCondOverdue = !!(effetCond && isDatePast(effetCond.date_limite))
-            const breaks = filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
+            const dashExits = getExitEvents(d)
+            const breaks = dashExits
+              ? dashExits.map(e => e.date).filter(Boolean)
+              : filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
             // Un bail replié affiche ses PROPRES données extraites — mais si un
             // avenant a modifié un champ depuis (loyer, date de fin, break,
             // surface), c'est cette donnée-là qui prévaut réellement, pas
@@ -8503,6 +8656,13 @@ export default function App() {
             callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
           ])
           if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
+          // echeances_sortie (source unique : chaque sortie anticipée avec son
+          // indemnité/compensation, lues ensemble dans la même clause) — fait foi
+          // sur break_options, y compris quand elle est vide (aucune sortie possible).
+          if (Array.isArray(breakResult?.echeances_sortie)) {
+            extracted.echeances_sortie = breakResult.echeances_sortie
+            extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
+          }
           if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
           if (financialResult) {
             const f = financialResult
