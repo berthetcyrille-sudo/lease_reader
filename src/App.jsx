@@ -949,7 +949,7 @@ CP priment toujours sur CG. Trier chronologiquement. Ne PAS inclure date_fin.
 
 ECHEANCES_SORTIE — SOURCE DE VERITE UNIQUE DES SORTIES ANTICIPEES DU PRENEUR (le plus important de ce JSON) :
 Lis l'INTEGRALITE des clauses qui fondent ou restreignent le droit du preneur de donner conge avant le terme du bail — en Conditions Particulieres ET en Conditions Generales (les CP priment ; une faculte ecrite en CG s'applique tant que les CP ne la suppriment pas). Produis UNE ENTREE PAR POSSIBILITE DE SORTIE ANTICIPEE, avec TOUT ce que le texte rattache a CETTE possibilite precise :
-{"date":"jj/mm/aaaa ou null","type":"triennale|exceptionnelle|a_tout_moment|autre","libelle":"fondement court, ex: Expiration de la 3eme periode triennale / Conge exceptionnel convenu entre les parties","preavis":"ex: 6 mois, par acte extrajudiciaire ou LRAR","indemnite_sortie":"si le preneur PART a cette echeance et doit verser quelque chose : la formule ou le montant TEL QU'ECRIT (ex: 2 derniers mois de loyer factures a la date d'envoi du conge), sinon null","montant_indemnite":"chiffre brut seulement si un montant est ecrit en toutes lettres, sinon null","compensation_maintien":"si le preneur RESTE (ne donne pas conge a cette echeance) et que le bailleur lui accorde quelque chose en contrepartie : franchise supplementaire, reduction de loyer, etc. TEL QU'ECRIT, sinon null","conditions":"autres conditions de validite ou de forme propres a cette sortie (ex: conge delivre entre 9 et 6 mois avant l'echeance, accompagne d'un cheque de banque ; motif a justifier), sinon null","page":numero de page du PDF}
+{"date":"jj/mm/aaaa ou null","type":"triennale|exceptionnelle|a_tout_moment|autre","libelle":"fondement court, ex: Expiration de la 3eme periode triennale / Conge exceptionnel convenu entre les parties","preavis":"ex: 6 mois, par acte extrajudiciaire ou LRAR","indemnite_sortie":"si le preneur PART a cette echeance et doit verser quelque chose : la formule ou le montant TEL QU'ECRIT (ex: 2 derniers mois de loyer factures a la date d'envoi du conge), sinon null (null, jamais un texte du type 'aucune indemnite')","montant_indemnite":"chiffre brut seulement si un montant est ecrit en toutes lettres, sinon null","compensation_maintien":"si le preneur RESTE (ne donne pas conge a cette echeance) et que le bailleur lui accorde quelque chose en contrepartie : franchise supplementaire, reduction de loyer, etc. TEL QU'ECRIT, sinon null","conditions":"autres conditions de validite ou de forme propres a cette sortie (ex: conge delivre entre 9 et 6 mois avant l'echeance, accompagne d'un cheque de banque ; motif a justifier), sinon null","page":numero de page du PDF}
 REGLES :
 1) Une echeance = une entree. Un bail peut cumuler des echeances triennales classiques ET une ou plusieurs echeances exceptionnelles a des dates precises (souvent introduites par "toutefois", "par exception", "en outre", "les parties conviennent que le preneur aura la faculte de delivrer un conge pour le [date]"), eventuellement ANTERIEURES aux echeances triennales ou a la fin de la duree ferme. Elles se cumulent : ne jamais en fusionner deux, ne jamais en omettre une parce qu'une autre clause dit "pour la premiere fois".
 2) Ce qui est rattache a une echeance (indemnite si depart, compensation si maintien, conditions, preavis) vient du MEME paragraphe/de la MEME stipulation que celle qui ouvre cette faculte de sortie. Ne jamais rattacher l'indemnite d'une echeance a une autre date.
@@ -1579,7 +1579,12 @@ function getExitEvents(d) {
   const toDate = v => { const s = normalizeDate(safeStr(v)); return s && /^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s : null }
   return d.echeances_sortie
     .filter(e => e && typeof e === 'object')
-    .map(e => ({ ...e, date: toDate(e.date) }))
+    // Une formulation du type "aucune indemnité…" n'est pas une indemnité :
+    // le champ est vidé pour ne jamais afficher de faux "Si départ : …".
+    .map(e => {
+      const empty = v => { const t = safeStr(v); return !t || /^\s*(?:(?:aucun|aucune|pas d|pas de|n[ée]ant|sans objet|sans indemnit|non pr[ée]vu|non applicable|null)\b|[—-]+\s*$)/i.test(t) ? null : t }
+      return { ...e, date: toDate(e.date), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+    })
     .sort((a, b) => {
       const da = a.date ? parseFR(a.date) : null, db = b.date ? parseFR(b.date) : null
       if (da && db) return da - db
@@ -4731,7 +4736,12 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
             montant: null, calcul: safeStr(e.compensation_maintien), page: e.page,
           })),
         ] : null
-        const combined = [...(d.indemnites_restitution || []), ...(fromExits || cleanBreakIndem)]
+        // indemnites_restitution est réservé aux forfaits de remise en état :
+        // une pénalité de non-restitution / d'immobilisation / de retard (que le
+        // prompt demande déjà d'exclure) n'y a pas sa place.
+        const restitutionRows = (d.indemnites_restitution || []).filter(r =>
+          !/non[\s-]?restitution|immobilisation|retard|maintien dans les lieux/i.test(`${safeStr(r.motif) || ''} ${safeStr(r.calcul) || ''}`))
+        const combined = [...restitutionRows, ...(fromExits || cleanBreakIndem)]
         if (combined.length === 0) return null
         return (
           <div className="sec">
