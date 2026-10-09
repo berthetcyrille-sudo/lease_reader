@@ -958,7 +958,7 @@ participations_travaux: TOUTES les enveloppes de participation financiere du bai
 
 indemnites_restitution: tableau des indemnites FORFAITAIRES DE REMISE EN ETAT contractuellement prevues, dont le montant varie selon la date de sortie du preneur (break ou terme). Ce champ cible UNIQUEMENT les clauses du type "le PRENEUR versera au BAILLEUR une indemnite forfaitaire de X euros en cas de depart a compter de la Neme annee". Creer UNE LIGNE PAR TRANCHE DE MONTANT. EXCLURE absolument: penalites d immobilisation pour non-restitution tardive, indemnites d eviction, depots de garantie, penalites de retard, indemnites de non-renouvellement. REGLE terme: calculer la date exacte depuis date_effet + N annees (ex: 29/06/2026 + 6 ans = 28/06/2032). REGLE calcul: indiquer l indexation si prevue. Format: [{"terme":"28/06/2032 (expiration 6eme annee)","due_par":"Preneur","motif":"Indemnite forfaitaire remise en etat","montant":"115840","calcul":"Forfait indexe BT01: indemnite revisee = base x (indice revision / indice base)","page":6}]. null si aucune indemnite forfaitaire de ce type.
 indemnites_break: Sommes dues par le PRENEUR au BAILLEUR UNIQUEMENT en cas d exercice de son droit de CONGE (sortie anticipee par le preneur via l option de break). TROIS CAS A DISTINGUER:
-1) FORFAIT CHIFFRE PAR DATE DE BREAK: montant ou formule specifique par echéance (ex: "6 mois de loyer si conge au 31/08/2028") -> une ligne par break date.
+1) FORFAIT CHIFFRE PAR DATE DE BREAK: montant ou formule specifique par echéance (ex: "6 mois de loyer si conge au 31/08/2028") -> une ligne par break date. CAS FREQUENT A NE PAS MANQUER: une indemnite exprimee en FORMULE DE LOYER plutot qu'en montant fixe (ex: "le Preneur aura la faculte de delivrer un conge pour le 30 septembre 2033 ; dans une telle situation, le Preneur devra verser au Bailleur une indemnite d'un montant correspondant aux deux derniers mois de loyer factures a la date d'envoi du conge") est TOUJOURS une ligne valide de ce cas 1, meme sans chiffre brut explicite — montant reste null (ou "recalcul = <montant> €" si calculable a partir du loyer connu), et calcul="2 derniers mois de loyer factures a la date d'envoi du conge" (reprendre la formule telle quelle, PAS un chiffre invente). Cette clause est une faculte de conge VALIDE du preneur (pas un cas 2 a exclure) des lors que le texte dit explicitement "aura la faculte de delivrer un conge" — ne jamais la confondre avec une clause de resiliation fautive/hors cadre sous pretexte qu'une indemnite est due : une indemnite associee a l'exercice REGULIER d'un conge prevu au bail n'est PAS une sanction, c'est le prix normal de la sortie anticipee.
 2) INDEMNITE DE RESTITUTION/REMISE EN ETAT: si le bail prevoit une indemnite forfaitaire due a la restitution en cas de sortie anticipee (ex: "indemnite forfaitaire de remise en etat de 115 840 € en cas de depart a compter de la 6eme annee") -> inclure avec break_date=date de la premiere break concernee et calcul=formule.
 3) REMBOURSEMENT DES MESURES D ACCOMPAGNEMENT SI CONGE: clause generale de remboursement des avantages (franchises, MDA, travaux) si le preneur exerce son conge avant terme -> une ligne sans break_date specifique.
 A EXCLURE de indemnites_break: (1) clauses de remboursement uniquement en cas de CESSION du bail ou du fonds — MEME si la clause mentionne un remboursement "au prorata temporis" ou des "mesures d'accompagnement", des lors que le fait generateur est une cession a un tiers (notamment hors du Groupe du Preneur) et NON l'exercice d'une option de conge/break par le preneur lui-meme. Exemple a EXCLURE: "remboursement des mesures d'accompagnement (franchise de loyer) accordees intuitu personae au prorata temporis en cas de cession du droit au bail ou du fonds de commerce au benefice d'une societe ne faisant pas partie du Groupe du Preneur" → ceci est une clause de cession, PAS une indemnite de break, NE JAMAIS lui attribuer de break_date ni l'inclure dans indemnites_break, meme partiellement; (2) penalites dues en cas de depart FAUTIF ou de resiliation anticipee HORS option de break (clause resolutoire, indemnite d'immobilisation) — ATTENTION CAS FREQUENT ET FACILEMENT CONFONDU AVEC LE CAS 3: une clause "boilerplate" du type "remboursement des mesures d'accompagnement (franchises de loyer) et versement des loyers et charges dus jusqu'a la prochaine date de conge en cas de resiliation anticipee ou de non-prise de possession des locaux" N'EST PAS une indemnite due pour l'exercice VALIDE d'une option de break — c'est un garde-fou/une sanction applicable UNIQUEMENT si le Preneur part EN DEHORS du cadre normal des breaks prevus (resiliation anticipee non autorisee, ou non-prise de possession des locaux). Le simple fait que le texte mentionne "mesures d'accompagnement"/"remboursement des franchises" NE SUFFIT PAS a la classer en cas 3 — il faut lire le FAIT GENERATEUR precis: si c'est "en cas de resiliation anticipee" (departement hors break) ou "non-prise de possession", EXCLURE entierement (ne pas creer de ligne indemnites_break du tout pour cette clause, meme sans break_date) ; le cas 3 ne s'applique QUE si le texte dit explicitement que le remboursement est du en cas d'EXERCICE d'une option de conge/break VALABLEMENT PREVUE au bail (fait generateur = usage normal d'un break contractuel, pas un depart anticipe hors cadre); (3) indemnites dues entre deux dates de break. Inclure UNIQUEMENT les sommes dues lorsque le preneur EXERCE VALABLEMENT une option de break prevue au bail.
@@ -4604,45 +4604,62 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         </div>
       )}
 
-      {/* Indemnités par terme de bail */}
-      {d.indemnites_restitution?.length > 0 && (
-        <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Indemnités par terme (breaks & fin de bail)</div></div>
-          <div className="table-wrap">
-            <table className="indemnites-table">
-              <thead><tr>
-                <th>Terme / Échéance</th>
-                <th>Due par</th>
-                <th>Motif</th>
-                <th style={{ textAlign: 'right' }}>Montant</th>
-                <th>Base de calcul</th>
-              </tr></thead>
-              <tbody>
-                {d.indemnites_restitution.map((row, i) => (
-                  <tr key={i}>
-                    <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{safeStr(row.terme) || '—'}</td>
-                    <td>
-                      {row.due_par && (
-                        <span className={`pill ${row.due_par === 'Preneur' ? 'pill-danger' : 'pill-blue'}`} style={{ fontSize: '11px' }}>
-                          {row.due_par}
+      {/* Indemnités par terme de bail — fusionne les indemnités forfaitaires
+          de remise en état (indemnites_restitution) ET les indemnités dues à
+          l'exercice d'un break (indemnites_break, avec les mêmes filtres de
+          sécurité qu'utilisés pour la section dédiée plus bas) : une
+          indemnité de break est voulue visible dans les deux sections, pas
+          seulement celle qui lui est spécifiquement dédiée. */}
+      {(() => {
+        const isDefaultBoilerplateRow2 = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
+        const breakIndemDates = (d.indemnites_break || []).map(row => row.break_date ? normalizeDate(safeStr(row.break_date)) : null)
+        const keptBreakIndemDates = new Set(filterBreaksByDureeFerme(breakIndemDates.filter(Boolean), d.date_effet, d.duree_ferme))
+        const cleanBreakIndem = (d.indemnites_break || []).filter((row, i) =>
+          !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
+          !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul)) &&
+          (!breakIndemDates[i] || keptBreakIndemDates.has(breakIndemDates[i]))
+        ).map(row => ({ terme: row.break_date, due_par: 'Preneur', motif: row.motif, montant: row.montant, calcul: row.calcul, page: row.page }))
+        const combined = [...(d.indemnites_restitution || []), ...cleanBreakIndem]
+        if (combined.length === 0) return null
+        return (
+          <div className="sec">
+            <div className="sec-hd"><div className="sec-label">Indemnités par terme (breaks & fin de bail)</div></div>
+            <div className="table-wrap">
+              <table className="indemnites-table">
+                <thead><tr>
+                  <th>Terme / Échéance</th>
+                  <th>Due par</th>
+                  <th>Motif</th>
+                  <th style={{ textAlign: 'right' }}>Montant</th>
+                  <th>Base de calcul</th>
+                </tr></thead>
+                <tbody>
+                  {combined.map((row, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{safeStr(row.terme) || '—'}</td>
+                      <td>
+                        {row.due_par && (
+                          <span className={`pill ${row.due_par === 'Preneur' ? 'pill-danger' : 'pill-blue'}`} style={{ fontSize: '11px' }}>
+                            {row.due_par}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ fontWeight: 500 }}>{safeStr(row.motif) || '—'}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                          {row.montant ? fmtEur(row.montant) : '—'}
+                          <PageJumpIcon item={item} page={row.page} />
                         </span>
-                      )}
-                    </td>
-                    <td style={{ fontWeight: 500 }}>{safeStr(row.motif) || '—'}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                        {row.montant ? fmtEur(row.montant) : '—'}
-                        <PageJumpIcon item={item} page={row.page} />
-                      </span>
-                    </td>
-                    <td style={{ color: 'var(--text2)' }}>{safeStr(row.calcul) || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      </td>
+                      <td style={{ color: 'var(--text2)' }}>{safeStr(row.calcul) || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
 
       {(() => {
