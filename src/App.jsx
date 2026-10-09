@@ -725,7 +725,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
         break_date: e.date || (e.type === 'a_tout_moment' ? 'À tout moment' : safeStr(e.libelle)),
         motif: safeStr(e.libelle), montant: e.montant_indemnite, calcul: safeStr(e.indemnite_sortie),
       }))
-    : (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
+    : (Array.isArray(d.indemnites_break) ? d.indemnites_break : []).map(r => ({ ...r, break_date: resolveIndemnityBreakDate(r, d) || r.break_date }))
 
   const breakVals = Array.from({ length: MAX_BREAKS },    (_, i) => v(breaks[i]) )
   const fracVals  = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
@@ -1100,7 +1100,7 @@ function extractConditionalBreaks(d, cleanBreaksArr) {
   const isDefaultBoilerplate = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
   let entries = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
     .filter(ib => !isDefaultBoilerplate(safeStr(ib.motif)) && !isDefaultBoilerplate(safeStr(ib.calcul)))
-    .map(ib => ({ date: ib.break_date ? normalizeDate(safeStr(ib.break_date)) : null, condition: safeStr(ib.motif) || safeStr(ib.calcul) }))
+    .map(ib => ({ date: resolveIndemnityBreakDate(ib, d), condition: formatIndemnityForCard(ib) }))
     // Filet de sécurité : une clause de CESSION n'est pas une vraie option de
     // sortie du preneur — jamais une "break conditionnelle", même si l'IA lui
     // a par erreur attribué une break_date.
@@ -1565,6 +1565,50 @@ function sanitizeBreakDates(arr) {
   }).filter(Boolean)
 }
 
+// Date d'une échéance exprimée en toutes lettres sans date écrite
+// ("pour la deuxième échéance triennale", "à l'expiration de la sixième
+// année") : date d'effet + N années, convention jour anniversaire − 1 jour.
+// Sert à rattacher à sa carte une indemnité stipulée sans date (fréquent
+// quand elle est écrite dans une autre clause, ex. clause Franchise).
+const ECHEANCE_ORDINALS = {
+  premiere: 1, premier: 1, '1ere': 1, '1re': 1, '1er': 1,
+  deuxieme: 2, seconde: 2, second: 2, '2eme': 2, '2e': 2,
+  troisieme: 3, '3eme': 3, '3e': 3, quatrieme: 4, '4eme': 4, '4e': 4,
+  cinquieme: 5, '5eme': 5, sixieme: 6, '6eme': 6, septieme: 7, '7eme': 7,
+  huitieme: 8, '8eme': 8, neuvieme: 9, '9eme': 9, dixieme: 10, '10eme': 10,
+  onzieme: 11, '11eme': 11, douzieme: 12, '12eme': 12,
+}
+function resolveEcheanceDateFromText(text, date_effet_str) {
+  const effet = parseFR(date_effet_str)
+  if (!effet) return null
+  const t = stripAccents(String(text || '')).toLowerCase()
+  const alt = Object.keys(ECHEANCE_ORDINALS).sort((a, b) => b.length - a.length).join('|')
+  let years = null
+  const tri = t.match(new RegExp(`\\b(${alt})\\s+(?:echeance|periode)\\s+triennale`))
+  if (tri) years = 3 * ECHEANCE_ORDINALS[tri[1]]
+  else {
+    const an = t.match(new RegExp(`\\b(${alt})\\s+annee`))
+    if (an) years = ECHEANCE_ORDINALS[an[1]]
+  }
+  if (!years) return null
+  return fmtFR(new Date(effet.getFullYear() + years, effet.getMonth(), effet.getDate() - 1))
+}
+// Date d'une ligne indemnites_break : sa date écrite si valide, sinon celle
+// déduite de la formulation de son motif/calcul.
+function resolveIndemnityBreakDate(row, d) {
+  const raw = row?.break_date ? normalizeDate(safeStr(row.break_date)) : null
+  if (raw && /^\d{2}\/\d{2}\/\d{4}$/.test(raw)) return raw
+  return resolveEcheanceDateFromText(`${safeStr(row?.motif) || ''} ${safeStr(row?.calcul) || ''}`, d?.date_effet)
+}
+// Texte affiché sous une carte de break pour une indemnité : la formule et le
+// montant (ce que le preneur paie), pas le motif (qui redit juste l'échéance).
+function formatIndemnityForCard(row) {
+  const calc = safeStr(row?.calcul)
+  const mt = row?.montant ? fmtEur(row.montant) : null
+  if (calc && mt) return `${calc} — ${mt}`
+  return calc || mt || safeStr(row?.motif) || null
+}
+
 // Échéances de sortie anticipée du preneur, telles que lues dans le bail
 // (champ echeances_sortie, produit en UNE seule lecture de la clause par
 // BREAK_PROMPT : chaque entrée porte sa date ET ce qui s'y rattache —
@@ -1583,7 +1627,7 @@ function getExitEvents(d) {
     // le champ est vidé pour ne jamais afficher de faux "Si départ : …".
     .map(e => {
       const empty = v => { const t = safeStr(v); return !t || /^\s*(?:(?:aucun|aucune|pas d|pas de|n[ée]ant|sans objet|sans indemnit|non pr[ée]vu|non applicable|null)\b|[—-]+\s*$)/i.test(t) ? null : t }
-      return { ...e, date: toDate(e.date), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+      return { ...e, date: toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
     })
     .sort((a, b) => {
       const da = a.date ? parseFR(a.date) : null, db = b.date ? parseFR(b.date) : null
@@ -3183,7 +3227,16 @@ function EtatLocatifModal({ building, bails, onClose }) {
           if (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0) avenantExitsEL = mods.echeances_sortie
         })
         if (avenantExitsEL) d.echeances_sortie = avenantExitsEL
-        else if (confirmedByAvenant || explicitBreaks) delete d.echeances_sortie
+        else if (explicitBreaks) delete d.echeances_sortie
+        else if (confirmedByAvenant && Array.isArray(d.echeances_sortie)) {
+          const recalcEL = d.echeances_sortie.map(e => {
+            if (!e || e.type !== 'triennale') return e
+            const nd = resolveEcheanceDateFromText(e.libelle, d.date_effet)
+            return nd ? { ...e, date: nd } : null
+          })
+          if (recalcEL.some(e => e === null)) delete d.echeances_sortie
+          else d.echeances_sortie = recalcEL
+        }
         if (confirmedByAvenant) {
           const startConfirmed = parseFrDate(d.date_effet)
           if (startConfirmed) {
@@ -3716,7 +3769,19 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     // Avenant ancien format qui a redéfini les breaks (break_options sans
     // echeances_sortie) : la liste du bail ne reflète plus la réalité → ancien
     // calcul, qui tient compte de l'avenant.
-    else if (effetConfirmePar || explicitBreaks) delete d.echeances_sortie
+    else if (explicitBreaks) delete d.echeances_sortie
+    else if (effetConfirmePar && Array.isArray(d.echeances_sortie)) {
+      // Date d'effet confirmée par avenant : les échéances triennales sont
+      // recalculées depuis la date confirmée (via leur libellé) ; si l'une
+      // d'elles ne peut pas l'être, retour à l'ancien calcul.
+      const recalc = d.echeances_sortie.map(e => {
+        if (!e || e.type !== 'triennale') return e
+        const nd = resolveEcheanceDateFromText(e.libelle, d.date_effet)
+        return nd ? { ...e, date: nd } : null
+      })
+      if (recalc.some(e => e === null)) delete d.echeances_sortie
+      else d.echeances_sortie = recalc
+    }
     if (effetConfirmePar) {
       const startConfirmed = parseFrDate(d.date_effet)
       if (startConfirmed) {
@@ -3805,10 +3870,11 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     const bd = parseFR(breakDateStr)
     if (!bd) return null
     const match = rawIndemnitesBreak.find(ib => {
-      const ibDate = ib.break_date ? parseFR(normalizeDate(safeStr(ib.break_date))) : null
+      const r = resolveIndemnityBreakDate(ib, d)
+      const ibDate = r ? parseFR(r) : null
       return ibDate && Math.abs(ibDate - bd) <= 3 * 24 * 60 * 60 * 1000
     })
-    return match ? (safeStr(match.motif) || safeStr(match.calcul)) : null
+    return match ? formatIndemnityForCard(match) : null
   }
 
   const breakItems = [
@@ -4724,7 +4790,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         const cleanBreakIndem = (d.indemnites_break || []).filter((row) =>
           !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
           !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul))
-        ).map(row => ({ terme: row.break_date, due_par: 'Preneur', motif: row.motif, montant: row.montant, calcul: row.calcul, page: row.page }))
+        ).map(row => ({ terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: row.montant, calcul: row.calcul, page: row.page }))
         // Quand les échéances de sortie sont disponibles (lues avec leur texte),
         // elles remplacent indemnites_break : indemnité si départ (due par le
         // preneur) et compensation si maintien (due par le bailleur).
@@ -4787,65 +4853,6 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
       })()}
 
 
-      {(() => {
-        // Même filet de sécurité que pour la carte "Break conditionnelle" :
-        // une clause de cession, ou une clause standard de manquement/défaut
-        // (non-respect des obligations, non-prise de possession, départ
-        // anticipé hors cadre d'un break prévu — présente dans quasi tous les
-        // baux) n'est jamais une vraie indemnité due pour l'exercice VALIDE
-        // d'une option de break, même si l'IA l'a par erreur incluse ici.
-        // Le filtre par mots-clés seul ne suffit pas : l'IA paraphrase souvent
-        // le motif ("résiliation du bail avant le [date]"), perdant les mots
-        // ("non-respect"...) qui trahissaient l'origine "clause de défaut".
-        // Pas de filtre de péremption par date : une entrée indemnites_break
-        // est toujours adossée à un motif/une formule explicites trouvés dans
-        // le texte, jamais un pur résidu de calcul — elle peut légitimement
-        // précéder la durée ferme (exception réellement négociée). Un filtre
-        // par date ne peut pas distinguer ça d'un résidu, voir note détaillée
-        // dans extractConditionalBreaks.
-        const isDefaultBoilerplateRow = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
-        const cleanIndemnitesBreak = (d.indemnites_break || []).filter((row) =>
-          !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
-          !isDefaultBoilerplateRow(safeStr(row.motif)) && !isDefaultBoilerplateRow(safeStr(row.calcul))
-        )
-        const indemRows = exitEvents
-          ? exitEvents.filter(e => safeStr(e.indemnite_sortie) || e.montant_indemnite).map(e => ({
-              break_date: e.date || (e.type === 'a_tout_moment' ? 'À tout moment' : safeStr(e.libelle)),
-              motif: safeStr(e.libelle), montant: e.montant_indemnite, calcul: safeStr(e.indemnite_sortie), page: e.page,
-            }))
-          : cleanIndemnitesBreak
-        if (indemRows.length === 0) return null
-        return (
-          <div className="sec">
-            <div className="sec-hd"><div className="sec-label">Indemnités dues par le preneur en cas d'exercice d'une option de break</div></div>
-            <div className="table-wrap">
-              <table className="indemnites-table">
-                <thead><tr>
-                  <th>Date de break</th>
-                  <th>Motif</th>
-                  <th style={{ textAlign: 'right' }}>Montant</th>
-                  <th>Base de calcul / Formule</th>
-                </tr></thead>
-                <tbody>
-                  {indemRows.map((row, i) => (
-                    <tr key={i}>
-                      <td style={{ whiteSpace: 'nowrap' }}>{safeStr(row.break_date) || '—'}</td>
-                      <td>{safeStr(row.motif) || '—'}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                          {row.montant ? fmtEur(row.montant) : '—'}
-                          <PageJumpIcon item={item} page={row.page} />
-                        </span>
-                      </td>
-                      <td style={{ color: 'var(--text2)' }}>{safeStr(row.calcul) || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )
-      })()}
 
       {/* Jouissance */}
       {(show('destination') || show('article_606')) && (
