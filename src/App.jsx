@@ -6183,7 +6183,7 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
                   background: activeResults.length ? 'var(--danger-bg)' : 'var(--success-bg)',
                   color: activeResults.length ? 'var(--danger)' : 'var(--success)' }}>
                   {activeResults.length
-                    ? `${activeResults.length} bail${activeResults.length > 1 ? 'x' : ''} à traiter · ${pendingPointCount} point${pendingPointCount > 1 ? 's' : ''}`
+                    ? `${activeResults.length} ${activeResults.length > 1 ? 'baux' : 'bail'} à traiter · ${pendingPointCount} point${pendingPointCount > 1 ? 's' : ''}`
                     : 'Tout est traité'}
                 </span>
               )}
@@ -9426,7 +9426,7 @@ export default function App() {
             </svg>
             Contrôle qualité
             {histLoaded && (
-              <span title={qcRemaining ? `${qcRemaining} bail${qcRemaining > 1 ? 'x' : ''} avec au moins un point à vérifier` : 'Aucun point en attente'}
+              <span title={qcRemaining ? `${qcRemaining} ${qcRemaining > 1 ? 'baux' : 'bail'} avec au moins un point à vérifier` : 'Aucun point en attente'}
                 style={{ fontSize: '11px', fontWeight: 700, minWidth: '18px', textAlign: 'center', padding: '1px 6px', borderRadius: '999px',
                   background: qcRemaining ? '#C0392B' : 'rgba(255,255,255,0.15)', color: '#fff' }}>
                 {qcRemaining || '✓'}
