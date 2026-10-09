@@ -106,7 +106,7 @@ REGLES PAR CHAMP:
   2) EXCEPTION AU CAS GENERAL (prioritaire sur la regle 1 — s'applique MEME SI le resultat egale duree_totale, ce qui est alors correct et attendu, pas une erreur) : si le texte renonce EXPLICITEMENT a une ou plusieurs echeances triennales nommees ("renonce a la faculte de donner conge pour l'expiration de la premiere et deuxieme periode triennale") ET precise la consequence qui en resulte ("aura la faculte de mettre fin au bail, pour la premiere fois, pour l'expiration de la troisieme periode triennale", "conge possible des la neuvieme annee", une date precise...), alors duree_ferme = cette echeance nommee (ex: troisieme periode triennale = 9 ans). Une renonciation qui couvre toutes les echeances avant le terme final rend logiquement duree_ferme egal a duree_totale : ceci n'est PAS le defaut par manque d'info vise par la regle 1, c'est un calcul explicite tire du texte, et il doit etre rempli, pas laisse a null.
   3) Si le texte renonce a des echeances nommees SANS jamais preciser explicitement la consequence (aucune date/periode de sortie mentionnee), calculer duree_ferme = 3 x (nombre de periodes triennales renoncees) + 3 annees — verifier deux fois l'arithmetique avant de repondre.
   ATTENTION DEROGATION PARTIELLE CP/CG (cas particulier, a ne pas generaliser): ce qui suit ne vaut QUE si la CP parle exclusivement d'une DUREE FERME (periode sans faculte de conge) et ne dit RIEN de la duree du bail lui-meme. Si la CP fixe la duree DU BAIL (voir regle CP/CG pour la duree totale ci-dessus), c'est la duree CP qui fait foi pour duree_totale, sans exception. Cas particulier : quand une clause CP dit "par derogation a l'article CG-X - DUREE, le Contrat est consenti pour une DUREE FERME de N annees, le PRENEUR renoncant a donner conge a l'expiration de la 3eme et de la 6eme annee" (ou formulation equivalente — y compris "les Parties conviennent d'AMENDER/de MODIFIER l'article CG-X - DUREE... de sorte que le Bail aura une duree ferme de N annees", souvent suivi de "le reste de l'article demeure applicable et inchange"), cette clause CP ne deroge QUE sur le mecanisme de sortie anticipee (duree_ferme = N annees) — elle NE redefinit PAS la duree totale du bail. La duree_totale reste celle fixee par l'article CG-X vise (souvent PLUS LONGUE, ex: 12 ans), sauf si la clause CP dit explicitement autre chose sur la duree totale elle-meme. NE JAMAIS recopier la valeur de la "duree ferme" CP dans duree_totale sans avoir verifie la duree totale dans l'article CG correspondant. Exemple: CP dit "par derogation a l'article CG3 - DUREE, le Contrat est consenti pour une duree ferme de neuf (9) annees, le PRENEUR renoncant a la 3eme et 6eme annee" et CG3 dit "le Contrat est consenti pour une duree de douze (12) annees" → duree_totale=12 ans, duree_ferme=9 ans (PAS duree_totale=9 ans).
-- reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle","date_limite_absolue":null}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. date_limite_absolue: certains baux plafonnent la duree totale possible de la reconduction tacite par une clause du type "en tout etat de cause, la Convention/le Contrat ne pourra exceder N (en toutes lettres) annees et prendra automatiquement fin le [date], sans formalite". Si une telle clause EXPLICITE existe, reporter cette date exacte (format JJ/MM/AAAA) dans date_limite_absolue — c'est un plafond contractuel dur, distinct du preavis de conge habituel. Sinon (reconduction tacite sans limite de duree totale exprimee), laisser date_limite_absolue a null. null pour le champ reconduction_tacite entier si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
+- reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle","date_limite_absolue":null}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. date_limite_absolue: certains baux plafonnent la duree totale possible de la reconduction tacite par une clause du type "en tout etat de cause, la Convention/le Contrat ne pourra exceder N (en toutes lettres) annees et prendra automatiquement fin le [date], sans formalite". Meme regle pour les formulations du type \"En tout etat de cause, le Bail expirera de plein droit le 31 decembre 2034, sans formalite\" (bail d'un an renouvelable par tacite reconduction annuelle, plafonne a une date absolue). Si une telle clause EXPLICITE existe, reporter cette date exacte (format JJ/MM/AAAA) dans date_limite_absolue — c'est un plafond contractuel dur, distinct du preavis de conge habituel. Sinon (reconduction tacite sans limite de duree totale exprimee), laisser date_limite_absolue a null. null pour le champ reconduction_tacite entier si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
 - type_bail: reste CONCIS — un libelle court du type de contrat (ex: "Bail commercial", "Convention d'occupation precaire", "Bail derogatoire", "Bail professionnel"). NE JAMAIS recopier la liste des articles du Code de commerce ou une citation legale complete (ex: "soumis aux articles L.145-1 a L.145-60...") meme si le bail les mentionne explicitement — ces references legales n'apportent rien a un libelle de type de contrat et doivent etre omises. EXCEPTION IMPORTANTE, A NE PAS CONFONDRE AVEC CE QUI PRECEDE: le REGIME JURIDIQUE global du contrat (Code civil vs statut des baux commerciaux du Code de commerce) N'EST PAS une "citation d'articles" a omettre — c'est une information structurante a capturer des qu'elle ressort du document, meme sous une forme discrete (ex: mention "(Code civil)" juste sous le titre du contrat en page de garde, ou clause de fond qui fonde expressement le contrat sur les articles 1104/1195 du Code civil plutot que sur le statut des baux commerciaux). Dans ce cas, l'ajouter entre parentheses a la suite du libelle court, ex: "Bail de parking (Code civil)", "Convention d'occupation precaire (Code civil)". Ne l'ajouter que si le document l'indique explicitement (titre, mention immediatement sous le titre, ou clause de fond) — ne jamais deduire ce regime du seul objet du contrat (un "bail de parking" n'est pas automatiquement "Code civil" sans indication expresse dans CE document).
 - frais_redaction_actes: si le bail (ou les CG/CP) mentionne des frais forfaitaires de redaction d'actes — typiquement une clause du type "les frais de redaction du present bail sont fixes forfaitairement a la somme de X euros HT" et/ou, separement, une clause anticipant les avenants futurs du type "les frais de redaction de chaque avenant ulterieur seront fixes forfaitairement a Y euros". Extraire TOUS les montants distincts mentionnes (souvent DEUX: un pour le bail lui-meme, un autre — generalement plus faible — prevu pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. type doit etre "bail" ou "avenant" selon ce a quoi le montant s'applique. due_par: "Preneur" ou "Bailleur" selon qui supporte les frais (souvent le Preneur). [] si aucune mention de frais de redaction d'actes.
 - date_signature: chercher SYSTEMATIQUEMENT cette date dans TOUT le document, meme quand elle n'apporte rien au calcul de date_effet/date_fin — elle sert notamment a classer chronologiquement les baux et avenants entre eux quand aucune autre date n'est disponible. Se trouve generalement en toute fin d'acte (bloc de signature "Fait a ..., le [date]", juste avant les annexes), mais peut aussi figurer sur un certificat de signature electronique separe (DocuSign, Yousign ou equivalent) si le PDF en contient un — verifier ces pages si presentes. Si les parties signent a des dates differentes (signature electronique asynchrone notamment), retenir la DERNIERE date de signature (celle qui rend l'acte definitivement conclu par toutes les parties). null UNIQUEMENT si aucune date n'est identifiable nulle part dans le document (ligne "Fait le" laissee vierge, page de signature absente du PDF fourni).
@@ -1653,6 +1653,42 @@ function formatDureeBetween(startStr, endStr) {
   return `${days > 0 ? '≈ ' : ''}${parts.join(' et ')}`
 }
 
+// Terme absolu d'un bail à tacite reconduction plafonnée (« en tout état de
+// cause, le Bail expirera de plein droit le 31 décembre 2034, sans
+// formalité »). Par convention, date_fin reste le PREMIER terme (ex. fin de
+// la 1re année) et le plafond vit dans reconduction_tacite.date_limite_absolue.
+// Si ce champ n'a pas été rempli à l'extraction, on retrouve la date dans les
+// textes déjà extraits (conditions des échéances, détail des breaks,
+// extraits sources) — seulement si le bail est bien en reconduction tacite et
+// seulement pour une date POSTÉRIEURE au premier terme. Renvoie JJ/MM/AAAA
+// ou null.
+const PLAFOND_RECONDUCTION_RE = /(?:en\s+tout\s+[ée]tat\s+de\s+cause|de\s+plein\s+droit|automatiquement\s+fin|sans\s+formalit|terme\s+absolu|ne\s+pourra\s+(?:en\s+aucun\s+cas\s+)?exc[ée]der)[^.;]{0,120}?(\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}(?:er)?\s+[a-zéèêûô]+\s+\d{4})/gi
+function getDateLimiteAbsolue(d) {
+  if (!d || !d.reconduction_tacite?.applicable) return null
+  const fin = parseFrDate(String(d.date_fin || ''))
+  const accept = raw => {
+    const m = String(raw || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+    const n = m ? `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}` : normalizeDate(raw)
+    const dt = n && /^\d{2}\/\d{2}\/\d{4}$/.test(n) ? parseFR(n) : null
+    return dt && (!fin || dt > fin) ? { n, dt } : null
+  }
+  const explicit = accept(d.reconduction_tacite.date_limite_absolue)
+  if (explicit) return explicit.n
+  const texts = [
+    typeof d.date_fin === 'string' ? d.date_fin : null, d.duree_totale, d.conditions_break,
+    d._sources?.date_fin, d._sources?.duree_totale, d._sources?.break_options,
+    ...(Array.isArray(d.echeances_sortie) ? d.echeances_sortie.flatMap(e => [e?.conditions, e?.libelle]) : []),
+  ].filter(v => typeof v === 'string' && v)
+  let best = null
+  for (const t of texts) {
+    for (const m of t.matchAll(PLAFOND_RECONDUCTION_RE)) {
+      const c = accept(m[1].replace(/1er/i, '1'))
+      if (c && (!best || c.dt > best.dt)) best = c
+    }
+  }
+  return best ? best.n : null
+}
+
 // Le texte d'une « indemnité » de break décrit-il réellement une SOMME à
 // verser par le preneur ? Les extractions rangent parfois dans
 // indemnites_break / indemnite_sortie une simple description de la faculté
@@ -1726,7 +1762,7 @@ function getExitEvents(d) {
     // le champ est vidé pour ne jamais afficher de faux "Si départ : …".
     .map(e => {
       const empty = v => { const t = safeStr(v); return !t || /^\s*(?:(?:aucun|aucune|pas d|pas de|n[ée]ant|sans objet|sans indemnit|non pr[ée]vu|non applicable|null)\b|[—-]+\s*$)/i.test(t) ? null : t }
-      return { ...e, date: toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet), indemnite_sortie: describesPayment(e.indemnite_sortie, e.montant_indemnite) ? empty(e.indemnite_sortie) : null, compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+      return { ...e, date: e.type === 'a_tout_moment' ? null : (toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet)), indemnite_sortie: describesPayment(e.indemnite_sortie, e.montant_indemnite) ? empty(e.indemnite_sortie) : null, compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
     })
   return addResidualTriennialExits(events, d)
     .sort((a, b) => {
@@ -3539,7 +3575,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
           reconductionTacite: d.reconduction_tacite?.applicable ? {
             preavis: d.reconduction_tacite.preavis || null,
             periodicite: d.reconduction_tacite.periodicite || null,
-            dateLimiteAbsolue: parseFrDate(d.reconduction_tacite.date_limite_absolue) || null,
+            dateLimiteAbsolue: parseFrDate(getDateLimiteAbsolue(d) || '') || null,
           } : null,
           row,
           locationLabel,
@@ -4063,6 +4099,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // s'y rattache) — quand le champ existe, il remplace entièrement l'ancienne
   // reconstitution (dates calculées + indemnités appariées par date).
   const exitEvents = getExitEvents(d)
+  const dateLimiteAbsolue = getDateLimiteAbsolue(d)
   const exitCards = exitEvents ? exitEvents.map((e, i) => {
     const hasIndem = !!(safeStr(e.indemnite_sortie) || e.montant_indemnite)
     const hasComp = !!safeStr(e.compensation_maintien)
@@ -4096,7 +4133,10 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         bNum: item.conditional ? null : bNum,
       }
     }),
-    d.date_fin   ? { key: 'date_fin',   label: 'Expiration',    type: 'primary' } : null,
+    d.date_fin ? (dateLimiteAbsolue
+      ? { key: 'date_fin', label: 'Expiration (terme absolu)', type: 'primary', val: dateLimiteAbsolue,
+          sub: `Premier terme le ${normalizeDate(d.date_fin)}, puis reconduction tacite${d.reconduction_tacite?.periodicite ? ' ' + d.reconduction_tacite.periodicite : ''} jusqu'à cette date — fin de plein droit, sans formalité` }
+      : { key: 'date_fin', label: 'Expiration', type: 'primary' }) : null,
   ].filter(Boolean)
 
   const secondaryDates = [
@@ -4400,6 +4440,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                     )}
                   </div>
                   {f.type === 'break' && d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
+                  {f.sub && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px', lineHeight: 1.4 }}>{f.sub}</div>}
                   {isExit && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px', fontSize: '11px', lineHeight: 1.4 }}>
                       {f.val && safeStr(f.exit.libelle) && <div style={{ color: 'var(--text3)' }}>{safeStr(f.exit.libelle)}</div>}
@@ -4452,7 +4493,8 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
               <span style={{ fontSize: '12.5px', color: 'var(--text2)' }}>
                 <strong style={{ color: 'var(--text)' }}>Reconduction tacite</strong> au-delà du {normalizeDate(d.date_fin) || 'terme ferme'} — le bail se poursuit
                 {d.reconduction_tacite.periodicite ? ` ${d.reconduction_tacite.periodicite}` : ''} sauf congé donné
-                {d.reconduction_tacite.preavis ? ` avec un préavis de ${d.reconduction_tacite.preavis}` : ''}.
+                {d.reconduction_tacite.preavis ? ` avec un préavis de ${d.reconduction_tacite.preavis}` : ''}
+                {dateLimiteAbsolue ? `, et au plus tard jusqu'au ${dateLimiteAbsolue} (fin de plein droit, sans formalité)` : ''}.
               </span>
             </div>
           )}
