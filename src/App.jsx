@@ -3183,7 +3183,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
           if (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0) avenantExitsEL = mods.echeances_sortie
         })
         if (avenantExitsEL) d.echeances_sortie = avenantExitsEL
-        else if (confirmedByAvenant) delete d.echeances_sortie
+        else if (confirmedByAvenant || explicitBreaks) delete d.echeances_sortie
         if (confirmedByAvenant) {
           const startConfirmed = parseFrDate(d.date_effet)
           if (startConfirmed) {
@@ -3713,7 +3713,10 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     // avoir été calculées sur l'ancienne date (prévisionnelle) → on retombe sur
     // l'ancien recalcul plutôt que d'afficher des dates périmées.
     if (avenantExits) d.echeances_sortie = avenantExits
-    else if (effetConfirmePar) delete d.echeances_sortie
+    // Avenant ancien format qui a redéfini les breaks (break_options sans
+    // echeances_sortie) : la liste du bail ne reflète plus la réalité → ancien
+    // calcul, qui tient compte de l'avenant.
+    else if (effetConfirmePar || explicitBreaks) delete d.echeances_sortie
     if (effetConfirmePar) {
       const startConfirmed = parseFrDate(d.date_effet)
       if (startConfirmed) {
