@@ -137,7 +137,7 @@ REGLES PAR CHAMP:
 - charges_impots_taxes: liste de TOUS les impots et taxes explicitement mentionnes dans la clause de refacturation des charges (ex: taxe fonciere, taxe sur les bureaux/TSB, taxe sur les surfaces commerciales/TASCOM, CFE, taxe sur les locaux vacants), avec pour chacun s'il est refacture au Preneur ou non. Format: [{"libelle":"Taxe fonciere","refacturee":"Oui","taux":"100%","detail":null}]. refacturee: "Oui"/"Non"/"Partielle" — "Partielle" si le bail dit explicitement que seule une quote-part est refacturee. taux: le pourcentage explicite si mentionne (ex: "refacture a hauteur de 50%" -> taux="50%"), sinon null (ne pas mettre "100%" par defaut si le bail dit juste "refacturee" sans preciser de taux). detail: precision complementaire si le bail en donne une (plafond, condition, exception), sinon null. [] si le bail ne detaille aucun impot/taxe nommement (une simple clause generale "les charges sont refacturees au Preneur" sans lister d'impots precis ne suffit pas a remplir ce champ).
 - charges_vetuste: la clause du bail relative a la VETUSTE (art. 1755 du Code civil: les reparations dues a la vetuste ou a la force majeure ne sont pas, par principe legal, a la charge du preneur, sauf clause contraire du bail qui y deroge). Format: {"refacturee":"Oui","detail":"texte precisant les modalites, ex: le Preneur prend a sa charge les reparations liees a la vetuste normale des equipements"}. refacturee: "Oui" si le bail deroge au principe legal et met la vetuste a la charge du Preneur (meme partiellement), "Non" si le bail ne deroge pas ou confirme explicitement que la vetuste reste a la charge du Bailleur, "Partielle" si un partage est prevu. detail: TOUJOURS renseigner un texte resumant ce que dit le bail sur ce point (meme bref), pas seulement le statut. null (le champ entier) si le bail n'aborde pas du tout la vetuste.
 - charges_force_majeure: la clause du bail relative a la FORCE MAJEURE (meme principe de l'art. 1755 du Code civil que pour la vetuste). Format: {"refacturee":"Oui","detail":"texte precisant les modalites"}. Meme logique que charges_vetuste. null si le bail n'aborde pas la force majeure.
-- franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null,\"page\":3}]. UNE LIGNE PAR TRANCHE (REGLE PRIORITAIRE): quand le texte ventile une franchise en plusieurs tranches appliquees a des moments differents (\"qui sera appliquee comme suit : X € a compter de la prise d'effet ; Y € a compter du premier anniversaire...\"), creer UNE ENTREE PAR TRANCHE — JAMAIS une seule ligne globale avec la ventilation releguee dans \"condition\". Ne pas ajouter en plus une ligne reprenant le total (double comptage) : le total et sa redaction complete vont dans le champ texte franchise. Une tranche n'est PAS une condition: condition reste null sauf vraie condition (ex: si non-delivrance de conge). DATES RELATIVES: l'absence de date calendaire (date d'effet inconnue a la signature, conditions suspensives, VEFA, livraison...) n'empeche JAMAIS d'eclater les tranches. Dans ce cas ecrire dans date_debut le point de depart tel que le texte le formule, en court: \"Prise d'effet du Bail\", \"1er anniversaire de la prise d'effet\", \"2e anniversaire de la prise d'effet\"... ; et dans date_fin la meme reference + la duree de la tranche (ex: \"Prise d'effet + 3,75 mois\"). Ne JAMAIS ecrire \"recalcul = ... mois\" dans date_debut ou date_fin (ce marqueur est reserve aux champs duree et montant). DUREE PAR TRANCHE: si seuls la duree GLOBALE et les montants des tranches sont donnes, repartir la duree globale au prorata des montants (tranches de montants egaux → duree globale / nombre de tranches) et l'ecrire avec le marqueur: \"recalcul = 3,75 mois\". EXEMPLE REEL: \"franchise de loyer initial de sept mois et demi (7,5), soit un montant total de 61.595,62 € HT/HC a compter de la date de prise d'effet du Bail, qui sera appliquee comme suit : 30.797,81 € a compter de la date de prise d'effet du Bail ; 30.797,81 € a compter du premier anniversaire de la date anniversaire du Bail\" → DEUX entrees: [{\"date_debut\":\"Prise d'effet du Bail\",\"date_fin\":\"Prise d'effet + 3,75 mois\",\"duree\":\"recalcul = 3,75 mois\",\"montant\":\"30797.81\",\"condition\":null,...},{\"date_debut\":\"1er anniversaire de la prise d'effet\",\"date_fin\":\"1er anniversaire + 3,75 mois\",\"duree\":\"recalcul = 3,75 mois\",\"montant\":\"30797.81\",\"condition\":null,...}] — PAS une seule ligne de 7,5 mois / 61.595,62 €. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon. ATTENTION DOUBLON FREQUENT A EVITER: quand le bail donne un montant GLOBAL de franchise PUIS le detail de ce meme montant ventile en plusieurs tranches (ex: \"franchise initiale de quatorze (14) mois, soit un montant total de 39.135,83 €, qui sera appliquee comme suit : 3,5 mois a compter de la date d'effet ; 3,5 mois a compter de la premiere date anniversaire ; ...\"), NE CREER QU'UNE LIGNE PAR TRANCHE INDIVIDUELLE — ne jamais ajouter EN PLUS une ligne reprenant le total global (14 mois / 39.135,83 €) : ce total n'est que la somme des tranches deja listees individuellement, l'ajouter en ligne supplementaire cree un double comptage. Le montant global (avec sa redaction complete) va dans le champ texte \"franchise\" ci-dessous, jamais comme ligne supplementaire de franchise_periodes. ATTENTION DISTINCTION AVEC mise_a_disposition: une "franchise de loyer" reduit ou annule un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero (sinon il n'y a rien a "franchiser"). NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation des locaux avant la date d'effet officielle du bail, ou avant que le loyer ne soit contractuellement du, souvent formulee "mise a disposition anticipee a titre gratuit", "pas de loyer ni charges dus pendant cette periode") — meme si le texte utilise par erreur ou par extension le mot "franchise" pour la designer, meme si elle est ventilee par lot/etage avec des dates differentes. Ces periodes de mise a disposition anticipee vont dans le champ dedie mise_a_disposition (objet unique) — si plusieurs lots ont des dates de mise a disposition differentes, resumer l'ensemble dans le champ texte "conditions" de mise_a_disposition (avec le detail par lot) plutot que de les eclater dans franchise_periodes avec un montant a zero. ATTENTION CAS INVERSE FREQUENT: quand le texte donne plusieurs montants de franchise a des DATES ANNIVERSAIRES successives (ex: "133.943 € HT/HC de franchise à compter du 15 septembre 2025 ; 133.943 € à compter du 15 septembre 2026 ; ...") SANS préciser explicitement une durée ni une date de fin pour chaque tranche, NE JAMAIS supposer que chaque tranche dure 12 mois (jusqu'à la date anniversaire suivante) — c'est presque toujours FAUX. Ces montants correspondent generalement chacun a quelques semaines/mois de loyer accordes CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an pendant 3 ans), pas une exoneration continue toute l'annee. Calculer la VRAIE duree en mois: duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), puis date_fin = date_debut + duree_mois mois - 1 jour (PAS la veille de la prochaine date anniversaire, sauf si duree_mois calculee y correspond par coincidence). N'utiliser une duree de 12 mois entre deux echeances que si le texte le dit EXPLICITEMENT (ex: "pendant les 12 mois suivants" ecrit noir sur blanc). FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — deux cas: (a) si la DUREE est explicitement ecrite dans le bail (ex: "2,5 mois", "3 mois") et que c'est le MONTANT qui manque: reprendre la duree TELLE QUELLE dans "duree" (ex: "2,5 mois"), et calculer montant = duree_mois * (loyer_annuel_base_HT_HC / 12), en ecrivant dans "montant" la chaine "recalcul = <montant> €" (ex: "recalcul = 116116 €") plutot qu'un chiffre brut, pour signaler que c'est deduit et non ecrit dans le bail. (b) si le MONTANT est explicitement ecrit et que c'est la DUREE qui manque: montant reste un chiffre brut normal (ex: "116116"), et calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), en ecrivant dans "duree" la chaine "recalcul = <duree_mois> mois" (ex: "recalcul = 2,11 mois") plutot qu'une phrase. Si duree ET montant sont TOUS LES DEUX explicites dans le texte, les reprendre tels quels sans aucun marqueur "recalcul". Ne jamais utiliser une formule detaillee du type "Champ calculé = A / B = C" — uniquement le resultat final precede de "recalcul =".
+- franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null,\"page\":3}]. UNE LIGNE PAR TRANCHE (REGLE PRIORITAIRE): quand le texte ventile une franchise en plusieurs tranches appliquees a des moments differents (\"qui sera appliquee comme suit : X € a compter de la prise d'effet ; Y € a compter du premier anniversaire...\"), creer UNE ENTREE PAR TRANCHE — JAMAIS une seule ligne globale avec la ventilation releguee dans \"condition\". Ne pas ajouter en plus une ligne reprenant le total (double comptage) : le total et sa redaction complete vont dans le champ texte franchise. Une tranche n'est PAS une condition: condition reste null sauf vraie condition (ex: si non-delivrance de conge). DATES RELATIVES: l'absence de date calendaire (date d'effet inconnue a la signature, conditions suspensives, VEFA, livraison...) n'empeche JAMAIS d'eclater les tranches. Dans ce cas ecrire dans date_debut le point de depart tel que le texte le formule, en court: \"Prise d'effet du Bail\", \"1er anniversaire de la prise d'effet\", \"2e anniversaire de la prise d'effet\"... ; et dans date_fin la meme reference + la duree de la tranche (ex: \"Prise d'effet + 3,75 mois\"). Ne JAMAIS ecrire \"recalcul = ... mois\" dans date_debut ou date_fin (ce marqueur est reserve aux champs duree et montant). DUREE PAR TRANCHE: si seuls la duree GLOBALE et les montants des tranches sont donnes, repartir la duree globale au prorata des montants (tranches de montants egaux → duree globale / nombre de tranches) et l'ecrire avec le marqueur: \"recalcul = 3,75 mois\". EXEMPLE REEL: \"franchise de loyer initial de sept mois et demi (7,5), soit un montant total de 61.595,62 € HT/HC a compter de la date de prise d'effet du Bail, qui sera appliquee comme suit : 30.797,81 € a compter de la date de prise d'effet du Bail ; 30.797,81 € a compter du premier anniversaire de la date anniversaire du Bail\" → DEUX entrees: [{\"date_debut\":\"Prise d'effet du Bail\",\"date_fin\":\"Prise d'effet + 3,75 mois\",\"duree\":\"recalcul = 3,75 mois\",\"montant\":\"30797.81\",\"condition\":null,...},{\"date_debut\":\"1er anniversaire de la prise d'effet\",\"date_fin\":\"1er anniversaire + 3,75 mois\",\"duree\":\"recalcul = 3,75 mois\",\"montant\":\"30797.81\",\"condition\":null,...}] — PAS une seule ligne de 7,5 mois / 61.595,62 €. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon. ATTENTION DOUBLON FREQUENT A EVITER: quand le bail donne un montant GLOBAL de franchise PUIS le detail de ce meme montant ventile en plusieurs tranches (ex: \"franchise initiale de quatorze (14) mois, soit un montant total de 39.135,83 €, qui sera appliquee comme suit : 3,5 mois a compter de la date d'effet ; 3,5 mois a compter de la premiere date anniversaire ; ...\"), NE CREER QU'UNE LIGNE PAR TRANCHE INDIVIDUELLE — ne jamais ajouter EN PLUS une ligne reprenant le total global (14 mois / 39.135,83 €) : ce total n'est que la somme des tranches deja listees individuellement, l'ajouter en ligne supplementaire cree un double comptage. Le montant global (avec sa redaction complete) va dans le champ texte \"franchise\" ci-dessous, jamais comme ligne supplementaire de franchise_periodes. ATTENTION DISTINCTION AVEC mise_a_disposition: une "franchise de loyer" reduit ou annule un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero (sinon il n'y a rien a "franchiser"). NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation des locaux avant la date d'effet officielle du bail, ou avant que le loyer ne soit contractuellement du, souvent formulee "mise a disposition anticipee a titre gratuit", "pas de loyer ni charges dus pendant cette periode") — meme si le texte utilise par erreur ou par extension le mot "franchise" pour la designer, meme si elle est ventilee par lot/etage avec des dates differentes. Ces periodes de mise a disposition anticipee vont dans le champ dedie mise_a_disposition (objet unique) — si plusieurs lots ont des dates de mise a disposition differentes, resumer l'ensemble dans le champ texte "conditions" de mise_a_disposition (avec le detail par lot) plutot que de les eclater dans franchise_periodes avec un montant a zero. ATTENTION CAS INVERSE FREQUENT: quand le texte donne plusieurs montants de franchise a des DATES ANNIVERSAIRES successives (ex: "133.943 € HT/HC de franchise à compter du 15 septembre 2025 ; 133.943 € à compter du 15 septembre 2026 ; ...") SANS préciser explicitement une durée ni une date de fin pour chaque tranche, NE JAMAIS supposer que chaque tranche dure 12 mois (jusqu'à la date anniversaire suivante) — c'est presque toujours FAUX. Ces montants correspondent generalement chacun a quelques semaines/mois de loyer accordes CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an pendant 3 ans), pas une exoneration continue toute l'annee. Calculer la VRAIE duree en mois: duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), puis date_fin = date_debut + duree_mois mois - 1 jour (PAS la veille de la prochaine date anniversaire, sauf si duree_mois calculee y correspond par coincidence). N'utiliser une duree de 12 mois entre deux echeances que si le texte le dit EXPLICITEMENT (ex: "pendant les 12 mois suivants" ecrit noir sur blanc). Ce calcul ne s'applique QU'AUX tranches dont la DUREE n'est PAS ecrite : quand chaque tranche enonce elle-meme sa duree (ex: \"2 mois de franchise de loyer initial, soit un montant de 22.791,67 € applique a compter de la premiere date anniversaire du Bail\"), reprendre \"2 mois\" TEL QUEL dans duree, SANS marqueur \"recalcul\", pour CHAQUE tranche (la 1ere comme les suivantes) — \"recalcul =\" est reserve a une valeur reellement absente du texte. De meme, \"a compter de la premiere date anniversaire du Bail\" est le POINT DE DEPART de la tranche (il va dans date_debut), PAS une condition : condition reste null. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — deux cas: (a) si la DUREE est explicitement ecrite dans le bail (ex: "2,5 mois", "3 mois") et que c'est le MONTANT qui manque: reprendre la duree TELLE QUELLE dans "duree" (ex: "2,5 mois"), et calculer montant = duree_mois * (loyer_annuel_base_HT_HC / 12), en ecrivant dans "montant" la chaine "recalcul = <montant> €" (ex: "recalcul = 116116 €") plutot qu'un chiffre brut, pour signaler que c'est deduit et non ecrit dans le bail. (b) si le MONTANT est explicitement ecrit et que c'est la DUREE qui manque: montant reste un chiffre brut normal (ex: "116116"), et calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), en ecrivant dans "duree" la chaine "recalcul = <duree_mois> mois" (ex: "recalcul = 2,11 mois") plutot qu'une phrase. Si duree ET montant sont TOUS LES DEUX explicites dans le texte, les reprendre tels quels sans aucun marqueur "recalcul". Ne jamais utiliser une formule detaillee du type "Champ calculé = A / B = C" — uniquement le resultat final precede de "recalcul =".
 - franchise: OBLIGATOIRE DES QUE franchise_periodes CONTIENT AU MOINS UNE ENTREE — ne jamais laisser ce champ a null si franchise_periodes n'est pas vide (verification mecanique : si l'un est rempli, l'autre doit l'etre aussi). Texte VERBEUX reprenant fidelement la redaction de la clause de franchise telle qu'ecrite dans le bail (contrairement a franchise_periodes, qui est structure et chiffre, ce champ est un resume en langage courant, proche du texte original, sans etre un copier-coller integral) — sert de verification visuelle en regard du detail chiffre de franchise_periodes, pour que l'utilisateur puisse reperer un ecart ENTRE LE TEXTE DU BAIL ET LE TABLEAU STRUCTURE : ce champ doit donc etre redige INDEPENDAMMENT, a partir de ta propre lecture de la clause, PAS en reformulant ou en resumant les lignes que tu as toi-meme mises dans franchise_periodes — sinon il ne peut plus jamais reveler un desaccord entre les deux, ce qui annule son utilite. Inclure le montant total et la decomposition telle que redigee (ex: "Franchise initiale de 14 mois, soit un total de 39.135,83 € HT/HC, appliquee en 4 tranches de 3,5 mois a la prise d'effet puis a chaque date anniversaire du bail pendant 3 ans"). null UNIQUEMENT si franchise_periodes est aussi vide (aucune franchise dans le bail).
 - participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. libelle OBLIGATOIRE.
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
@@ -711,7 +711,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   const surf = (val) => { const n = parseFloat(String(val || '').replace(',', '.')); return isNaN(n) ? '' : n }
 
   const breaks    = Array.isArray(d.break_options)          ? d.break_options          : []
-  const franchise = Array.isArray(d.franchise_periodes)     ? d.franchise_periodes     : []
+  const franchise = Array.isArray(d.franchise_periodes)     ? normalizeFranchiseRows(d.franchise_periodes) : []
   const indem     = Array.isArray(d.indemnites)             ? d.indemnites             : []
   const surfaces  = Array.isArray(d.surfaces_detail)        ? d.surfaces_detail        : []
   const trav      = Array.isArray(d.participations_travaux) ? d.participations_travaux : []
@@ -979,7 +979,7 @@ abattements: tableau de toutes les reductions temporaires de loyer DISTINCTES d'
 
 loyer_variable: si le bail contient une clause de loyer variable ou indexe sur le CA/chiffre d affaires. Format: {"type":"CA ou autre","taux":"ex: 3%","assiette":"ex: CA TTC annuel","plancher":"montant brut ou null","plafond":"montant brut ou null","regles":"texte complet de la formule et des conditions de declenchement"}. null si pas de loyer variable.
 
-franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnelles et complementaires. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"123405","surface_assiette":"ex: LC1 (701 m²)","indexation_incluse":"Non","condition":"null ou texte si conditionnelle ex: si non-delivrance de conge au 31/08/2030","page":3}]. UNE LIGNE PAR TRANCHE (REGLE PRIORITAIRE): quand le texte ventile une franchise en plusieurs tranches appliquees a des moments differents ("qui sera appliquee comme suit : X € a compter de la prise d'effet ; Y € a compter du premier anniversaire..."), creer UNE ENTREE PAR TRANCHE — JAMAIS une seule ligne globale avec la ventilation releguee dans "condition". Ne pas ajouter en plus une ligne reprenant le total (double comptage) : le total et sa redaction complete vont dans le champ texte franchise. Une tranche n'est PAS une condition: condition reste null sauf vraie condition (ex: si non-delivrance de conge). DATES RELATIVES: l'absence de date calendaire (date d'effet inconnue a la signature, conditions suspensives, VEFA, livraison...) n'empeche JAMAIS d'eclater les tranches. Dans ce cas ecrire dans date_debut le point de depart tel que le texte le formule, en court: "Prise d'effet du Bail", "1er anniversaire de la prise d'effet", "2e anniversaire de la prise d'effet"... ; et dans date_fin la meme reference + la duree de la tranche (ex: "Prise d'effet + 3,75 mois"). Ne JAMAIS ecrire "recalcul = ... mois" dans date_debut ou date_fin (ce marqueur est reserve aux champs duree et montant). DUREE PAR TRANCHE: si seuls la duree GLOBALE et les montants des tranches sont donnes, repartir la duree globale au prorata des montants (tranches de montants egaux → duree globale / nombre de tranches) et l'ecrire avec le marqueur: "recalcul = 3,75 mois". EXEMPLE REEL: "franchise de loyer initial de sept mois et demi (7,5), soit un montant total de 61.595,62 € HT/HC a compter de la date de prise d'effet du Bail, qui sera appliquee comme suit : 30.797,81 € a compter de la date de prise d'effet du Bail ; 30.797,81 € a compter du premier anniversaire de la date anniversaire du Bail" → DEUX entrees: [{"date_debut":"Prise d'effet du Bail","date_fin":"Prise d'effet + 3,75 mois","duree":"recalcul = 3,75 mois","montant":"30797.81","condition":null,...},{"date_debut":"1er anniversaire de la prise d'effet","date_fin":"1er anniversaire + 3,75 mois","duree":"recalcul = 3,75 mois","montant":"30797.81","condition":null,...}] — PAS une seule ligne de 7,5 mois / 61.595,62 €. montant: calculer si non explicite (loyer_annuel_assiette * duree_mois / 12). ATTENTION DISTINCTION AVEC mise_a_disposition: une franchise reduit un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero. NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation avant la date d'effet officielle du bail, "pas de loyer ni charges dus"), meme si le texte l'appelle "franchise" et meme si elle est ventilee par lot avec des dates differentes — cela va dans le champ dedie mise_a_disposition, pas ici. ATTENTION CAS INVERSE FREQUENT: quand plusieurs montants de franchise sont donnes a des dates anniversaires successives (ex: un montant "à compter du" 15/09/2025, un autre "à compter du" 15/09/2026, etc.) SANS duree ni date de fin explicite pour chaque tranche, NE JAMAIS supposer 12 mois entre deux echeances — c'est presque toujours un montant equivalent a quelques semaines/mois de loyer accorde CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an), pas une exoneration continue toute l'annee. Calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)) puis date_fin = date_debut + duree_mois mois - 1 jour. N'utiliser 12 mois que si le texte le dit explicitement. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — (a) si la duree est explicite et le montant manquant: reprendre la duree telle quelle dans "duree", calculer montant = duree_mois * (loyer_annuel_base_HT_HC/12) et ecrire "recalcul = <montant> €" dans "montant" (pas un chiffre brut). (b) si le montant est explicite et la duree manquante: montant reste un chiffre brut normal, calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC/12)) et ecrire "recalcul = <duree_mois> mois" dans "duree" (pas une phrase). Si les deux sont explicites, les reprendre tels quels sans marqueur. Jamais de formule detaillee type "A / B = C".
+franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnelles et complementaires. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"123405","surface_assiette":"ex: LC1 (701 m²)","indexation_incluse":"Non","condition":"null ou texte si conditionnelle ex: si non-delivrance de conge au 31/08/2030","page":3}]. UNE LIGNE PAR TRANCHE (REGLE PRIORITAIRE): quand le texte ventile une franchise en plusieurs tranches appliquees a des moments differents ("qui sera appliquee comme suit : X € a compter de la prise d'effet ; Y € a compter du premier anniversaire..."), creer UNE ENTREE PAR TRANCHE — JAMAIS une seule ligne globale avec la ventilation releguee dans "condition". Ne pas ajouter en plus une ligne reprenant le total (double comptage) : le total et sa redaction complete vont dans le champ texte franchise. Une tranche n'est PAS une condition: condition reste null sauf vraie condition (ex: si non-delivrance de conge). DATES RELATIVES: l'absence de date calendaire (date d'effet inconnue a la signature, conditions suspensives, VEFA, livraison...) n'empeche JAMAIS d'eclater les tranches. Dans ce cas ecrire dans date_debut le point de depart tel que le texte le formule, en court: "Prise d'effet du Bail", "1er anniversaire de la prise d'effet", "2e anniversaire de la prise d'effet"... ; et dans date_fin la meme reference + la duree de la tranche (ex: "Prise d'effet + 3,75 mois"). Ne JAMAIS ecrire "recalcul = ... mois" dans date_debut ou date_fin (ce marqueur est reserve aux champs duree et montant). DUREE PAR TRANCHE: si seuls la duree GLOBALE et les montants des tranches sont donnes, repartir la duree globale au prorata des montants (tranches de montants egaux → duree globale / nombre de tranches) et l'ecrire avec le marqueur: "recalcul = 3,75 mois". EXEMPLE REEL: "franchise de loyer initial de sept mois et demi (7,5), soit un montant total de 61.595,62 € HT/HC a compter de la date de prise d'effet du Bail, qui sera appliquee comme suit : 30.797,81 € a compter de la date de prise d'effet du Bail ; 30.797,81 € a compter du premier anniversaire de la date anniversaire du Bail" → DEUX entrees: [{"date_debut":"Prise d'effet du Bail","date_fin":"Prise d'effet + 3,75 mois","duree":"recalcul = 3,75 mois","montant":"30797.81","condition":null,...},{"date_debut":"1er anniversaire de la prise d'effet","date_fin":"1er anniversaire + 3,75 mois","duree":"recalcul = 3,75 mois","montant":"30797.81","condition":null,...}] — PAS une seule ligne de 7,5 mois / 61.595,62 €. montant: calculer si non explicite (loyer_annuel_assiette * duree_mois / 12). ATTENTION DISTINCTION AVEC mise_a_disposition: une franchise reduit un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero. NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation avant la date d'effet officielle du bail, "pas de loyer ni charges dus"), meme si le texte l'appelle "franchise" et meme si elle est ventilee par lot avec des dates differentes — cela va dans le champ dedie mise_a_disposition, pas ici. ATTENTION CAS INVERSE FREQUENT: quand plusieurs montants de franchise sont donnes a des dates anniversaires successives (ex: un montant "à compter du" 15/09/2025, un autre "à compter du" 15/09/2026, etc.) SANS duree ni date de fin explicite pour chaque tranche, NE JAMAIS supposer 12 mois entre deux echeances — c'est presque toujours un montant equivalent a quelques semaines/mois de loyer accorde CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an), pas une exoneration continue toute l'annee. Calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)) puis date_fin = date_debut + duree_mois mois - 1 jour. N'utiliser 12 mois que si le texte le dit explicitement. Ce calcul ne s'applique QU'AUX tranches dont la DUREE n'est PAS ecrite : quand chaque tranche enonce elle-meme sa duree (ex: "2 mois de franchise de loyer initial, soit un montant de 22.791,67 € applique a compter de la premiere date anniversaire du Bail"), reprendre "2 mois" TEL QUEL dans duree, SANS marqueur "recalcul", pour CHAQUE tranche (la 1ere comme les suivantes) — "recalcul =" est reserve a une valeur reellement absente du texte. De meme, "a compter de la premiere date anniversaire du Bail" est le POINT DE DEPART de la tranche (il va dans date_debut), PAS une condition : condition reste null. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — (a) si la duree est explicite et le montant manquant: reprendre la duree telle quelle dans "duree", calculer montant = duree_mois * (loyer_annuel_base_HT_HC/12) et ecrire "recalcul = <montant> €" dans "montant" (pas un chiffre brut). (b) si le montant est explicite et la duree manquante: montant reste un chiffre brut normal, calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC/12)) et ecrire "recalcul = <duree_mois> mois" dans "duree" (pas une phrase). Si les deux sont explicites, les reprendre tels quels sans marqueur. Jamais de formule detaillee type "A / B = C".
 
 participations_travaux: TOUTES les enveloppes de participation financiere du bailleur aux travaux du preneur. Format: [{"libelle":"denomination exacte ex: Locaux Initiaux R+5","montant":"822701","date_limite":"31/12/2024","remarque":null,"page":5}]. libelle OBLIGATOIRE, jamais null.
 
@@ -1987,7 +1987,7 @@ async function callClaudeChat(messages, timeoutMs = 60000) {
 // pour ne plus dépendre d'une liste tenue à jour à la main à chaque nouveau
 // champ ajouté au prompt d'extraction (cause du manque sur
 // participations_travaux, repéré en test).
-const PORTFOLIO_CHAT_EXCLUDED_KEYS = new Set(['_sources', '_pages', 'preneur_substitution', '_qc_dismissed', '_archived', '_avant_saisie_effet'])
+const PORTFOLIO_CHAT_EXCLUDED_KEYS = new Set(['_sources', '_pages', 'preneur_substitution', '_qc_dismissed', '_qc_dismissed_issues', '_archived', '_avant_saisie_effet'])
 function stripInternalFields(obj) {
   const out = {}
   Object.keys(obj || {}).forEach(k => {
@@ -2517,6 +2517,35 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
 }
 
 
+// Normalisation d'affichage des lignes de franchise extraites :
+// (1) « recalcul = N mois » sur une tranche alors qu'une AUTRE tranche du
+// même bail porte la même durée N explicitement ET le même montant — c'est
+// la même valeur écrite dans le bail, répétée tranche par tranche (« 2 mois
+// de franchise… à compter de la 1re, 2e, 3e date anniversaire »), pas un
+// calcul : le marqueur est retiré. (2) « condition » qui ne fait que décrire
+// le point de départ de la tranche (« à compter de la première date
+// anniversaire du Bail ») sans aucune condition réelle (si, sous réserve,
+// à défaut, sauf…) : vidée — l'info est déjà dans la date de début, et la
+// tranche ne doit pas passer pour une franchise conditionnelle.
+function normalizeFranchiseRows(rows) {
+  const monthsOf = v => { const m = String(v ?? '').match(/(\d+(?:[.,]\d+)?)\s*mois/i); return m ? parseFloat(m[1].replace(',', '.')) : null }
+  const isRecalc = v => /^\s*recalcul\s*=/i.test(String(v ?? ''))
+  const explicit = rows.filter(r => r.duree && !isRecalc(r.duree)).map(r => ({ m: monthsOf(r.duree), amt: parseAmount(r.montant) })).filter(x => x.m != null)
+  return rows.map(r => {
+    let out = r
+    if (isRecalc(r.duree)) {
+      const m = monthsOf(r.duree), amt = parseAmount(r.montant)
+      const twin = explicit.find(x => x.m === m && (x.amt == null || amt == null || Math.abs(x.amt - amt) <= 1))
+      if (twin) out = { ...out, duree: String(r.duree).replace(/^\s*recalcul\s*=\s*/i, '') }
+    }
+    const c = typeof r.condition === 'string' ? r.condition : ''
+    if (c && /^\s*(?:[aà]\s+compter|[aà]\s+partir)\s+d/i.test(c) && !/\bsi\b|sous\s+r[ée]serve|condition|[aà]\s+d[ée]faut|\bsauf\b|en\s+cas/i.test(c)) {
+      out = { ...out, condition: null }
+    }
+    return out
+  })
+}
+
 // Fusionne franchise_periodes et abattements en une seule liste — les deux
 // champs se recoupent souvent (le modèle classe parfois la même clause de
 // franchise dans les deux), d'où une déduplication : un abattement est
@@ -2532,7 +2561,7 @@ function mergeLoyerReductions(franchisePeriodes, abattements) {
     const da = parseFR(a), db = parseFR(b)
     return !!(da && db && da.getTime() === db.getTime())
   }
-  const frTagged = fr.map(r => ({ ...r, _type: 'franchise' }))
+  const frTagged = normalizeFranchiseRows(fr).map(r => ({ ...r, _type: 'franchise' }))
   const abFiltered = ab.filter(a => !fr.some(f => sameDate(f.date_debut, a.date_debut) && sameDate(f.date_fin, a.date_fin)))
   const abAsFranchiseRows = abFiltered.map(r => {
     const s = parseFR(r.date_debut), e = parseFR(r.date_fin)
@@ -2924,6 +2953,35 @@ function matchesExactAnniversary(breakDateStr, effet) {
   return null
 }
 
+// Contrôle qualité — statut « Vérifié » mémorisé PAR POINT et non plus par
+// bail. Avant, un seul drapeau _qc_dismissed masquait le bail entier : tout
+// point apparu ensuite (nouveau contrôle, réextraction qui change les
+// données) restait caché sous l'ancien « Vérifié ». Désormais chaque point
+// vérifié est mémorisé par une clé (type + empreinte du détail) dans
+// _qc_dismissed_issues : un point déjà vérifié ne réapparaît jamais ; un
+// point nouveau ou dont le contenu a changé réapparaît seul.
+function qcIssueKey(iss) {
+  const str = `${iss?.type || ''}|${iss?.detail || ''}`
+  let h = 5381
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0
+  return `${iss?.type || 'x'}:${(h >>> 0).toString(36)}`
+}
+// Contrôles ajoutés APRÈS l'ancien drapeau global : un bail marqué
+// « Vérifié » avec l'ancien système n'a pas pu les valider, ils restent donc
+// à vérifier.
+const QC_TYPES_POST_LEGACY = new Set(['duree_totale_cg_suspecte', 'franchise_tranches_non_eclatees'])
+
+// Métadonnées saisies par l'utilisateur (pas lues dans le PDF) : à conserver
+// lors d'une réextraction, qui sinon remplace tout le JSON — un bail archivé
+// se désarchivait, le nom d'affichage du preneur et les points de contrôle
+// qualité déjà vérifiés étaient perdus.
+const USER_METADATA_KEYS = ['preneur_substitution', '_archived', '_qc_dismissed', '_qc_dismissed_issues']
+function keepUserMetadata(previousData, extracted) {
+  const out = { ...extracted }
+  USER_METADATA_KEYS.forEach(k => { if (previousData && previousData[k] !== undefined && out[k] === undefined) out[k] = previousData[k] })
+  return out
+}
+
 function auditBail(row) {
   const d = row.data || {}
   const issues = []
@@ -3264,7 +3322,7 @@ function auditBail(row) {
     const totalMonths = d.franchise_periodes.reduce((sum, f) => sum + (parseMonths(f.duree) || 0), 0)
     const threshold = 5 * dureeFermeYears
     if (totalMonths > threshold) {
-      const hasConditional = d.franchise_periodes.some(f => f.condition)
+      const hasConditional = normalizeFranchiseRows(d.franchise_periodes).some(f => f.condition)
       issues.push({
         type: 'franchise_excessive',
         severity: 'medium',
@@ -5997,6 +6055,15 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
       if (dupDetails[row.id]) {
         r.issues = [...r.issues, { type: 'doublon_suspect', severity: 'high', detail: dupDetails[row.id] }]
       }
+      const doneKeys = new Set(Array.isArray(row.data?._qc_dismissed_issues) ? row.data._qc_dismissed_issues : [])
+      const legacyAll = row.data?._qc_dismissed === true && !Array.isArray(row.data?._qc_dismissed_issues)
+      r.issues = r.issues.map(iss => {
+        const key = qcIssueKey(iss)
+        return { ...iss, _key: key, _done: doneKeys.has(key) || (legacyAll && !QC_TYPES_POST_LEGACY.has(iss.type)) }
+      })
+      r.pendingIssues = r.issues.filter(i => !i._done)
+      r.doneIssues = r.issues.filter(i => i._done)
+      r.dismissed = r.pendingIssues.length === 0
       return r
     }).filter(r => r.issues.length > 0)
   }, [bails])
@@ -6006,11 +6073,11 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
   const severityBg = { high: 'var(--danger-bg)', medium: 'var(--accent-bg)', low: 'var(--surface2)' }
   const severityLabel = { high: 'À vérifier en priorité', medium: 'À vérifier', low: 'Info' }
 
-  async function handleDismiss(e, rowId, dismissed) {
+  async function handleDismiss(e, rowId, dismissed, keys) {
     e.stopPropagation()
     if (pending[rowId]) return
     setPending(prev => ({ ...prev, [rowId]: true }))
-    await onDismiss?.(rowId, dismissed)
+    await onDismiss?.(rowId, dismissed, keys)
     setPending(prev => { const n = { ...prev }; delete n[rowId]; return n })
   }
 
@@ -6039,9 +6106,9 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px', marginBottom: '6px' }}>
           <div style={{ fontWeight: 700, fontSize: '13px' }}>{r.label}</div>
           <button
-            onClick={e => handleDismiss(e, r.row.id, !dismissedCard)}
+            onClick={e => handleDismiss(e, r.row.id, !dismissedCard, r.issues.map(i => i._key))}
             disabled={pending[r.row.id]}
-            title={dismissedCard ? 'Réafficher dans la liste active' : 'Marquer comme vérifié — ne réapparaîtra plus'}
+            title={dismissedCard ? 'Réafficher dans la liste active' : 'Marquer ces points comme vérifiés — ils ne réapparaîtront plus (seul un point nouveau ou modifié réapparaîtra)'}
             style={{
               flexShrink: 0, fontSize: '11px', fontWeight: 600, padding: '3px 9px', borderRadius: '999px', cursor: pending[r.row.id] ? 'default' : 'pointer',
               border: `1px solid ${dismissedCard ? 'var(--border2)' : 'var(--success)'}`,
@@ -6053,7 +6120,12 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
           </button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-          {r.issues.map((iss, i) => (
+          {!dismissedCard && r.doneIssues?.length > 0 && (
+            <div style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic' }}>
+              {r.doneIssues.length} point{r.doneIssues.length > 1 ? 's' : ''} déjà vérifié{r.doneIssues.length > 1 ? 's' : ''} masqué{r.doneIssues.length > 1 ? 's' : ''} — nouveau{r.pendingIssues.length > 1 ? 'x' : ''} point{r.pendingIssues.length > 1 ? 's' : ''} ci-dessous
+            </div>
+          )}
+          {(dismissedCard ? r.issues : r.pendingIssues).map((iss, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{
                 fontSize: '10px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px', flexShrink: 0, marginTop: '1px',
@@ -6230,7 +6302,7 @@ async function reextractOne(row, onProgress) {
       }
     } catch (_) { /* non bloquant */ }
 
-    const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
+    const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(keepUserMetadata(row.data, extracted)) }).eq('id', row.id)
     if (updateErr) throw updateErr
     return { success: true, originalPages, keptPages, removedCount, detectedPage }
   } catch (err) {
@@ -6355,7 +6427,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
         } catch (_) { /* non bloquant */ }
 
         await uploadSourceFile(row.id, prepared)
-        const { error } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
+        const { error } = await supabase.from('extractions').update({ data: stampExtractionDate(keepUserMetadata(row.data, extracted)) }).eq('id', row.id)
         if (error) throw error
         success++
       } catch (err) {
@@ -7158,7 +7230,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       if (previousStoragePath && previousStoragePath !== `${row.id}/${sanitizeStorageKey(prepared.name)}`) {
         try { await supabase.storage.from('lease-sources').remove([previousStoragePath]) } catch (_) {}
       }
-      const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
+      const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(keepUserMetadata(row.data, extracted)) }).eq('id', row.id)
       if (updateErr) throw updateErr
 
       setReextractProgress(null)
@@ -9374,11 +9446,19 @@ export default function App() {
             bails={history.filter(row => row.document_type === 'bail')}
             onClose={() => setShowQualityCheck(false)}
             onSelect={row => { setShowQualityCheck(false); setActiveItem(row); navigate(`/bail/${row.id}`) }}
-            onDismiss={async (rowId, dismissed) => {
+            onDismiss={async (rowId, dismissed, keys = []) => {
               const row = history.find(b => b.id === rowId)
               if (!row) return
-              const newData = { ...row.data, _qc_dismissed: dismissed }
-              await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
+              const prevKeys = Array.isArray(row.data?._qc_dismissed_issues) ? row.data._qc_dismissed_issues : []
+              const nextKeys = dismissed ? [...new Set([...prevKeys, ...keys])] : prevKeys.filter(k => !keys.includes(k))
+              const newData = { ...row.data, _qc_dismissed_issues: nextKeys }
+              delete newData._qc_dismissed // ancien drapeau global, remplacé par la liste par point
+              const { error } = await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
+              if (error) {
+                console.error('Enregistrement du statut « Vérifié » échoué', error)
+                alert(`Le statut « Vérifié » n'a pas pu être enregistré (${error.message || 'erreur inconnue'}) — il réapparaîtrait à la prochaine ouverture.`)
+                return
+              }
               setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
               if (activeItem?.id === rowId) setActiveItem(prev => ({ ...prev, data: newData }))
             }}
