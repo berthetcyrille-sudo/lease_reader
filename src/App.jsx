@@ -6043,32 +6043,38 @@ function PortfolioChatModal({ history, onClose, onSelect }) {
   )
 }
 
+// Résultats du contrôle qualité pour une liste de baux, avec le statut
+// « Vérifié » point par point. Partagé entre la fenêtre de contrôle et le
+// compteur du bouton d'en-tête, pour qu'ils affichent toujours le même total.
+function computeQcResults(bails) {
+  const dupDetails = findDuplicateBails(bails)
+  return bails.map(row => {
+    const r = auditBail(row)
+    if (dupDetails[row.id]) {
+      r.issues = [...r.issues, { type: 'doublon_suspect', severity: 'high', detail: dupDetails[row.id] }]
+    }
+    const doneKeys = new Set(Array.isArray(row.data?._qc_dismissed_issues) ? row.data._qc_dismissed_issues : [])
+    const legacyAll = row.data?._qc_dismissed === true && !Array.isArray(row.data?._qc_dismissed_issues)
+    r.issues = r.issues.map(iss => {
+      const key = qcIssueKey(iss)
+      return { ...iss, _key: key, _done: doneKeys.has(key) || (legacyAll && !QC_TYPES_POST_LEGACY.has(iss.type)) }
+    })
+    r.pendingIssues = r.issues.filter(i => !i._done)
+    r.doneIssues = r.issues.filter(i => i._done)
+    r.dismissed = r.pendingIssues.length === 0
+    return r
+  }).filter(r => r.issues.length > 0)
+}
+
 function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary, onFixSurfaceLoyer }) {
   const [showDismissed, setShowDismissed] = useState(false)
   const [pending, setPending] = useState({}) // { [rowId]: true } — évite double-clic pendant l'écriture
   const [fixPending, setFixPending] = useState({}) // { [rowId]: true } — pour le bouton "−1 jour"
   const [fixSurfacePending, setFixSurfacePending] = useState({}) // { [rowId]: true } — pour le bouton de correction surface/loyer
-  const allResults = useMemo(() => {
-    const dupDetails = findDuplicateBails(bails)
-    return bails.map(row => {
-      const r = auditBail(row)
-      if (dupDetails[row.id]) {
-        r.issues = [...r.issues, { type: 'doublon_suspect', severity: 'high', detail: dupDetails[row.id] }]
-      }
-      const doneKeys = new Set(Array.isArray(row.data?._qc_dismissed_issues) ? row.data._qc_dismissed_issues : [])
-      const legacyAll = row.data?._qc_dismissed === true && !Array.isArray(row.data?._qc_dismissed_issues)
-      r.issues = r.issues.map(iss => {
-        const key = qcIssueKey(iss)
-        return { ...iss, _key: key, _done: doneKeys.has(key) || (legacyAll && !QC_TYPES_POST_LEGACY.has(iss.type)) }
-      })
-      r.pendingIssues = r.issues.filter(i => !i._done)
-      r.doneIssues = r.issues.filter(i => i._done)
-      r.dismissed = r.pendingIssues.length === 0
-      return r
-    }).filter(r => r.issues.length > 0)
-  }, [bails])
+  const allResults = useMemo(() => computeQcResults(bails), [bails])
   const activeResults = allResults.filter(r => !r.dismissed)
   const dismissedResults = allResults.filter(r => r.dismissed)
+  const pendingPointCount = activeResults.reduce((n, r) => n + r.pendingIssues.length, 0)
   const severityColor = { high: 'var(--danger)', medium: 'var(--accent)', low: 'var(--text3)' }
   const severityBg = { high: 'var(--danger-bg)', medium: 'var(--accent-bg)', low: 'var(--surface2)' }
   const severityLabel = { high: 'À vérifier en priorité', medium: 'À vérifier', low: 'Info' }
@@ -6170,10 +6176,31 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
       <div className="modal" style={{ width: '820px', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div className="modal-title">Contrôle qualité</div>
+            <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              Contrôle qualité
+              {allResults.length > 0 && (
+                <span style={{ fontSize: '12px', fontWeight: 700, padding: '2px 10px', borderRadius: '999px',
+                  background: activeResults.length ? 'var(--danger-bg)' : 'var(--success-bg)',
+                  color: activeResults.length ? 'var(--danger)' : 'var(--success)' }}>
+                  {activeResults.length
+                    ? `${activeResults.length} bail${activeResults.length > 1 ? 'x' : ''} à traiter · ${pendingPointCount} point${pendingPointCount > 1 ? 's' : ''}`
+                    : 'Tout est traité'}
+                </span>
+              )}
+            </div>
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
               Détection heuristique — ne modifie rien, à vérifier/réextraire manuellement au cas par cas
             </div>
+            {allResults.length > 0 && (
+              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '220px', height: '6px', borderRadius: '3px', background: 'var(--surface2)', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.round(100 * dismissedResults.length / allResults.length)}%`, height: '100%', background: 'var(--success)', transition: 'width .3s' }} />
+                </div>
+                <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
+                  {dismissedResults.length} / {allResults.length} baux signalés traités
+                </span>
+              </div>
+            )}
           </div>
           <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
         </div>
@@ -8521,6 +8548,9 @@ export default function App() {
   const [etatLocatifSearch, setEtatLocatifSearch] = useState('')
   const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
   const [showQualityCheck, setShowQualityCheck] = useState(false)
+  // Nombre de baux avec au moins un point de contrôle qualité non vérifié —
+  // affiché en pastille sur le bouton d'en-tête.
+  const qcRemaining = useMemo(() => computeQcResults(history.filter(row => row.document_type === 'bail')).filter(r => !r.dismissed).length, [history])
   const [showPortfolioChat, setShowPortfolioChat] = useState(false)
   const [showSynthese, setShowSynthese] = useState(false)
   // Recherche/filtre du dashboard remontés ici (plutôt que locaux à Dashboard)
@@ -9395,6 +9425,13 @@ export default function App() {
               <path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><path d="M22 4L12 14.01l-3-3"/>
             </svg>
             Contrôle qualité
+            {histLoaded && (
+              <span title={qcRemaining ? `${qcRemaining} bail${qcRemaining > 1 ? 'x' : ''} avec au moins un point à vérifier` : 'Aucun point en attente'}
+                style={{ fontSize: '11px', fontWeight: 700, minWidth: '18px', textAlign: 'center', padding: '1px 6px', borderRadius: '999px',
+                  background: qcRemaining ? '#C0392B' : 'rgba(255,255,255,0.15)', color: '#fff' }}>
+                {qcRemaining || '✓'}
+              </span>
+            )}
           </button>
 
           <button
