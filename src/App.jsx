@@ -1871,7 +1871,7 @@ async function callClaudeChat(messages, timeoutMs = 60000) {
 // pour ne plus dépendre d'une liste tenue à jour à la main à chaque nouveau
 // champ ajouté au prompt d'extraction (cause du manque sur
 // participations_travaux, repéré en test).
-const PORTFOLIO_CHAT_EXCLUDED_KEYS = new Set(['_sources', '_pages', 'preneur_substitution', '_qc_dismissed', '_archived'])
+const PORTFOLIO_CHAT_EXCLUDED_KEYS = new Set(['_sources', '_pages', 'preneur_substitution', '_qc_dismissed', '_archived', '_avant_saisie_effet'])
 function stripInternalFields(obj) {
   const out = {}
   Object.keys(obj || {}).forEach(k => {
@@ -3924,7 +3924,8 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   const primaryDates = [
     d.date_effet
       ? { key: 'date_effet', label: "Prise d'effet", type: 'primary', confirmedByAvenant: effetConfirmePar }
-      : (d.date_effet_condition ? { key: 'date_effet_condition', label: "Prise d'effet", type: 'effet_conditionnel', condition: d.date_effet_condition } : null),
+      : (d.date_effet_condition ? { key: 'date_effet_condition', label: "Prise d'effet", type: 'effet_conditionnel', condition: d.date_effet_condition }
+        : (!isAv ? { key: 'date_effet', label: "Prise d'effet", type: 'primary', val: 'Non renseignée' } : null)),
     ...(exitCards || []),
     ...(exitCards ? [] : breakItems).map((item, i) => {
       if (!item.conditional) bNum++
@@ -4203,11 +4204,12 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                           value={effetInput}
                           onChange={e => setEffetInput(e.target.value)}
                           placeholder="jj/mm/aaaa"
+                          title="Laisser vide puis valider pour effacer la saisie manuelle"
                           autoFocus
                           style={{ width: '92px', fontSize: '13px', padding: '3px 6px', border: '1px solid var(--border2)', borderRadius: '5px' }}
                         />
                         <button
-                          disabled={savingEffet || !/^\d{2}\/\d{2}\/\d{4}$/.test(effetInput.trim())}
+                          disabled={savingEffet || (effetInput.trim() !== '' && !/^\d{2}\/\d{2}\/\d{4}$/.test(effetInput.trim()))}
                           onClick={async () => {
                             setSavingEffet(true)
                             const ok = await onSaveManualDateEffet?.(item, effetInput.trim())
@@ -8832,7 +8834,41 @@ export default function App() {
   // logique que lorsqu'un avenant confirme une date d'effet auparavant
   // conditionnelle.
   async function handleManualDateEffet(row, newDateEffetStr) {
+    // Champ vidé : on restaure les valeurs extraites d'origine (sauvegardées
+    // lors de la première saisie manuelle) — date d'effet, condition
+    // suspensive, date de fin et breaks — ou, à défaut de sauvegarde
+    // (saisie antérieure à ce mécanisme), on efface juste la date d'effet.
+    if (!newDateEffetStr) {
+      const backup = row.data?._avant_saisie_effet
+      const cleared = { ...row.data }
+      if (backup) {
+        cleared.date_effet = backup.date_effet ?? null
+        cleared.date_effet_condition = backup.date_effet_condition ?? null
+        cleared.date_fin = backup.date_fin ?? null
+        cleared.break_options = backup.break_options ?? []
+        delete cleared._avant_saisie_effet
+      } else {
+        cleared.date_effet = null
+      }
+      const { error: errClear } = await supabase.from('extractions').update({ data: cleared }).eq('id', row.id)
+      if (errClear) { console.error('Effacement de la date d\'effet échoué', errClear); return false }
+      setHistory(prev => prev.map(b => b.id === row.id
+        ? { ...b, data: cleared }
+        : { ...b, avenants: (b.avenants || []).map(a => a.id === row.id ? { ...a, data: cleared } : a) }))
+      if (activeItem?.id === row.id) setActiveItem(prev => ({ ...prev, data: cleared }))
+      return true
+    }
     const newData = { ...row.data, date_effet: newDateEffetStr, date_effet_condition: null }
+    // Première saisie manuelle : on garde les valeurs extraites qu'elle va
+    // écraser, pour pouvoir les restaurer en vidant le champ.
+    if (!row.data?._avant_saisie_effet) {
+      newData._avant_saisie_effet = {
+        date_effet: row.data?.date_effet ?? null,
+        date_effet_condition: row.data?.date_effet_condition ?? null,
+        date_fin: row.data?.date_fin ?? null,
+        break_options: row.data?.break_options ?? [],
+      }
+    }
     const startConfirmed = parseFR(newDateEffetStr)
     if (startConfirmed) {
       const m = String(newData.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
