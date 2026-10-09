@@ -114,7 +114,7 @@ REGLES PAR CHAMP:
 - conditions_suspensives: liste de TOUTES les conditions suspensives auxquelles l'entree en vigueur du bail (ou certains de ses effets) est subordonnee — typiquement une clause "Condition(s) Suspensive(s)" prevoyant que le bail ne devient definitif/ne prend effet que si un evenement determine se realise (ex: obtention d'un permis de construire purge de tout recours, obtention d'une autorisation administrative, levee d'une clause de non-recours, achevement de travaux, obtention d'un financement, non-exercice d'un droit de preemption). Format: [{"libelle":"texte concis de la condition","date_limite_levee":"jj/mm/aaaa si mentionnee, sinon null","statut":"levee/en cours/non precise si le document l'indique, sinon null","page":2}]. date_limite_levee: OBLIGATOIRE de chercher systematiquement cette date dans le texte de la clause — c'est la date au-dela de laquelle la condition doit avoir ete realisee/levee, faute de quoi le bail est cense ne pas se former ou etre caduc (formulations typiques: "la presente condition suspensive devra etre levee au plus tard le [date]", "a defaut de realisation de la condition avant le [date]", "dans un delai de N mois a compter de la signature"). Si le delai est exprime en duree relative ("dans un delai de 6 mois a compter de la signature") plutot qu'en date absolue, CALCULER la date resultante a partir de date_signature (ou date_effet si date_signature absente) et la reporter ici au format jj/mm/aaaa — ne pas laisser null uniquement parce que la date n'est pas ecrite en toutes lettres. null UNIQUEMENT si le bail n'indique reellement aucun delai ni date pour cette condition precise. Une condition deja explicitement levee/realisee au moment de la signature (mention "la presente condition est levee/realisee") doit quand meme etre listee, avec statut="levee". [] si le bail ne prevoit aucune condition suspensive.
 - surface_totale_m2: la surface de reference du bail. REGLE: si le bail utilise le terme "Surface Exploitee" (ou variante proche) pour designer la surface globale des locaux, UTILISER CETTE VALEUR pour surface_totale_m2, meme si elle inclut une quote-part des parties communes — c'est la convention de reference dans ce bail. Ne descendre au sous-composant individuel (ex: "Surface de bureaux") QUE si aucune "Surface Exploitee"/surface globale n'est mentionnee. Exemple: "la Surface Exploitee... est de 584,50 m²... les Locaux se decomposent: Surface de bureaux (lot n°11): 510,20 m²" → surface_totale_m2 = 584.50 (la Surface Exploitee), PAS 510.20.
 - classification_batiment: classement reglementaire de l'immeuble/des locaux, s'il est mentionne dans le bail — un SEUL de ces 3 regimes s'applique en general : (1) "Code du travail" (locaux professionnels ordinaires, aucune reglementation ERP/IGH specifique) ; (2) ERP (Etablissement Recevant du Public) — preciser la CATEGORIE (1re a 5e categorie) ET le TYPE d'activite (lettre(s), ex: W = bureaux, M = magasins, R = enseignement, etc.) des qu'ils sont mentionnes, format court "ERP categorie X, type Y" (ex: "ERP 5e categorie, type W") ; (3) IGH (Immeuble de Grande Hauteur) — preciser la CATEGORIE (ex: GHW1, GHW2, GHA, GHR...) et le TYPE si distinct de la categorie. Resumer en une phrase courte, ex: "ERP 4e categorie, type W" ou "IGH categorie GHW2" ou "Code du travail (locaux non ERP)". null si non mentionne dans le bail — NE JAMAIS deduire ou deviner ce classement a partir de la hauteur/surface de l'immeuble, uniquement s'il est explicitement ecrit dans le texte.
-- surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. batiment: nom ou identifiant du BATIMENT auquel appartient cette surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes/identifies (ex: "Pascal", "Batiment A", "Celsius") — mettre null si le bail ne porte que sur un seul batiment, ou si aucun nom de batiment n'est mentionne (ne jamais deviner ou inventer un nom). Ce champ est INDEPENDANT de niveau (qui reste l'etage/niveau au sein de ce batiment) — les deux se completent, ne pas melanger le nom du batiment dans le champ niveau. Exemple avec ventilation de loyer et un seul batiment (toutes les lignes ont un loyer_annuel, batiment=null car non pertinent): [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"batiment\":null,\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement, un seul batiment): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"batiment\":null,\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). Exemple avec plusieurs batiments nommes (ensemble immobilier a plusieurs batiments, chaque surface rattachee au sien): bail dit "332,91 m2 au rez-de-chaussee du batiment A denomme Pascal" et "50 m2 dans l'immeuble denomme Lavoisier" → [{\"categorie\":\"Bureaux\",\"batiment\":\"Pascal\",\"niveau\":\"RDC\",\"surface_m2\":\"332.91\",\"loyer_annuel\":null},{\"categorie\":\"Bureaux\",\"batiment\":\"Lavoisier\",\"niveau\":\"RDC\",\"surface_m2\":\"50\",\"loyer_annuel\":null}]. categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. IMPORTANT POUR LES LIGNES STATIONNEMENT: pour une ligne categorie="Stationnement", le champ surface_m2 doit contenir le NOMBRE DE PLACES (pas une surface en m²) — reporter ce chiffre meme s'il n'est mentionne que dans une clause separee du bail (souvent la meme clause qui alimente le champ parking_nb_places, ex: "35 emplacements numerotes...1500 €/place/an"). NE JAMAIS laisser surface_m2 vide pour une ligne Stationnement si un nombre de places est identifiable ailleurs dans le document, meme si la clause de loyer stationnement (ligne du tableau) et la clause descriptive du nombre de places (champ parking_nb_places) sont physiquement separees dans le bail. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
+- surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. CATEGORIE: reprendre l'usage tel que le bail le designe (\"Industrie\", \"Activite\", \"Entrepot\", \"Bureaux\", \"Commerce\", \"Archives\"...) — \"RIE\" est reserve a un restaurant inter-entreprises / une redevance de restauration collective, jamais a une surface d'industrie ou d'activite. SURFACE NON CONNUE A LA SIGNATURE (REGLE PRIORITAIRE): si le bail lui-meme ne chiffre PAS la surface (\"surface a determiner\", \"a mesurer\", \"sera precisee par avenant/constat/certificat de mesurage\", seulement un prix au m²), alors surfaces_detail=[] et surface_totale_m2=null. Ne JAMAIS reconstituer une surface a partir du loyer et d'un prix unitaire, ni reprendre une surface figurant dans un avenant, un certificat de mesurage, un constat ou tout autre document POSTERIEUR eventuellement joint dans le meme PDF : seules les stipulations du bail a sa signature comptent (la surface definitive sera portee par l'avenant lui-meme, extrait separement). Les lignes de stationnement dont le NOMBRE de places est ecrit dans le bail restent, elles, renseignees. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. batiment: nom ou identifiant du BATIMENT auquel appartient cette surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes/identifies (ex: "Pascal", "Batiment A", "Celsius") — mettre null si le bail ne porte que sur un seul batiment, ou si aucun nom de batiment n'est mentionne (ne jamais deviner ou inventer un nom). Ce champ est INDEPENDANT de niveau (qui reste l'etage/niveau au sein de ce batiment) — les deux se completent, ne pas melanger le nom du batiment dans le champ niveau. Exemple avec ventilation de loyer et un seul batiment (toutes les lignes ont un loyer_annuel, batiment=null car non pertinent): [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"batiment\":null,\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement, un seul batiment): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"batiment\":null,\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). Exemple avec plusieurs batiments nommes (ensemble immobilier a plusieurs batiments, chaque surface rattachee au sien): bail dit "332,91 m2 au rez-de-chaussee du batiment A denomme Pascal" et "50 m2 dans l'immeuble denomme Lavoisier" → [{\"categorie\":\"Bureaux\",\"batiment\":\"Pascal\",\"niveau\":\"RDC\",\"surface_m2\":\"332.91\",\"loyer_annuel\":null},{\"categorie\":\"Bureaux\",\"batiment\":\"Lavoisier\",\"niveau\":\"RDC\",\"surface_m2\":\"50\",\"loyer_annuel\":null}]. categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. IMPORTANT POUR LES LIGNES STATIONNEMENT: pour une ligne categorie="Stationnement", le champ surface_m2 doit contenir le NOMBRE DE PLACES (pas une surface en m²) — reporter ce chiffre meme s'il n'est mentionne que dans une clause separee du bail (souvent la meme clause qui alimente le champ parking_nb_places, ex: "35 emplacements numerotes...1500 €/place/an"). NE JAMAIS laisser surface_m2 vide pour une ligne Stationnement si un nombre de places est identifiable ailleurs dans le document, meme si la clause de loyer stationnement (ligne du tableau) et la clause descriptive du nombre de places (champ parking_nb_places) sont physiquement separees dans le bail. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
 - _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ SIMPLE (non-tableau) dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_totale":1,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes (duree_totale et duree_ferme sont presque toujours dans la meme clause, ne pas en oublier un des deux), meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null. IMPORTANT: pour les champs qui sont des TABLEAUX (franchise_periodes, participations_travaux, indemnites_restitution, indemnites_break, conditions_suspensives), la page se met DIRECTEMENT dans chaque objet de la liste (cle "page", voir leurs formats respectifs ci-dessous) — PAS dans cet objet _pages global, qui reste reserve aux champs simples.
@@ -1014,11 +1014,27 @@ const CAT_MAP = {
   'archives': 'Archives', 'cave': 'Archives', 'local technique': 'Archives', 'reserve': 'Archives',
   'commerce': 'Commerce', 'boutique': 'Commerce', 'retail': 'Commerce',
   'rie': 'RIE', 'restaurant': 'RIE', 'cafeteria': 'RIE',
+  'industrie': 'Activités / Industrie', 'industriel': 'Activités / Industrie', 'industrielle': 'Activités / Industrie',
+  'activite': 'Activités / Industrie', 'activites': 'Activités / Industrie', 'atelier': 'Activités / Industrie', 'production': 'Activités / Industrie',
+  'entrepot': 'Entrepôt / Stockage', 'logistique': 'Entrepôt / Stockage',
 }
+// Recherche par MOT ENTIER (accents retirés), jamais par sous-chaîne : avec
+// key.includes(k), « industrie » contient « rie » et devenait « RIE »
+// (de même « galerie », « librairie »…), ce qui excluait en plus la ligne du
+// total de surface. Le premier mot-clé trouvé dans l'ordre du libellé gagne
+// (« bureaux et sanitaires en mezzanine » → Bureaux).
+const CAT_KEYS_BY_LENGTH = Object.keys(CAT_MAP).sort((a, b) => b.length - a.length)
 function normCat(cat) {
   if (!cat) return 'Bureaux'
   const key = String(cat).toLowerCase().trim()
-  return CAT_MAP[key] || (Object.keys(CAT_MAP).find(k => key.includes(k)) ? CAT_MAP[Object.keys(CAT_MAP).find(k => key.includes(k))] : cat)
+  if (CAT_MAP[key]) return CAT_MAP[key]
+  const plain = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[_'’]/g, ' ')
+  let best = null
+  for (const k of CAT_KEYS_BY_LENGTH) {
+    const m = new RegExp(`(?:^|[^a-z])${k.replace(/_/g, ' ')}(?:[^a-z]|$)`).exec(plain)
+    if (m && (best === null || m.index < best.index)) best = { index: m.index, k }
+  }
+  return best ? CAT_MAP[best.k] : cat
 }
 function normalizeSurfaces(rows) {
   if (!Array.isArray(rows)) return rows
@@ -2334,7 +2350,10 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   // en plus des 195€/m² de loyer) — ce n'est pas une surface distincte
   // louée en plus. La compter dans le total de surface revient à compter
   // deux fois la même surface de bureaux.
-  const isRie = r => (r.categorie || r.typologie || '').toLowerCase().includes('rie')
+  // Mot entier « RIE » ou restauration collective — jamais la sous-chaîne
+  // « rie » (« industrie », « galerie », « librairie » étaient pris pour une
+  // RIE et retirés du total de surface).
+  const isRie = r => /(?:^|[^a-z])rie(?:[^a-z]|$)|restaurant\s+inter|restauration\s+(?:inter|collective)|cafeteria/.test(String(r.categorie || r.typologie || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
   const mainRows = safe.filter(r => !isPark(r))
   const parkRows = safe.filter(r => isPark(r))
   // Colonne Bâtiment affichée seulement si le bail porte sur plusieurs
@@ -2509,6 +2528,25 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
           Total général : {fmtEur(totalLoyer)}
         </div>
       )}
+      {(() => {
+        // Ventilation incohérente avec le loyer à la signature (> 1 %) :
+        // typiquement des surfaces lues dans un document postérieur
+        // (avenant/mesurage) alors que le loyer du bail portait sur une
+        // surface provisoire. On le dit au lieu de laisser deux totaux
+        // contradictoires sans explication.
+        const declared = parseAmount(totalLoyerDeclared)
+        if (!declared || !(totalLoyer > 0) || mainLoyerIsFallback) return null
+        // seulement si CHAQUE ligne porte un loyer : une ligne de surface sans
+        // loyer propre rendrait la somme partielle et l'écart artificiel
+        if (mainRows.some(r => rowLoyerAnnuel(r).value == null) || parkRows.some(r => parseAmount(r.loyer_annuel) == null)) return null
+        const gap = totalLoyer - declared
+        if (Math.abs(gap) / declared <= 0.01) return null
+        return (
+          <div style={{ marginTop: '6px', padding: '7px 10px', borderRadius: 'var(--r)', background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: '11.5px', lineHeight: 1.4 }}>
+            ⚠ La ventilation totalise {fmtEur(totalLoyer)}, soit {gap > 0 ? '+' : '−'}{fmtEur(Math.abs(gap))} par rapport au loyer à la signature ({fmtEur(declared)}). Les surfaces viennent peut-être d'un document postérieur (avenant, mesurage) alors que le bail ne les chiffrait pas — réextraction de ce bail seul recommandée.
+          </div>
+        )
+      })()}
       {(mainRows.length > 0 || parkRows.length > 0) && (
         <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px' }}>* Prix unitaire calculé (loyer annuel ÷ surface/places)</div>
       )}
@@ -2969,7 +3007,7 @@ function qcIssueKey(iss) {
 // Contrôles ajoutés APRÈS l'ancien drapeau global : un bail marqué
 // « Vérifié » avec l'ancien système n'a pas pu les valider, ils restent donc
 // à vérifier.
-const QC_TYPES_POST_LEGACY = new Set(['duree_totale_cg_suspecte', 'franchise_tranches_non_eclatees'])
+const QC_TYPES_POST_LEGACY = new Set(['duree_totale_cg_suspecte', 'franchise_tranches_non_eclatees', 'ventilation_loyer_ecart'])
 
 // Métadonnées saisies par l'utilisateur (pas lues dans le PDF) : à conserver
 // lors d'une réextraction, qui sinon remplace tout le JSON — un bail archivé
@@ -3330,6 +3368,26 @@ function auditBail(row) {
       })
     }
   }
+
+  // 15. Ventilation du loyer (somme des loyer_annuel de surfaces_detail,
+  // stationnement compris) différente de plus de 1 % du loyer à la
+  // signature, alors que TOUTES les lignes portent un loyer. Signature
+  // typique d'un bail signé sur une surface non encore mesurée dont la
+  // surface définitive (avenant) a été reprise à tort dans le bail.
+  ;(() => {
+    const rows = Array.isArray(d.surfaces_detail) ? d.surfaces_detail : []
+    const declared = parseAmount(d.loyer_signature_montant)
+    if (!rows.length || !declared) return
+    const amounts = rows.map(r => parseAmount(r.loyer_annuel))
+    if (amounts.some(a => a == null)) return
+    const sum = amounts.reduce((a, b) => a + b, 0)
+    if (!(sum > 0) || Math.abs(sum - declared) / declared <= 0.01) return
+    issues.push({
+      type: 'ventilation_loyer_ecart',
+      severity: 'medium',
+      detail: `Ventilation du loyer par composante = ${Math.round(sum).toLocaleString('fr-FR')} € ≠ loyer à la signature ${Math.round(declared).toLocaleString('fr-FR')} € (écart ${Math.round(sum - declared).toLocaleString('fr-FR')} €) — surfaces possiblement issues d'un avenant/mesurage postérieur alors que le bail ne les chiffrait pas. Réextraction de ce bail seul recommandée.`,
+    })
+  })()
 
   // 14. Franchise ventilée en plusieurs tranches mais extraite en UNE seule
   // ligne (la ventilation reléguée dans « condition » ou dans le texte
