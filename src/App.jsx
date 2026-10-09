@@ -6658,6 +6658,13 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
   const [scope, setScope] = useState('all') // 'all' | 'bail' | 'avenant'
   const [buildingFilter, setBuildingFilter] = useState('') // '' = tous les immeubles
   const [excludeArchived, setExcludeArchived] = useState(true)
+  // Filtre par date d'extraction (_extracted_at, horodatage posé à chaque
+  // extraction) : « extraits strictement avant le JJ/MM/AAAA », avec option
+  // d'inclure les documents SANS date — extraits avant la mise en place de
+  // l'horodatage, donc forcément les plus anciens.
+  const [dateFilterOn, setDateFilterOn] = useState(false)
+  const [cutoffDay, setCutoffDay] = useState('') // 'AAAA-MM-JJ' (date locale), '' = aucune date choisie
+  const [includeUndated, setIncludeUndated] = useState(true)
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState(null) // { current, total, fileName, state }
   const [results, setResults] = useState(null) // { success, failed: [{name, msg}], stopped }
@@ -6671,15 +6678,59 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
 
   const rowLabel = r => r.data?.immeuble || r.data?.adresse || r.file_name
 
-  const matchesScope = r => {
+  // Date d'extraction d'un document (objet Date) ou null s'il n'en a pas.
+  const extractedAt = r => { const v = r.data?._extracted_at; if (!v) return null; const dt = new Date(v); return isNaN(dt.getTime()) ? null : dt }
+  const dayKey = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+  const cutoffDate = cutoffDay ? new Date(`${cutoffDay}T00:00:00`) : null
+
+  const matchesBase = r => {
     if (scope === 'bail' && r.document_type !== 'bail') return false
     if (scope === 'avenant' && r.document_type !== 'avenant') return false
     if (buildingFilter && r.actif_group !== buildingFilter) return false
     if (excludeArchived && r.data?._archived) return false
     return true
   }
+  const matchesDate = r => {
+    if (!dateFilterOn) return true
+    const at = extractedAt(r)
+    if (!at) return includeUndated
+    return !!cutoffDate && at < cutoffDate
+  }
+  const matchesScope = r => matchesBase(r) && matchesDate(r)
   const targetRows = allRows.filter(r => r.storage_path && matchesScope(r))
+  // Compteurs par périmètre : nombre de documents réextractibles (fichier
+  // source attaché) pour chaque choix possible, les AUTRES filtres restant
+  // appliqués — on voit ce que donnerait chaque option avant de la choisir.
+  const withSource = allRows.filter(r => r.storage_path)
+  const passesOthers = (r, ignore) =>
+    (ignore === 'scope' || !((scope === 'bail' && r.document_type !== 'bail') || (scope === 'avenant' && r.document_type !== 'avenant'))) &&
+    (ignore === 'building' || !buildingFilter || r.actif_group === buildingFilter) &&
+    !(excludeArchived && r.data?._archived) && matchesDate(r)
+  const scopeCounts = {
+    all: withSource.filter(r => passesOthers(r, 'scope')).length,
+    bail: withSource.filter(r => r.document_type === 'bail' && passesOthers(r, 'scope')).length,
+    avenant: withSource.filter(r => r.document_type === 'avenant' && passesOthers(r, 'scope')).length,
+  }
+  const buildingCounts = {}
+  withSource.forEach(r => { if (r.actif_group && passesOthers(r, 'building')) buildingCounts[r.actif_group] = (buildingCounts[r.actif_group] || 0) + 1 })
+  const buildingAllCount = withSource.filter(r => passesOthers(r, 'building')).length
+  const targetBails = targetRows.filter(r => r.document_type === 'bail').length
+  const targetAvenants = targetRows.length - targetBails
   const noSourceCount = allRows.filter(r => !r.storage_path && matchesScope(r)).length
+
+  // Liste des jours d'extraction présents en base (sur le périmètre choisi
+  // hors filtre de date), du plus récent au plus ancien, avec pour chacun le
+  // nombre de documents qui seraient réextraits en le choisissant.
+  const baseRows = allRows.filter(r => r.storage_path && matchesBase(r))
+  const undatedCount = baseRows.filter(r => !extractedAt(r)).length
+  const dayOptions = useMemo(() => {
+    const days = [...new Set(baseRows.map(extractedAt).filter(Boolean).map(dayKey))].sort().reverse()
+    return days.map(day => {
+      const limit = new Date(`${day}T00:00:00`)
+      return { day, label: new Date(`${day}T00:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }), before: baseRows.filter(r => { const at = extractedAt(r); return at && at < limit }).length, sameDay: baseRows.filter(r => { const at = extractedAt(r); return at && dayKey(at) === day }).length }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allRows, scope, buildingFilter, excludeArchived])
 
   async function runBulkReextract() {
     setRunning(true)
@@ -6769,6 +6820,10 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
                   background: scope === s ? 'var(--accent)' : 'transparent', color: scope === s ? '#fff' : 'var(--text2)',
                 }}>
                   {s === 'all' ? 'Tout' : s === 'bail' ? 'Baux' : 'Avenants'}
+                  <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 700, padding: '0 6px', borderRadius: '999px',
+                    background: scope === s ? 'rgba(255,255,255,0.25)' : 'var(--surface2)', color: scope === s ? '#fff' : 'var(--text3)' }}>
+                    {scopeCounts[s]}
+                  </span>
                 </button>
               ))}
             </div>
@@ -6777,20 +6832,63 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
               value={buildingFilter}
               onChange={e => setBuildingFilter(e.target.value)}
               style={{ display: 'block', width: '100%', padding: '8px 10px', fontSize: '13px', border: '1px solid var(--border2)', borderRadius: '6px', marginBottom: '14px', background: 'var(--surface)', color: 'var(--text)' }}>
-              <option value="">Tous les immeubles</option>
-              {buildingOptions.map(name => <option key={name} value={name}>{name}</option>)}
+              <option value="">Tous les immeubles ({buildingAllCount})</option>
+              {buildingOptions.map(name => <option key={name} value={name}>{name} ({buildingCounts[name] || 0})</option>)}
             </select>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '16px', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '12px', cursor: 'pointer' }}>
               <input type="checkbox" checked={excludeArchived} onChange={e => setExcludeArchived(e.target.checked)} />
               Exclure les baux archivés
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: dateFilterOn ? '8px' : '16px', cursor: 'pointer', fontWeight: 600 }}>
+              <input type="checkbox" checked={dateFilterOn} onChange={e => setDateFilterOn(e.target.checked)} />
+              Filtrer par date d'extraction
+            </label>
+            {dateFilterOn && (
+              <div style={{ border: '1px solid var(--border2)', borderRadius: '6px', padding: '10px 12px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '13px' }}>
+                  <span>Extraits avant le</span>
+                  <input type="date" value={cutoffDay} onChange={e => setCutoffDay(e.target.value)}
+                    style={{ padding: '6px 8px', fontSize: '13px', border: '1px solid var(--border2)', borderRadius: '6px', background: 'var(--surface)', color: 'var(--text)' }} />
+                  <span style={{ color: 'var(--text3)', fontSize: '12px' }}>(ce jour exclu)</span>
+                </div>
+                {dayOptions.length > 0 && (
+                  <select value={dayOptions.some(o => o.day === cutoffDay) ? cutoffDay : ''} onChange={e => setCutoffDay(e.target.value)}
+                    style={{ display: 'block', width: '100%', padding: '7px 10px', fontSize: '12.5px', border: '1px solid var(--border2)', borderRadius: '6px', background: 'var(--surface)', color: 'var(--text)' }}>
+                    <option value="">… ou choisir parmi les dates d'extraction de la base</option>
+                    {dayOptions.map(o => (
+                      <option key={o.day} value={o.day}>
+                        Avant le {o.label} — {o.before} document{o.before > 1 ? 's' : ''} (le {o.label} : {o.sameDay} extrait{o.sameDay > 1 ? 's' : ''})
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={includeUndated} onChange={e => setIncludeUndated(e.target.checked)} style={{ marginTop: '2px' }} />
+                  <span>
+                    Inclure les documents sans date d'extraction ({undatedCount}) — extraits avant la mise en place de l'horodatage, donc les plus anciens
+                  </span>
+                </label>
+                {!cutoffDay && includeUndated && (
+                  <div style={{ fontSize: '11.5px', color: 'var(--text3)' }}>Aucune date choisie : seuls les documents sans date d'extraction sont retenus.</div>
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', padding: '9px 12px', marginBottom: '10px', borderRadius: '6px', background: 'var(--surface2)', fontSize: '13px' }}>
+              <span style={{ fontWeight: 700, fontSize: '15px' }}>{targetRows.length}</span>
+              <span>document{targetRows.length > 1 ? 's' : ''} dans le périmètre choisi</span>
+              <span style={{ color: 'var(--text3)', fontSize: '12px' }}>
+                {targetBails} {targetBails > 1 ? 'baux' : 'bail'} · {targetAvenants} avenant{targetAvenants > 1 ? 's' : ''}
+                {noSourceCount > 0 ? ` · ${noSourceCount} sans fichier source (ignoré${noSourceCount > 1 ? 's' : ''})` : ''}
+              </span>
+            </div>
             <div className="warning-box" style={{ marginBottom: '18px' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px' }}>
                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>
               <span>
                 <strong>{targetRows.length} document{targetRows.length > 1 ? 's' : ''}</strong> {targetRows.length > 1 ? 'seront réextraits' : 'sera réextrait'} à partir de leur fichier source déjà attaché.
-                Ceci remplace les données actuelles, y compris toute correction manuelle. Ça peut prendre du temps (plusieurs appels par document).
+                Ceci remplace les données actuelles, y compris toute correction manuelle (le nom d'affichage du preneur, l'archivage et les points de contrôle qualité vérifiés sont conservés). Ça peut prendre du temps (plusieurs appels par document).
+                {dateFilterOn && ' Chaque document réextrait reçoit la date du jour : en cas d\'arrêt, relancer avec le même filtre reprend uniquement ceux qui restent.'}
                 {noSourceCount > 0 && ` ${noSourceCount} document${noSourceCount > 1 ? 's' : ''} sans fichier source attaché ${noSourceCount > 1 ? 'seront ignorés' : 'sera ignoré'}.`}
               </span>
             </div>
