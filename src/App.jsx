@@ -99,14 +99,14 @@ CHAMPS:
 {"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"charges_impots_taxes":[],"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
 
 REGLES PAR CHAMP:
-- duree_totale: duree totale du bail (date_effet a date_fin). TEST PREALABLE OBLIGATOIRE AVANT TOUTE REGLE CP/CG SUR LA DUREE (prioritaire sur tout ce qui suit): une clause CP qui (a) parle d'une DUREE FERME (mot "ferme" accole a la duree) et/ou (b) organise une RENONCIATION du preneur a sa faculte de conge triennal ne fixe PAS la duree du bail — elle ne concerne QUE duree_ferme, MEME SI elle est redigee avec le sujet "le Bail" ("de sorte que le Bail aura une duree ferme de 6 annees"), MEME SI elle dit "amender", "modifier" ou "par derogation a" l'article CG de DUREE, et a fortiori si elle precise "le reste de l'article demeure applicable et inchange" (= la duree des CG continue de s'appliquer). Dans ce cas: duree_totale = la duree fixee dans l'article CG vise (le lire OBLIGATOIREMENT), duree_ferme = la duree ferme de la CP, date_fin = date_effet + duree_totale CG. CONTROLE DE COHERENCE ARITHMETIQUE: renoncer a la PREMIERE periode triennale seulement suppose qu'il reste au moins une echeance triennale ulterieure avant le terme — si le bail etait de 6 ans, cette renonciation epuiserait toutes les sorties et la clause ne parlerait pas de "premiere" periode ; donc si les CG donnent une duree plus longue (9, 10, 12 ans), c'est elle la duree_totale. EXEMPLE REEL A REPRODUIRE: CG2 "Le Bail est consenti pour une duree de douze annees entieres et consecutives... le PRENEUR aura la faculte de donner conge a l'expiration de chaque periode triennale" + CP2 "Les Parties conviennent d'amender les dispositions de l'article CG2 - DUREE, et de prevoir que le PRENEUR renonce a sa faculte de donner conge a l'expiration de la premiere periode triennale du Bail, de sorte que le Bail aura une duree ferme de 6 annees. Le reste de l'article demeure applicable et inchange." → duree_totale=12 ans, duree_ferme=6 ans, date_fin=date_effet+12 ans (veille), break_options = echeances annees 6 et 9 (bail 6/9/12). NE PAS produire duree_totale=6 ans ni date_fin a 6 ans. REGLE CP/CG POUR LA DUREE TOTALE (ne s'applique qu'APRES le test prealable ci-dessus, aux CP qui fixent vraiment la duree du bail sans parler de duree ferme ni de renonciation): les Conditions Particulieres derogent TOUJOURS aux Conditions Generales. Si une CP fixe la duree DU BAIL lui-meme (ex: "le present bail est consenti pour une duree de neuf (9) annees", "par derogation a l'article CG-X, la duree du bail est de 9 ans"), c'est cette duree CP qui est duree_totale, meme si les CG indiquent une autre duree (ex: 12 ans) — et date_fin = date_effet + cette duree CP (veille de l'anniversaire). La duree des CG ne s'applique que si les CP ne fixent AUCUNE duree totale du bail. duree_ferme: duree pendant laquelle le preneur ne peut pas resilier ; si mentionne explicitement (chiffre en toutes lettres), utiliser cette valeur ; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
-  CAS LE PLUS SIMPLE ET LE PLUS FREQUENT, A NE PAS MANQUER: quand la phrase qui donne duree_totale qualifie ELLE-MEME cette duree du mot "ferme(s)" directement accole (ex: "consenti... pour une duree de 6 (six) annees entieres et consecutives FERMES a compter du..."), duree_ferme = duree_totale IMMEDIATEMENT (A CONDITION que ce soit LA clause qui fixe la duree du bail et qu'aucune autre clause — notamment un article CG de DUREE — ne fixe une duree de bail differente ; une CP du type "de sorte que le Bail aura une duree ferme de N annees" adossee a un article CG qui fixe une duree plus longue n'est PAS ce cas, voir TEST PREALABLE de duree_totale), sans avoir besoin d'aucune clause de renonciation separee — "fermes" qualifie ici directement le chiffre de duree_totale lui-meme, ce qui EST la valeur chiffree explicite visee par la premiere phrase de cette regle. Ne pas laisser ce cas retomber sur le "cas general" (regle 1 ci-dessous) faute de reconnaitre "fermes" accole a la duree comme une valeur explicite a part entiere.
+- duree_totale: duree totale du bail (date_effet a date_fin). REGLE CP/CG POUR LA DUREE TOTALE: les Conditions Particulieres derogent TOUJOURS aux Conditions Generales. Si une CP fixe la duree DU BAIL lui-meme (ex: "le present bail est consenti pour une duree de neuf (9) annees", "par derogation a l'article CG-X, la duree du bail est de 9 ans"), c'est cette duree CP qui est duree_totale, meme si les CG indiquent une autre duree (ex: 12 ans) — et date_fin = date_effet + cette duree CP (veille de l'anniversaire). La duree des CG ne s'applique que si les CP ne fixent AUCUNE duree totale du bail. duree_ferme: duree pendant laquelle le preneur ne peut pas resilier ; si mentionne explicitement (chiffre en toutes lettres), utiliser cette valeur ; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
+  CAS LE PLUS SIMPLE ET LE PLUS FREQUENT, A NE PAS MANQUER: quand la phrase qui donne duree_totale qualifie ELLE-MEME cette duree du mot "ferme(s)" directement accole (ex: "consenti... pour une duree de 6 (six) annees entieres et consecutives FERMES a compter du..."), duree_ferme = duree_totale IMMEDIATEMENT, sans avoir besoin d'aucune clause de renonciation separee — "fermes" qualifie ici directement le chiffre de duree_totale lui-meme, ce qui EST la valeur chiffree explicite visee par la premiere phrase de cette regle. Ne pas laisser ce cas retomber sur le "cas general" (regle 1 ci-dessous) faute de reconnaitre "fermes" accole a la duree comme une valeur explicite a part entiere.
   REGLE duree_ferme — A LIRE EN ENTIER, ELLE CONTIENT UNE EXCEPTION EXPLICITE (ne pas s'arreter a la premiere phrase et repondre null par excès de prudence des qu'un calcul aboutit a duree_totale — lire d'abord si l'EXCEPTION ci-dessous s'applique) :
   1) CAS GENERAL : un bail SANS aucune renonciation ni restriction du droit de resiliation triennale (art. L.145-4) a une duree_ferme implicite de 3 ans (premiere sortie possible). Si rien n'est chiffre explicitement ET qu'aucune renonciation n'est exprimee, laisser duree_ferme a null — NE JAMAIS la deviner egale a duree_totale dans ce cas precis (cas general uniquement).
   2) EXCEPTION AU CAS GENERAL (prioritaire sur la regle 1 — s'applique MEME SI le resultat egale duree_totale, ce qui est alors correct et attendu, pas une erreur) : si le texte renonce EXPLICITEMENT a une ou plusieurs echeances triennales nommees ("renonce a la faculte de donner conge pour l'expiration de la premiere et deuxieme periode triennale") ET precise la consequence qui en resulte ("aura la faculte de mettre fin au bail, pour la premiere fois, pour l'expiration de la troisieme periode triennale", "conge possible des la neuvieme annee", une date precise...), alors duree_ferme = cette echeance nommee (ex: troisieme periode triennale = 9 ans). Une renonciation qui couvre toutes les echeances avant le terme final rend logiquement duree_ferme egal a duree_totale : ceci n'est PAS le defaut par manque d'info vise par la regle 1, c'est un calcul explicite tire du texte, et il doit etre rempli, pas laisse a null.
   3) Si le texte renonce a des echeances nommees SANS jamais preciser explicitement la consequence (aucune date/periode de sortie mentionnee), calculer duree_ferme = 3 x (nombre de periodes triennales renoncees) + 3 annees — verifier deux fois l'arithmetique avant de repondre.
-  ATTENTION DEROGATION PARTIELLE CP/CG (cas particulier, a ne pas generaliser): ce qui suit ne vaut QUE si la CP parle exclusivement d'une DUREE FERME (periode sans faculte de conge) et ne dit RIEN de la duree du bail lui-meme. Si la CP fixe la duree DU BAIL (voir regle CP/CG pour la duree totale ci-dessus), c'est la duree CP qui fait foi pour duree_totale, sans exception. Cas particulier : quand une clause CP dit "par derogation a l'article CG-X - DUREE, le Contrat est consenti pour une DUREE FERME de N annees, le PRENEUR renoncant a donner conge a l'expiration de la 3eme et de la 6eme annee" (ou formulation equivalente — y compris "les Parties conviennent d'AMENDER/de MODIFIER l'article CG-X - DUREE... de sorte que le Bail aura une duree ferme de N annees", souvent suivi de "le reste de l'article demeure applicable et inchange"), cette clause CP ne deroge QUE sur le mecanisme de sortie anticipee (duree_ferme = N annees) — elle NE redefinit PAS la duree totale du bail. La duree_totale reste celle fixee par l'article CG-X vise (souvent PLUS LONGUE, ex: 12 ans), sauf si la clause CP dit explicitement autre chose sur la duree totale elle-meme. NE JAMAIS recopier la valeur de la "duree ferme" CP dans duree_totale sans avoir verifie la duree totale dans l'article CG correspondant. Exemple: CP dit "par derogation a l'article CG3 - DUREE, le Contrat est consenti pour une duree ferme de neuf (9) annees, le PRENEUR renoncant a la 3eme et 6eme annee" et CG3 dit "le Contrat est consenti pour une duree de douze (12) annees" → duree_totale=12 ans, duree_ferme=9 ans (PAS duree_totale=9 ans).
-- reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle","date_limite_absolue":null}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. date_limite_absolue: certains baux plafonnent la duree totale possible de la reconduction tacite par une clause du type "en tout etat de cause, la Convention/le Contrat ne pourra exceder N (en toutes lettres) annees et prendra automatiquement fin le [date], sans formalite". Meme regle pour les formulations du type \"En tout etat de cause, le Bail expirera de plein droit le 31 decembre 2034, sans formalite\" (bail d'un an renouvelable par tacite reconduction annuelle, plafonne a une date absolue). Si une telle clause EXPLICITE existe, reporter cette date exacte (format JJ/MM/AAAA) dans date_limite_absolue — c'est un plafond contractuel dur, distinct du preavis de conge habituel. Sinon (reconduction tacite sans limite de duree totale exprimee), laisser date_limite_absolue a null. null pour le champ reconduction_tacite entier si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
+  ATTENTION DEROGATION PARTIELLE CP/CG (cas particulier, a ne pas generaliser): ce qui suit ne vaut QUE si la CP parle exclusivement d'une DUREE FERME (periode sans faculte de conge) et ne dit RIEN de la duree du bail lui-meme. Si la CP fixe la duree DU BAIL (voir regle CP/CG pour la duree totale ci-dessus), c'est la duree CP qui fait foi pour duree_totale, sans exception. Cas particulier : quand une clause CP dit "par derogation a l'article CG-X - DUREE, le Contrat est consenti pour une DUREE FERME de N annees, le PRENEUR renoncant a donner conge a l'expiration de la 3eme et de la 6eme annee" (ou formulation equivalente), cette clause CP ne deroge QUE sur le mecanisme de sortie anticipee (duree_ferme = N annees) — elle NE redefinit PAS la duree totale du bail. La duree_totale reste celle fixee par l'article CG-X vise (souvent PLUS LONGUE, ex: 12 ans), sauf si la clause CP dit explicitement autre chose sur la duree totale elle-meme. NE JAMAIS recopier la valeur de la "duree ferme" CP dans duree_totale sans avoir verifie la duree totale dans l'article CG correspondant. Exemple: CP dit "par derogation a l'article CG3 - DUREE, le Contrat est consenti pour une duree ferme de neuf (9) annees, le PRENEUR renoncant a la 3eme et 6eme annee" et CG3 dit "le Contrat est consenti pour une duree de douze (12) annees" → duree_totale=12 ans, duree_ferme=9 ans (PAS duree_totale=9 ans).
+- reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle","date_limite_absolue":null}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. date_limite_absolue: certains baux plafonnent la duree totale possible de la reconduction tacite par une clause du type "en tout etat de cause, la Convention/le Contrat ne pourra exceder N (en toutes lettres) annees et prendra automatiquement fin le [date], sans formalite". Si une telle clause EXPLICITE existe, reporter cette date exacte (format JJ/MM/AAAA) dans date_limite_absolue — c'est un plafond contractuel dur, distinct du preavis de conge habituel. Sinon (reconduction tacite sans limite de duree totale exprimee), laisser date_limite_absolue a null. null pour le champ reconduction_tacite entier si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
 - type_bail: reste CONCIS — un libelle court du type de contrat (ex: "Bail commercial", "Convention d'occupation precaire", "Bail derogatoire", "Bail professionnel"). NE JAMAIS recopier la liste des articles du Code de commerce ou une citation legale complete (ex: "soumis aux articles L.145-1 a L.145-60...") meme si le bail les mentionne explicitement — ces references legales n'apportent rien a un libelle de type de contrat et doivent etre omises. EXCEPTION IMPORTANTE, A NE PAS CONFONDRE AVEC CE QUI PRECEDE: le REGIME JURIDIQUE global du contrat (Code civil vs statut des baux commerciaux du Code de commerce) N'EST PAS une "citation d'articles" a omettre — c'est une information structurante a capturer des qu'elle ressort du document, meme sous une forme discrete (ex: mention "(Code civil)" juste sous le titre du contrat en page de garde, ou clause de fond qui fonde expressement le contrat sur les articles 1104/1195 du Code civil plutot que sur le statut des baux commerciaux). Dans ce cas, l'ajouter entre parentheses a la suite du libelle court, ex: "Bail de parking (Code civil)", "Convention d'occupation precaire (Code civil)". Ne l'ajouter que si le document l'indique explicitement (titre, mention immediatement sous le titre, ou clause de fond) — ne jamais deduire ce regime du seul objet du contrat (un "bail de parking" n'est pas automatiquement "Code civil" sans indication expresse dans CE document).
 - frais_redaction_actes: si le bail (ou les CG/CP) mentionne des frais forfaitaires de redaction d'actes — typiquement une clause du type "les frais de redaction du present bail sont fixes forfaitairement a la somme de X euros HT" et/ou, separement, une clause anticipant les avenants futurs du type "les frais de redaction de chaque avenant ulterieur seront fixes forfaitairement a Y euros". Extraire TOUS les montants distincts mentionnes (souvent DEUX: un pour le bail lui-meme, un autre — generalement plus faible — prevu pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. type doit etre "bail" ou "avenant" selon ce a quoi le montant s'applique. due_par: "Preneur" ou "Bailleur" selon qui supporte les frais (souvent le Preneur). [] si aucune mention de frais de redaction d'actes.
 - date_signature: chercher SYSTEMATIQUEMENT cette date dans TOUT le document, meme quand elle n'apporte rien au calcul de date_effet/date_fin — elle sert notamment a classer chronologiquement les baux et avenants entre eux quand aucune autre date n'est disponible. Se trouve generalement en toute fin d'acte (bloc de signature "Fait a ..., le [date]", juste avant les annexes), mais peut aussi figurer sur un certificat de signature electronique separe (DocuSign, Yousign ou equivalent) si le PDF en contient un — verifier ces pages si presentes. Si les parties signent a des dates differentes (signature electronique asynchrone notamment), retenir la DERNIERE date de signature (celle qui rend l'acte definitivement conclu par toutes les parties). null UNIQUEMENT si aucune date n'est identifiable nulle part dans le document (ligne "Fait le" laissee vierge, page de signature absente du PDF fourni).
@@ -114,7 +114,7 @@ REGLES PAR CHAMP:
 - conditions_suspensives: liste de TOUTES les conditions suspensives auxquelles l'entree en vigueur du bail (ou certains de ses effets) est subordonnee — typiquement une clause "Condition(s) Suspensive(s)" prevoyant que le bail ne devient definitif/ne prend effet que si un evenement determine se realise (ex: obtention d'un permis de construire purge de tout recours, obtention d'une autorisation administrative, levee d'une clause de non-recours, achevement de travaux, obtention d'un financement, non-exercice d'un droit de preemption). Format: [{"libelle":"texte concis de la condition","date_limite_levee":"jj/mm/aaaa si mentionnee, sinon null","statut":"levee/en cours/non precise si le document l'indique, sinon null","page":2}]. date_limite_levee: OBLIGATOIRE de chercher systematiquement cette date dans le texte de la clause — c'est la date au-dela de laquelle la condition doit avoir ete realisee/levee, faute de quoi le bail est cense ne pas se former ou etre caduc (formulations typiques: "la presente condition suspensive devra etre levee au plus tard le [date]", "a defaut de realisation de la condition avant le [date]", "dans un delai de N mois a compter de la signature"). Si le delai est exprime en duree relative ("dans un delai de 6 mois a compter de la signature") plutot qu'en date absolue, CALCULER la date resultante a partir de date_signature (ou date_effet si date_signature absente) et la reporter ici au format jj/mm/aaaa — ne pas laisser null uniquement parce que la date n'est pas ecrite en toutes lettres. null UNIQUEMENT si le bail n'indique reellement aucun delai ni date pour cette condition precise. Une condition deja explicitement levee/realisee au moment de la signature (mention "la presente condition est levee/realisee") doit quand meme etre listee, avec statut="levee". [] si le bail ne prevoit aucune condition suspensive.
 - surface_totale_m2: la surface de reference du bail. REGLE: si le bail utilise le terme "Surface Exploitee" (ou variante proche) pour designer la surface globale des locaux, UTILISER CETTE VALEUR pour surface_totale_m2, meme si elle inclut une quote-part des parties communes — c'est la convention de reference dans ce bail. Ne descendre au sous-composant individuel (ex: "Surface de bureaux") QUE si aucune "Surface Exploitee"/surface globale n'est mentionnee. Exemple: "la Surface Exploitee... est de 584,50 m²... les Locaux se decomposent: Surface de bureaux (lot n°11): 510,20 m²" → surface_totale_m2 = 584.50 (la Surface Exploitee), PAS 510.20.
 - classification_batiment: classement reglementaire de l'immeuble/des locaux, s'il est mentionne dans le bail — un SEUL de ces 3 regimes s'applique en general : (1) "Code du travail" (locaux professionnels ordinaires, aucune reglementation ERP/IGH specifique) ; (2) ERP (Etablissement Recevant du Public) — preciser la CATEGORIE (1re a 5e categorie) ET le TYPE d'activite (lettre(s), ex: W = bureaux, M = magasins, R = enseignement, etc.) des qu'ils sont mentionnes, format court "ERP categorie X, type Y" (ex: "ERP 5e categorie, type W") ; (3) IGH (Immeuble de Grande Hauteur) — preciser la CATEGORIE (ex: GHW1, GHW2, GHA, GHR...) et le TYPE si distinct de la categorie. Resumer en une phrase courte, ex: "ERP 4e categorie, type W" ou "IGH categorie GHW2" ou "Code du travail (locaux non ERP)". null si non mentionne dans le bail — NE JAMAIS deduire ou deviner ce classement a partir de la hauteur/surface de l'immeuble, uniquement s'il est explicitement ecrit dans le texte.
-- surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. CATEGORIE: reprendre l'usage tel que le bail le designe (\"Industrie\", \"Activite\", \"Entrepot\", \"Bureaux\", \"Commerce\", \"Archives\"...) — \"RIE\" est reserve a un restaurant inter-entreprises / une redevance de restauration collective, jamais a une surface d'industrie ou d'activite. SURFACE NON CONNUE A LA SIGNATURE (REGLE PRIORITAIRE): si le bail lui-meme ne chiffre PAS la surface (\"surface a determiner\", \"a mesurer\", \"sera precisee par avenant/constat/certificat de mesurage\", seulement un prix au m²), alors surfaces_detail=[] et surface_totale_m2=null. Ne JAMAIS reconstituer une surface a partir du loyer et d'un prix unitaire, ni reprendre une surface figurant dans un avenant, un certificat de mesurage, un constat ou tout autre document POSTERIEUR eventuellement joint dans le meme PDF : seules les stipulations du bail a sa signature comptent (la surface definitive sera portee par l'avenant lui-meme, extrait separement). Les lignes de stationnement dont le NOMBRE de places est ecrit dans le bail restent, elles, renseignees. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. batiment: nom ou identifiant du BATIMENT auquel appartient cette surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes/identifies (ex: "Pascal", "Batiment A", "Celsius") — mettre null si le bail ne porte que sur un seul batiment, ou si aucun nom de batiment n'est mentionne (ne jamais deviner ou inventer un nom). Ce champ est INDEPENDANT de niveau (qui reste l'etage/niveau au sein de ce batiment) — les deux se completent, ne pas melanger le nom du batiment dans le champ niveau. Exemple avec ventilation de loyer et un seul batiment (toutes les lignes ont un loyer_annuel, batiment=null car non pertinent): [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"batiment\":null,\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement, un seul batiment): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"batiment\":null,\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). Exemple avec plusieurs batiments nommes (ensemble immobilier a plusieurs batiments, chaque surface rattachee au sien): bail dit "332,91 m2 au rez-de-chaussee du batiment A denomme Pascal" et "50 m2 dans l'immeuble denomme Lavoisier" → [{\"categorie\":\"Bureaux\",\"batiment\":\"Pascal\",\"niveau\":\"RDC\",\"surface_m2\":\"332.91\",\"loyer_annuel\":null},{\"categorie\":\"Bureaux\",\"batiment\":\"Lavoisier\",\"niveau\":\"RDC\",\"surface_m2\":\"50\",\"loyer_annuel\":null}]. categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. IMPORTANT POUR LES LIGNES STATIONNEMENT: pour une ligne categorie="Stationnement", le champ surface_m2 doit contenir le NOMBRE DE PLACES (pas une surface en m²) — reporter ce chiffre meme s'il n'est mentionne que dans une clause separee du bail (souvent la meme clause qui alimente le champ parking_nb_places, ex: "35 emplacements numerotes...1500 €/place/an"). NE JAMAIS laisser surface_m2 vide pour une ligne Stationnement si un nombre de places est identifiable ailleurs dans le document, meme si la clause de loyer stationnement (ligne du tableau) et la clause descriptive du nombre de places (champ parking_nb_places) sont physiquement separees dans le bail. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
+- surfaces_detail: TOUTES les surfaces explicitement chiffrees dans le bail, meme celles sans ventilation de loyer propre. REGLE PRIORITAIRE: des qu'une surface est donnee avec un chiffre (ex: "Surface interieure: 2503 m2", "Surface exterieure/terrasse: 630 m2"), creer une LIGNE DISTINCTE pour elle dans surfaces_detail, MEME SI aucun loyer_annuel specifique n'est indique pour cette surface — dans ce cas mettre loyer_annuel a null pour cette ligne plutot que d'omettre la ligne. NE JAMAIS repartir/dupliquer artificiellement le loyer total (loyer_signature_montant) sur plusieurs lignes quand le bail ne le ventile pas explicitement par composante — laisser loyer_annuel a null sur les lignes non ventilees. Inclure AUSSI les redevances forfaitaires liees a l'usage des surfaces (RIE/restauration, archives, locaux techniques) meme si exprimees en €/m²/an. batiment: nom ou identifiant du BATIMENT auquel appartient cette surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes/identifies (ex: "Pascal", "Batiment A", "Celsius") — mettre null si le bail ne porte que sur un seul batiment, ou si aucun nom de batiment n'est mentionne (ne jamais deviner ou inventer un nom). Ce champ est INDEPENDANT de niveau (qui reste l'etage/niveau au sein de ce batiment) — les deux se completent, ne pas melanger le nom du batiment dans le champ niveau. Exemple avec ventilation de loyer et un seul batiment (toutes les lignes ont un loyer_annuel, batiment=null car non pertinent): [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"2eme etage\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"196\",\"loyer_annuel\":\"48122\"},{\"categorie\":\"RIE\",\"batiment\":null,\"niveau\":\"RDC\",\"surface_m2\":\"245.68\",\"prix_unitaire\":\"15\",\"loyer_annuel\":\"3685\"}]. Exemple SANS ventilation de loyer par composante (loyer global uniquement, un seul batiment): bail dit "Surface interieure: 2503 m2, Surface exterieure: 630 m2" et "redevance annuelle: 362935 EUR HT" sans repartition → [{\"categorie\":\"Bureaux\",\"batiment\":null,\"niveau\":\"1er etage - interieur\",\"surface_m2\":\"2503\",\"loyer_annuel\":null},{\"categorie\":\"Terrasse\",\"batiment\":null,\"niveau\":\"1er etage - exterieur\",\"surface_m2\":\"630\",\"loyer_annuel\":null}] (loyer_signature_montant=362935 reste renseigne separement, PAS reparti sur ces 2 lignes). Exemple avec plusieurs batiments nommes (ensemble immobilier a plusieurs batiments, chaque surface rattachee au sien): bail dit "332,91 m2 au rez-de-chaussee du batiment A denomme Pascal" et "50 m2 dans l'immeuble denomme Lavoisier" → [{\"categorie\":\"Bureaux\",\"batiment\":\"Pascal\",\"niveau\":\"RDC\",\"surface_m2\":\"332.91\",\"loyer_annuel\":null},{\"categorie\":\"Bureaux\",\"batiment\":\"Lavoisier\",\"niveau\":\"RDC\",\"surface_m2\":\"50\",\"loyer_annuel\":null}]. categorie: etage/plateau->Bureaux, terrasse/rooftop/exterieur->Terrasse, sous-sol/emplacement->Stationnement, restaurant/cafeteria/restauration->RIE (Restaurant Inter-Entreprises), archives->Archives, reserves/stockage->Archives. IMPORTANT POUR LES LIGNES STATIONNEMENT: pour une ligne categorie="Stationnement", le champ surface_m2 doit contenir le NOMBRE DE PLACES (pas une surface en m²) — reporter ce chiffre meme s'il n'est mentionne que dans une clause separee du bail (souvent la meme clause qui alimente le champ parking_nb_places, ex: "35 emplacements numerotes...1500 €/place/an"). NE JAMAIS laisser surface_m2 vide pour une ligne Stationnement si un nombre de places est identifiable ailleurs dans le document, meme si la clause de loyer stationnement (ligne du tableau) et la clause descriptive du nombre de places (champ parking_nb_places) sont physiquement separees dans le bail. Si TOUTES les lignes ont un loyer_annuel renseigne, leur SOMME doit etre egale a loyer_signature_montant — cette regle ne s'applique PAS quand une ou plusieurs lignes ont loyer_annuel=null (pas de ventilation disponible). Si le bail mentionne une "Surface Exploitee" distincte des sous-composantes louees (incluant une quote-part de parties communes), la somme des surface_m2 peut legitimement etre INFERIEURE a surface_totale_m2 — ce n'est pas une erreur a corriger dans ce cas.
 - notice: DUREE du préavis pour donner congé, exprimée en mois uniquement (ex: "6 mois", "3 mois"). NE PAS mettre une date. Si le bail dit "au moins six (6) mois avant la date d'échéance" → notice="6 mois".
 - _sources: objet optionnel avec les extraits textuels EXACTS du bail pour les champs importants. Format: {"loyer_signature_montant":"texte exact de la clause loyer","break_options":"texte exact de la clause duree/resiliation","duree_ferme":"texte exact","franchise_periodes":"texte exact"}. Citer le numero d'article si possible (ex: "CP4 - Le loyer annuel est de..."). Limiter a 150 caracteres par champ.
 - _pages: objet avec le numero de PAGE du PDF (1=premiere page) ou se trouve l'information source, pour chaque champ SIMPLE (non-tableau) dont la valeur n'est pas null. Format: {"loyer_signature_montant":3,"date_effet":1,"date_fin":1,"break_options":4,"duree_totale":1,"duree_ferme":1,"surface_totale_m2":2,"preneur":1,"bailleur":1,"depot_garantie_montant":5}. Indiquer la page pour un maximum de champs renseignes (duree_totale et duree_ferme sont presque toujours dans la meme clause, ne pas en oublier un des deux), meme approximative si le champ resulte d'un calcul (prendre la page de la clause source utilisee pour le calcul). Ne pas inclure les champs restes null. IMPORTANT: pour les champs qui sont des TABLEAUX (franchise_periodes, participations_travaux, indemnites_restitution, indemnites_break, conditions_suspensives), la page se met DIRECTEMENT dans chaque objet de la liste (cle "page", voir leurs formats respectifs ci-dessous) — PAS dans cet objet _pages global, qui reste reserve aux champs simples.
@@ -137,7 +137,7 @@ REGLES PAR CHAMP:
 - charges_impots_taxes: liste de TOUS les impots et taxes explicitement mentionnes dans la clause de refacturation des charges (ex: taxe fonciere, taxe sur les bureaux/TSB, taxe sur les surfaces commerciales/TASCOM, CFE, taxe sur les locaux vacants), avec pour chacun s'il est refacture au Preneur ou non. Format: [{"libelle":"Taxe fonciere","refacturee":"Oui","taux":"100%","detail":null}]. refacturee: "Oui"/"Non"/"Partielle" — "Partielle" si le bail dit explicitement que seule une quote-part est refacturee. taux: le pourcentage explicite si mentionne (ex: "refacture a hauteur de 50%" -> taux="50%"), sinon null (ne pas mettre "100%" par defaut si le bail dit juste "refacturee" sans preciser de taux). detail: precision complementaire si le bail en donne une (plafond, condition, exception), sinon null. [] si le bail ne detaille aucun impot/taxe nommement (une simple clause generale "les charges sont refacturees au Preneur" sans lister d'impots precis ne suffit pas a remplir ce champ).
 - charges_vetuste: la clause du bail relative a la VETUSTE (art. 1755 du Code civil: les reparations dues a la vetuste ou a la force majeure ne sont pas, par principe legal, a la charge du preneur, sauf clause contraire du bail qui y deroge). Format: {"refacturee":"Oui","detail":"texte precisant les modalites, ex: le Preneur prend a sa charge les reparations liees a la vetuste normale des equipements"}. refacturee: "Oui" si le bail deroge au principe legal et met la vetuste a la charge du Preneur (meme partiellement), "Non" si le bail ne deroge pas ou confirme explicitement que la vetuste reste a la charge du Bailleur, "Partielle" si un partage est prevu. detail: TOUJOURS renseigner un texte resumant ce que dit le bail sur ce point (meme bref), pas seulement le statut. null (le champ entier) si le bail n'aborde pas du tout la vetuste.
 - charges_force_majeure: la clause du bail relative a la FORCE MAJEURE (meme principe de l'art. 1755 du Code civil que pour la vetuste). Format: {"refacturee":"Oui","detail":"texte precisant les modalites"}. Meme logique que charges_vetuste. null si le bail n'aborde pas la force majeure.
-- franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null,\"page\":3}]. UNE LIGNE PAR TRANCHE (REGLE PRIORITAIRE): quand le texte ventile une franchise en plusieurs tranches appliquees a des moments differents (\"qui sera appliquee comme suit : X € a compter de la prise d'effet ; Y € a compter du premier anniversaire...\"), creer UNE ENTREE PAR TRANCHE — JAMAIS une seule ligne globale avec la ventilation releguee dans \"condition\". Ne pas ajouter en plus une ligne reprenant le total (double comptage) : le total et sa redaction complete vont dans le champ texte franchise. Une tranche n'est PAS une condition: condition reste null sauf vraie condition (ex: si non-delivrance de conge). DATES RELATIVES: l'absence de date calendaire (date d'effet inconnue a la signature, conditions suspensives, VEFA, livraison...) n'empeche JAMAIS d'eclater les tranches. Dans ce cas ecrire dans date_debut le point de depart tel que le texte le formule, en court: \"Prise d'effet du Bail\", \"1er anniversaire de la prise d'effet\", \"2e anniversaire de la prise d'effet\"... ; et dans date_fin la meme reference + la duree de la tranche (ex: \"Prise d'effet + 3,75 mois\"). Ne JAMAIS ecrire \"recalcul = ... mois\" dans date_debut ou date_fin (ce marqueur est reserve aux champs duree et montant). DUREE PAR TRANCHE: si seuls la duree GLOBALE et les montants des tranches sont donnes, repartir la duree globale au prorata des montants (tranches de montants egaux → duree globale / nombre de tranches) et l'ecrire avec le marqueur: \"recalcul = 3,75 mois\". EXEMPLE REEL: \"franchise de loyer initial de sept mois et demi (7,5), soit un montant total de 61.595,62 € HT/HC a compter de la date de prise d'effet du Bail, qui sera appliquee comme suit : 30.797,81 € a compter de la date de prise d'effet du Bail ; 30.797,81 € a compter du premier anniversaire de la date anniversaire du Bail\" → DEUX entrees: [{\"date_debut\":\"Prise d'effet du Bail\",\"date_fin\":\"Prise d'effet + 3,75 mois\",\"duree\":\"recalcul = 3,75 mois\",\"montant\":\"30797.81\",\"condition\":null,...},{\"date_debut\":\"1er anniversaire de la prise d'effet\",\"date_fin\":\"1er anniversaire + 3,75 mois\",\"duree\":\"recalcul = 3,75 mois\",\"montant\":\"30797.81\",\"condition\":null,...}] — PAS une seule ligne de 7,5 mois / 61.595,62 €. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon. ATTENTION DOUBLON FREQUENT A EVITER: quand le bail donne un montant GLOBAL de franchise PUIS le detail de ce meme montant ventile en plusieurs tranches (ex: \"franchise initiale de quatorze (14) mois, soit un montant total de 39.135,83 €, qui sera appliquee comme suit : 3,5 mois a compter de la date d'effet ; 3,5 mois a compter de la premiere date anniversaire ; ...\"), NE CREER QU'UNE LIGNE PAR TRANCHE INDIVIDUELLE — ne jamais ajouter EN PLUS une ligne reprenant le total global (14 mois / 39.135,83 €) : ce total n'est que la somme des tranches deja listees individuellement, l'ajouter en ligne supplementaire cree un double comptage. Le montant global (avec sa redaction complete) va dans le champ texte \"franchise\" ci-dessous, jamais comme ligne supplementaire de franchise_periodes. ATTENTION DISTINCTION AVEC mise_a_disposition: une "franchise de loyer" reduit ou annule un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero (sinon il n'y a rien a "franchiser"). NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation des locaux avant la date d'effet officielle du bail, ou avant que le loyer ne soit contractuellement du, souvent formulee "mise a disposition anticipee a titre gratuit", "pas de loyer ni charges dus pendant cette periode") — meme si le texte utilise par erreur ou par extension le mot "franchise" pour la designer, meme si elle est ventilee par lot/etage avec des dates differentes. Ces periodes de mise a disposition anticipee vont dans le champ dedie mise_a_disposition (objet unique) — si plusieurs lots ont des dates de mise a disposition differentes, resumer l'ensemble dans le champ texte "conditions" de mise_a_disposition (avec le detail par lot) plutot que de les eclater dans franchise_periodes avec un montant a zero. ATTENTION CAS INVERSE FREQUENT: quand le texte donne plusieurs montants de franchise a des DATES ANNIVERSAIRES successives (ex: "133.943 € HT/HC de franchise à compter du 15 septembre 2025 ; 133.943 € à compter du 15 septembre 2026 ; ...") SANS préciser explicitement une durée ni une date de fin pour chaque tranche, NE JAMAIS supposer que chaque tranche dure 12 mois (jusqu'à la date anniversaire suivante) — c'est presque toujours FAUX. Ces montants correspondent generalement chacun a quelques semaines/mois de loyer accordes CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an pendant 3 ans), pas une exoneration continue toute l'annee. Calculer la VRAIE duree en mois: duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), puis date_fin = date_debut + duree_mois mois - 1 jour (PAS la veille de la prochaine date anniversaire, sauf si duree_mois calculee y correspond par coincidence). N'utiliser une duree de 12 mois entre deux echeances que si le texte le dit EXPLICITEMENT (ex: "pendant les 12 mois suivants" ecrit noir sur blanc). Ce calcul ne s'applique QU'AUX tranches dont la DUREE n'est PAS ecrite : quand chaque tranche enonce elle-meme sa duree (ex: \"2 mois de franchise de loyer initial, soit un montant de 22.791,67 € applique a compter de la premiere date anniversaire du Bail\"), reprendre \"2 mois\" TEL QUEL dans duree, SANS marqueur \"recalcul\", pour CHAQUE tranche (la 1ere comme les suivantes) — \"recalcul =\" est reserve a une valeur reellement absente du texte. De meme, \"a compter de la premiere date anniversaire du Bail\" est le POINT DE DEPART de la tranche (il va dans date_debut), PAS une condition : condition reste null. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — deux cas: (a) si la DUREE est explicitement ecrite dans le bail (ex: "2,5 mois", "3 mois") et que c'est le MONTANT qui manque: reprendre la duree TELLE QUELLE dans "duree" (ex: "2,5 mois"), et calculer montant = duree_mois * (loyer_annuel_base_HT_HC / 12), en ecrivant dans "montant" la chaine "recalcul = <montant> €" (ex: "recalcul = 116116 €") plutot qu'un chiffre brut, pour signaler que c'est deduit et non ecrit dans le bail. (b) si le MONTANT est explicitement ecrit et que c'est la DUREE qui manque: montant reste un chiffre brut normal (ex: "116116"), et calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), en ecrivant dans "duree" la chaine "recalcul = <duree_mois> mois" (ex: "recalcul = 2,11 mois") plutot qu'une phrase. Si duree ET montant sont TOUS LES DEUX explicites dans le texte, les reprendre tels quels sans aucun marqueur "recalcul". Ne jamais utiliser une formule detaillee du type "Champ calculé = A / B = C" — uniquement le resultat final precede de "recalcul =".
+- franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null,\"page\":3}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon. ATTENTION DOUBLON FREQUENT A EVITER: quand le bail donne un montant GLOBAL de franchise PUIS le detail de ce meme montant ventile en plusieurs tranches (ex: \"franchise initiale de quatorze (14) mois, soit un montant total de 39.135,83 €, qui sera appliquee comme suit : 3,5 mois a compter de la date d'effet ; 3,5 mois a compter de la premiere date anniversaire ; ...\"), NE CREER QU'UNE LIGNE PAR TRANCHE INDIVIDUELLE — ne jamais ajouter EN PLUS une ligne reprenant le total global (14 mois / 39.135,83 €) : ce total n'est que la somme des tranches deja listees individuellement, l'ajouter en ligne supplementaire cree un double comptage. Le montant global (avec sa redaction complete) va dans le champ texte \"franchise\" ci-dessous, jamais comme ligne supplementaire de franchise_periodes. ATTENTION DISTINCTION AVEC mise_a_disposition: une "franchise de loyer" reduit ou annule un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero (sinon il n'y a rien a "franchiser"). NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation des locaux avant la date d'effet officielle du bail, ou avant que le loyer ne soit contractuellement du, souvent formulee "mise a disposition anticipee a titre gratuit", "pas de loyer ni charges dus pendant cette periode") — meme si le texte utilise par erreur ou par extension le mot "franchise" pour la designer, meme si elle est ventilee par lot/etage avec des dates differentes. Ces periodes de mise a disposition anticipee vont dans le champ dedie mise_a_disposition (objet unique) — si plusieurs lots ont des dates de mise a disposition differentes, resumer l'ensemble dans le champ texte "conditions" de mise_a_disposition (avec le detail par lot) plutot que de les eclater dans franchise_periodes avec un montant a zero. ATTENTION CAS INVERSE FREQUENT: quand le texte donne plusieurs montants de franchise a des DATES ANNIVERSAIRES successives (ex: "133.943 € HT/HC de franchise à compter du 15 septembre 2025 ; 133.943 € à compter du 15 septembre 2026 ; ...") SANS préciser explicitement une durée ni une date de fin pour chaque tranche, NE JAMAIS supposer que chaque tranche dure 12 mois (jusqu'à la date anniversaire suivante) — c'est presque toujours FAUX. Ces montants correspondent generalement chacun a quelques semaines/mois de loyer accordes CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an pendant 3 ans), pas une exoneration continue toute l'annee. Calculer la VRAIE duree en mois: duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), puis date_fin = date_debut + duree_mois mois - 1 jour (PAS la veille de la prochaine date anniversaire, sauf si duree_mois calculee y correspond par coincidence). N'utiliser une duree de 12 mois entre deux echeances que si le texte le dit EXPLICITEMENT (ex: "pendant les 12 mois suivants" ecrit noir sur blanc). FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — deux cas: (a) si la DUREE est explicitement ecrite dans le bail (ex: "2,5 mois", "3 mois") et que c'est le MONTANT qui manque: reprendre la duree TELLE QUELLE dans "duree" (ex: "2,5 mois"), et calculer montant = duree_mois * (loyer_annuel_base_HT_HC / 12), en ecrivant dans "montant" la chaine "recalcul = <montant> €" (ex: "recalcul = 116116 €") plutot qu'un chiffre brut, pour signaler que c'est deduit et non ecrit dans le bail. (b) si le MONTANT est explicitement ecrit et que c'est la DUREE qui manque: montant reste un chiffre brut normal (ex: "116116"), et calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), en ecrivant dans "duree" la chaine "recalcul = <duree_mois> mois" (ex: "recalcul = 2,11 mois") plutot qu'une phrase. Si duree ET montant sont TOUS LES DEUX explicites dans le texte, les reprendre tels quels sans aucun marqueur "recalcul". Ne jamais utiliser une formule detaillee du type "Champ calculé = A / B = C" — uniquement le resultat final precede de "recalcul =".
 - franchise: OBLIGATOIRE DES QUE franchise_periodes CONTIENT AU MOINS UNE ENTREE — ne jamais laisser ce champ a null si franchise_periodes n'est pas vide (verification mecanique : si l'un est rempli, l'autre doit l'etre aussi). Texte VERBEUX reprenant fidelement la redaction de la clause de franchise telle qu'ecrite dans le bail (contrairement a franchise_periodes, qui est structure et chiffre, ce champ est un resume en langage courant, proche du texte original, sans etre un copier-coller integral) — sert de verification visuelle en regard du detail chiffre de franchise_periodes, pour que l'utilisateur puisse reperer un ecart ENTRE LE TEXTE DU BAIL ET LE TABLEAU STRUCTURE : ce champ doit donc etre redige INDEPENDAMMENT, a partir de ta propre lecture de la clause, PAS en reformulant ou en resumant les lignes que tu as toi-meme mises dans franchise_periodes — sinon il ne peut plus jamais reveler un desaccord entre les deux, ce qui annule son utilite. Inclure le montant total et la decomposition telle que redigee (ex: "Franchise initiale de 14 mois, soit un total de 39.135,83 € HT/HC, appliquee en 4 tranches de 3,5 mois a la prise d'effet puis a chaque date anniversaire du bail pendant 3 ans"). null UNIQUEMENT si franchise_periodes est aussi vide (aucune franchise dans le bail).
 - participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. libelle OBLIGATOIRE.
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
@@ -170,7 +170,7 @@ surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet ave
 BATIMENT (surfaces_delta, surfaces_avant, surfaces_apres, et surfaces_detail le cas echeant): chaque ligne porte un champ "batiment" = nom ou identifiant du batiment auquel appartient la surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes (ex: "Pascal", "Batiment A") — null sinon, ne jamais inventer. Independant de "niveau" (l'etage au sein du batiment).
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie DANS LE MEME BATIMENT (ex: 2 lignes Bureaux du meme batiment → une seule ligne avec la surface totale) — ne jamais fusionner des surfaces de batiments differents, elles restent sur des lignes distinctes. NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"suivi_conditions_suspensives":null,"prise_effet_par_levee_cs":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
 REGLES POUR date_effet_avenant / date_signature_avenant (champs top-level, PAS dans champs_modifies) :
 - date_signature_avenant: chercher SYSTEMATIQUEMENT cette date dans TOUT le document, meme quand l'avenant ne modifie pas date_effet — c'est elle qui sert a classer chronologiquement les avenants d'un meme bail entre eux quand aucune date d'effet propre n'est disponible (voir date_effet_avenant ci-dessous). Se trouve generalement en toute fin d'acte (bloc de signature "Fait a ..., le [date]", juste avant les annexes), mais peut aussi figurer sur un certificat de signature electronique separe (DocuSign, Yousign ou equivalent) si le PDF en contient un. Si les parties signent a des dates differentes, retenir la DERNIERE date de signature. null UNIQUEMENT si aucune date n'est identifiable nulle part dans le document (ligne "Fait le" laissee vierge, page de signature absente du PDF fourni).
@@ -180,18 +180,14 @@ REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
 - break_options: UNIQUEMENT si l'avenant modifie/redefinit EXPLICITEMENT les dates de sortie anticipee — c'est-a-dire si le texte de CET avenant parle lui-meme de faculte de resiliation/conge/break. INTERDICTION ABSOLUE de calculer et remplir des echeances triennales generiques (3/6/9 ans depuis une date d'effet) par reflexe des que cet avenant etablit ou confirme une date d'effet/date de fin — un avenant qui se contente de fixer/confirmer la date d'effet ou la date de fin SANS jamais mentionner de faculte de conge/resiliation doit laisser break_options a null, meme si on peut techniquement calculer des multiples de 3 ans a partir de la nouvelle date d'effet. Format: TABLEAU DE DATES PURES au format "jj/mm/aaaa" UNIQUEMENT, ex: ["31/12/2030","31/12/2033"]. JAMAIS de phrase descriptive (interdit: "Premiere faculte de conge a l'expiration de la 2e periode triennale le 31/12/2030" — mettre uniquement "31/12/2030"). Si l'avenant dit "renonciation a la resiliation triennale pour la duree ferme de N ans" ou "premier conge possible le jj/mm/aaaa", extraire la ou les date(s) exacte(s) mentionnee(s), pas le texte de la clause (le texte de la clause va dans conditions_break et _sources, pas dans break_options). null si non modifie.
 - echeances_sortie: UNIQUEMENT si cet avenant cree, supprime, deplace ou modifie une ou plusieurs facultes de sortie anticipee du preneur (dates de conge, indemnite de depart, compensation si maintien), OU s'il fixe/confirme une nouvelle date d'effet ou de fin qui decale les echeances de sortie existantes. Dans ce cas, fournir la LISTE COMPLETE des echeances de sortie EN VIGUEUR APRES cet avenant (pas seulement celles qui changent), une entree par echeance : {"date":"jj/mm/aaaa ou null","type":"triennale|exceptionnelle|a_tout_moment|autre","libelle":"fondement court","preavis":"...","indemnite_sortie":"formule/montant tel qu'ecrit si le preneur part, sinon null","montant_indemnite":"chiffre brut si ecrit, sinon null","compensation_maintien":"ce que le bailleur accorde si le preneur reste, tel qu'ecrit, sinon null","conditions":"conditions propres a cette sortie, sinon null","page":N}. Reprendre les echeances du bail que l'avenant ne modifie pas (voir contexte du bail fourni le cas echeant) en recalculant leurs dates si la date d'effet a change. Chaque indemnite/compensation est rattachee a l'echeance du paragraphe qui la stipule. break_options = les dates non nulles de cette liste. null si l'avenant ne touche ni aux facultes de sortie ni aux dates d'effet/fin.
-- franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. UNE LIGNE PAR TRANCHE: si la franchise est ventilee en tranches (\"X € a compter de la prise d'effet ; Y € a compter du 1er anniversaire\"), une entree par tranche, meme sans date calendaire connue (date_debut en relatif: \"Prise d'effet du Bail\", \"1er anniversaire de la prise d'effet\" ; duree globale repartie au prorata des montants, marquee \"recalcul = N mois\") — jamais une ligne globale avec la ventilation dans condition (voir regle detaillee dans le prompt d'extraction du bail). null si aucune franchise dans l'avenant. ATTENTION: si plusieurs montants sont donnes a des dates anniversaires successives sans duree explicite, NE PAS supposer 12 mois entre deux echeances (voir regle detaillee dans le prompt d'extraction du bail) — calculer duree_mois = round(montant / (loyer_annuel_base/12)). FORMAT SYMETRIQUE (voir regle detaillee dans le prompt d'extraction du bail): si duree explicite et montant manquant, reprendre la duree telle quelle et ecrire "recalcul = <montant> €" dans montant ; si montant explicite et duree manquante, garder le montant en chiffre brut et ecrire "recalcul = <duree> mois" dans duree ; jamais de formule detaillee. ATTENTION DOUBLON: si l'avenant donne un montant GLOBAL de franchise PUIS son detail ventile en plusieurs tranches, NE CREER QU'UNE LIGNE PAR TRANCHE — ne jamais ajouter en plus une ligne reprenant le total global (voir regle detaillee dans le prompt d'extraction du bail). Le montant global va dans le champ texte "franchise" ci-dessous, jamais comme ligne supplementaire.
+- franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant. ATTENTION: si plusieurs montants sont donnes a des dates anniversaires successives sans duree explicite, NE PAS supposer 12 mois entre deux echeances (voir regle detaillee dans le prompt d'extraction du bail) — calculer duree_mois = round(montant / (loyer_annuel_base/12)). FORMAT SYMETRIQUE (voir regle detaillee dans le prompt d'extraction du bail): si duree explicite et montant manquant, reprendre la duree telle quelle et ecrire "recalcul = <montant> €" dans montant ; si montant explicite et duree manquante, garder le montant en chiffre brut et ecrire "recalcul = <duree> mois" dans duree ; jamais de formule detaillee. ATTENTION DOUBLON: si l'avenant donne un montant GLOBAL de franchise PUIS son detail ventile en plusieurs tranches, NE CREER QU'UNE LIGNE PAR TRANCHE — ne jamais ajouter en plus une ligne reprenant le total global (voir regle detaillee dans le prompt d'extraction du bail). Le montant global va dans le champ texte "franchise" ci-dessous, jamais comme ligne supplementaire.
 - franchise: OBLIGATOIRE DES QUE franchise_periodes CONTIENT AU MOINS UNE ENTREE (voir regle detaillee dans le prompt d'extraction du bail) — texte VERBEUX reprenant fidelement la redaction de la clause de franchise de CET avenant, redige INDEPENDAMMENT de ta propre lecture du texte, pas en reformulant les lignes de franchise_periodes. null UNIQUEMENT si franchise_periodes est aussi vide.
 - frais_redaction_actes: UNIQUEMENT si cet avenant lui-meme mentionne un montant de frais de redaction (le sien propre, et/ou une nouvelle stipulation pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. null si non aborde par cet avenant.
 - charges_impots_taxes / charges_vetuste / charges_force_majeure: UNIQUEMENT si cet avenant modifie explicitement la repartition d'un impot/taxe, de la vetuste ou de la force majeure par rapport au bail initial. Memes formats que dans le prompt d'extraction du bail. null si non aborde par cet avenant (ce champ ecrase completement l'ancien tableau/objet — pour charges_impots_taxes, reprendre TOUS les impots encore pertinents, pas seulement celui modifie).
 - depot_garantie_montant / depot_garantie_duree_mois / depot_garantie / gapd_montant / gapd_duree_mois / gapd: UNIQUEMENT si cet avenant modifie l'une de ces garanties. Memes definitions que dans le prompt d'extraction du bail. null si non aborde par cet avenant.
-- date_effet: champ SOUVENT LAISSE A TORT rempli par erreur — a remplir UNIQUEMENT si cet avenant REDEFINIT la date de prise d'effet GLOBALE du bail dans son ensemble (typiquement : reformulation complete de l'article CP2/DUREE-PRISE D'EFFET, ou constat d'achevement/mise a disposition qui fixait jusque-la une date conditionnelle — voir date_effet_condition ci-dessous). NE JAMAIS y mettre une date qui n'est que la date d'effet d'une MODIFICATION PARTIELLE du bail deja en cours (ex: date a laquelle des locaux complementaires sont pris a bail en plus des locaux existants, date de restitution/liberation d'un lot, date a partir de laquelle un nouveau loyer recalcule s'applique suite a un changement de surface, date d'entree en vigueur d'une clause modifiee comme la destination des locaux) — ces dates concernent UNIQUEMENT la modification en question, pas le bail dans son ensemble, et ne doivent PAS toucher a date_effet (qui reste celle du bail d'origine, inchangee). Si l'avenant reprend/recopie telle quelle la clause CP2-DUREE-PRISE D'EFFET du bail SANS en changer la date de depart, NE PAS remplir date_effet non plus (rien n'est modifie, c'est une simple citation/confirmation de l'existant). EXCEPTION PRIORITAIRE: si le contexte indique une date_effet_condition (prise d'effet subordonnee a un evenement) et que cet avenant donne la date de cet evenement (livraison des travaux, remise des cles, signature de l'acte...), remplir date_effet avec cette date meme sans mention expresse "prise d'effet" (voir prise_effet_par_levee_cs). Hors ce cas, en cas de doute entre "modification partielle avec sa propre date d'effet" et "redefinition de la date d'effet du bail entier", TOUJOURS pencher vers null — l'absence de mise a jour est sans consequence, alors qu'une fausse date d'effet fausse tout l'echeancier du bail (breaks, date de fin, indexation).
+- date_effet: champ SOUVENT LAISSE A TORT rempli par erreur — a remplir UNIQUEMENT si cet avenant REDEFINIT la date de prise d'effet GLOBALE du bail dans son ensemble (typiquement : reformulation complete de l'article CP2/DUREE-PRISE D'EFFET, ou constat d'achevement/mise a disposition qui fixait jusque-la une date conditionnelle — voir date_effet_condition ci-dessous). NE JAMAIS y mettre une date qui n'est que la date d'effet d'une MODIFICATION PARTIELLE du bail deja en cours (ex: date a laquelle des locaux complementaires sont pris a bail en plus des locaux existants, date de restitution/liberation d'un lot, date a partir de laquelle un nouveau loyer recalcule s'applique suite a un changement de surface, date d'entree en vigueur d'une clause modifiee comme la destination des locaux) — ces dates concernent UNIQUEMENT la modification en question, pas le bail dans son ensemble, et ne doivent PAS toucher a date_effet (qui reste celle du bail d'origine, inchangee). Si l'avenant reprend/recopie telle quelle la clause CP2-DUREE-PRISE D'EFFET du bail SANS en changer la date de depart, NE PAS remplir date_effet non plus (rien n'est modifie, c'est une simple citation/confirmation de l'existant). En cas de doute entre "modification partielle avec sa propre date d'effet" et "redefinition de la date d'effet du bail entier", TOUJOURS pencher vers null — l'absence de mise a jour est sans consequence, alors qu'une fausse date d'effet fausse tout l'echeancier du bail (breaks, date de fin, indexation).
 - date_effet_condition: mettre a null des que cet avenant fixe une date_effet calendaire ferme (le plus frequent : l'avenant constate la realisation de l'evenement, ex: signature de l'Acte de Vente, et fixe donc la vraie date de prise d'effet dans champs_modifies.date_effet) — dans ce cas champs_modifies.date_effet remplace definitivement la mention conditionnelle. Ne renseigner date_effet_condition que si cet avenant modifie ou reformule le texte de la condition dont depend la prise d'effet SANS encore fournir de date calendaire ferme. null si non aborde par cet avenant.
 - conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","date_limite_levee":"jj/mm/aaaa ou null","statut":"levee/en cours/non precise","page":2}]. date_limite_levee: meme regle que dans le prompt d'extraction du bail — chercher systematiquement cette date (ou la calculer si exprimee en delai relatif depuis la date de l'avenant). Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
-
-REGLES POUR suivi_conditions_suspensives / prise_effet_par_levee_cs (champs top-level, PAS dans champs_modifies) :
-- suivi_conditions_suspensives: des que le bail d'origine comporte des conditions suspensives (voir CONTEXTE DEJA CONNU en fin de prompt), examiner SYSTEMATIQUEMENT, UNE PAR UNE, ce que CET avenant dit de chacune — y compris si l'avenant n'en parle que dans un considerant/expose prealable ("Il est rappele que...", "Les Parties constatent que..."). UNE ENTREE PAR CONDITION DU BAIL: {"libelle":"libelle EXACT de la condition tel que donne dans le contexte","statut":"levee|renoncee|defaillie|prorogee|modifiee|non_abordee","date_levee":"jj/mm/aaaa ou null","date_levee_type":"exacte|au_plus_tard|date_avenant|null","nouvelle_date_limite":"jj/mm/aaaa si prorogee, sinon null","commentaire":"justification courte tiree du texte, sinon null","page":numero de page ou null}. statut: levee = la condition est realisee/levee/obtenue/purgee ("le permis de construire a ete obtenu le ... et est purge de tout recours", "l'acte de vente a ete signe le ...", "les Parties constatent la realisation de la condition") ; renoncee = le beneficiaire renonce a s'en prevaloir ; defaillie = non realisee dans le delai ; prorogee = delai de levee repousse ; modifiee = contenu change ; non_abordee = l'avenant ne dit rien de cette condition. date_levee + date_levee_type — OBLIGATOIRES des que statut = levee ou renoncee (ne JAMAIS laisser date_levee a null dans ce cas), par ordre de priorite : (1) une date de realisation EXACTE ecrite dans l'avenant ("permis obtenu le 12/02/2025", "purge de tout recours le 31/03/2025", "l'acte de vente a ete signe le ...", "autorisation delivree le ...") → date_levee_type="exacte" ; (2) sinon, si l'avenant constate que la condition est levee et ne rattache a cette condition qu'une date limite ("purge de tous recours au 31 mars 2025 au plus tard", "au plus tard le 31 decembre 2024") → date_levee = cette date limite, date_levee_type="au_plus_tard" (la levee est acquise et est intervenue au plus tard a cette date) ; (3) sinon → date_levee = date_signature_avenant, date_levee_type="date_avenant". Ne JAMAIS prendre comme date de levee une date de DEPOT de dossier ou de demande ("a depose son dossier de demande en Mairie le 31 juillet 2024") : c'est une etape, pas la realisation de la condition. Une formule globale ("l'ensemble des conditions suspensives sont levees/realisees") vaut levee pour CHACUNE (une entree par condition, meme date). Si le contexte ne fournit aucune condition mais que l'avenant en mentionne la levee, creer quand meme une entree par condition citee. null UNIQUEMENT si le bail n'a aucune condition suspensive connue ET que l'avenant n'en parle pas.
-- prise_effet_par_levee_cs: a remplir quand la prise d'effet du bail est subordonnee a la levee des conditions suspensives (ou a l'evenement de date_effet_condition du contexte, ex: signature de l'acte de vente, purge du permis). REGLE IMPERATIVE — EVENEMENT DE PRISE D'EFFET DATE PAR L'AVENANT: quand le contexte indique que la prise d'effet du bail depend d'un evenement (date_effet_condition : livraison des travaux, remise des cles, reception, signature de l'acte de vente, mise a disposition...) et que CET avenant donne la DATE de cet evenement (ex: un article "Date de livraison des travaux" fixant la livraison au 15/01/2025), alors cette date EST la date de prise d'effet du bail, MEME SI l'avenant ne l'ecrit pas expressement ("emportant prise d'effet" n'a pas besoin d'etre ecrit : c'est le bail d'origine qui l'a stipule) : declenchee=true, date_effet = cette date, commentaire = "Date de <evenement> fixee par l'avenant = date de prise d'effet prevue au bail", et reporter OBLIGATOIREMENT cette date dans champs_modifies.date_effet (et champs_modifies.date_effet_condition=null). Cette regle prime sur la consigne de prudence de date_effet ("en cas de doute, null"). Format: {"declenchee":true|false,"date_effet":"jj/mm/aaaa ou null","commentaire":"texte court"}. declenchee=true si CET avenant constate que TOUTES les conditions dont depend la prise d'effet sont levees (ou que l'evenement est survenu) : date_effet = la date de prise d'effet qui en resulte (souvent la date de levee de la DERNIERE condition, ou la date que l'avenant fixe expressement) — et dans ce cas reporter OBLIGATOIREMENT cette meme date dans champs_modifies.date_effet et mettre champs_modifies.date_effet_condition a null. declenchee=false si certaines conditions dont depend la prise d'effet restent pendantes (commentaire = lesquelles). null si la prise d'effet du bail ne depend pas des conditions suspensives ou si l'avenant n'aborde pas le sujet.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
 - _pages: objet AU MEME NIVEAU que champs_modifies (pas dedans) avec le numero de PAGE du PDF ou se trouve chaque champ RENSEIGNE (non-null) de champs_modifies, plus objet_avenant, date_effet_avenant et date_signature_avenant si applicable. Format: {"loyer_signature_montant":2,"date_effet_avenant":1,"objet_avenant":1}. Ne pas inclure les champs restes null.`
@@ -216,12 +212,6 @@ function buildAvenantPrompt(parentBailData) {
     : `break_options actuels du bail : aucun (le preneur ne dispose d'aucune faculté de sortie anticipée connue à ce jour)`)
   if (parentBailData.date_effet) ctx.push(`date_effet actuelle du bail : ${parentBailData.date_effet}`)
   if (Array.isArray(parentBailData.echeances_sortie)) ctx.push(`echeances_sortie actuelles du bail : ${JSON.stringify(parentBailData.echeances_sortie)}`)
-  // Conditions suspensives du bail : l'avenant doit dire, une par une, si
-  // elles sont levées (voir suivi_conditions_suspensives dans AVENANT_PROMPT).
-  const csList = Array.isArray(parentBailData.conditions_suspensives) ? parentBailData.conditions_suspensives : []
-  if (csList.length) ctx.push(`conditions_suspensives du bail (a examiner UNE PAR UNE dans suivi_conditions_suspensives) : ${JSON.stringify(csList.map(c => ({ libelle: c?.libelle ?? null, date_limite_levee: c?.date_limite_levee ?? null, statut: c?.statut ?? null })))}`)
-  if (parentBailData.date_effet_condition && !parentBailData.date_effet) ctx.push(`date_effet_condition du bail : la prise d'effet du bail n'a PAS encore de date calendaire, elle est fixee a la date de cet evenement → ${JSON.stringify(parentBailData.date_effet_condition)}. Si CET avenant donne la date de cet evenement (meme dans un article qui ne parle pas de prise d'effet), c'est la date de prise d'effet du bail : la reporter dans champs_modifies.date_effet et dans prise_effet_par_levee_cs (declenchee=true).`)
-  else if (parentBailData.date_effet_condition) ctx.push(`date_effet_condition du bail (la prise d'effet depend de cet evenement — voir prise_effet_par_levee_cs) : ${JSON.stringify(parentBailData.date_effet_condition)}`)
   if (!ctx.length) return AVENANT_PROMPT
   return AVENANT_PROMPT + `
 
@@ -306,39 +296,6 @@ async function openSourceAtPage(item, page) {
 }
 
 // Petite icône cliquable renvoyant à la page source d'un champ, si connue.
-// Date servant à classer un avenant parmi ceux de son bail : date d'effet,
-// sinon date de signature, sinon date lisible dans le NOM DU FICHIER
-// (« 2022.09.22_Protocole… », « … - 28.06.2021.docx.pdf »), sinon date
-// d'import. Avant, l'absence des deux premières faisait retomber sur la date
-// d'import : une lettre-avenant de 2021 importée après un protocole de 2022
-// passait derrière lui. Renvoie JJ/MM/AAAA (ou la date d'import brute).
-function dateFromFileName(name) {
-  const s = String(name || '')
-  let m = s.match(/(?:^|[^\d])((?:19|20)\d{2})[._-](\d{2})[._-](\d{2})(?!\d)/)
-  if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) return `${m[3]}/${m[2]}/${m[1]}`
-  m = s.match(/(?:^|[^\d])(\d{2})[._-](\d{2})[._-]((?:19|20)\d{2})(?!\d)/)
-  if (m && +m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) return `${m[1]}/${m[2]}/${m[3]}`
-  m = s.match(/(?:^|[^\d])((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)/)
-  if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) return `${m[3]}/${m[2]}/${m[1]}`
-  return null
-}
-function avenantChronoDate(av) {
-  return av?.data?.date_effet_avenant || av?.data?.date_signature_avenant || dateFromFileName(av?.file_name) || av?.created_at
-}
-// Titre court d'un avenant, tiré de son objet (« Protocole transactionnel
-// relatif au solde de la participation travaux due à CARIBOO : … » →
-// partie avant le deux-points), à défaut le nom du fichier.
-function avenantShortTitle(av) {
-  const o = safeStr(av?.data?.objet_avenant)
-  if (!o) return av?.file_name || 'Avenant'
-  let t = o
-  const cut = t.search(/\s[:;—–]\s|\s-\s|:\s/)
-  if (cut >= 12) t = t.slice(0, cut)
-  t = t.trim().replace(/[.,;]+$/, '')
-  if (t.length > 95) t = t.slice(0, 92).replace(/\s+\S*$/, '') + '…'
-  return t.charAt(0).toUpperCase() + t.slice(1)
-}
-
 function PageJumpIcon({ item, pages, field, page: pageProp, title }) {
   const page = pageProp ?? pages?.[field]
   if (!page || !item?.storage_path) return null
@@ -346,7 +303,12 @@ function PageJumpIcon({ item, pages, field, page: pageProp, title }) {
     <span
       onClick={e => { e.stopPropagation(); openSourceAtPage(item, page) }}
       title={title || `Voir la page ${page} du document source`}
-      className="page-ref">
+      style={{
+        cursor: 'pointer', fontSize: '10px', fontWeight: 700, color: 'var(--accent)',
+        border: '1px solid rgba(26,95,168,.3)', borderRadius: '4px', padding: '0px 4px',
+        display: 'inline-flex', alignItems: 'center', gap: '2px', whiteSpace: 'nowrap',
+        background: 'var(--accent-bg)', lineHeight: '15px',
+      }}>
       p.{page}
     </span>
   )
@@ -749,7 +711,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   const surf = (val) => { const n = parseFloat(String(val || '').replace(',', '.')); return isNaN(n) ? '' : n }
 
   const breaks    = Array.isArray(d.break_options)          ? d.break_options          : []
-  const franchise = Array.isArray(d.franchise_periodes)     ? normalizeFranchiseRows(d.franchise_periodes) : []
+  const franchise = Array.isArray(d.franchise_periodes)     ? d.franchise_periodes     : []
   const indem     = Array.isArray(d.indemnites)             ? d.indemnites             : []
   const surfaces  = Array.isArray(d.surfaces_detail)        ? d.surfaces_detail        : []
   const trav      = Array.isArray(d.participations_travaux) ? d.participations_travaux : []
@@ -813,7 +775,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     // reporter ce texte plutôt que de laisser la cellule vide.
     isAv ? v(meta.date_effet_avenant) : v(d.date_effet || (d.date_effet_condition ? `À la levée de : ${d.date_effet_condition.libelle || ''}${d.date_effet_condition.date_limite ? ` (au plus tard le ${d.date_effet_condition.date_limite})` : ''}` : '')),
     isAv ? v(meta.date_signature_avenant) : v(d.date_signature),
-    getDateLimiteAbsolue(d) || v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
+    v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
     ...breakVals,
     v(d.conditions_break),
     surf(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', pkUnit || '', v(d.rie),
@@ -949,8 +911,8 @@ function exportAllToExcel(tree, onErrors, selectedCols = null) {
     rows.push({ item: bail, parentName: '', parentData: null, statut: 'OK' })
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
       const toS = d => { const m = String(d||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d||'') }
-      return toS(avenantChronoDate(a))
-            .localeCompare(toS(avenantChronoDate(b)))
+      return toS(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
+            .localeCompare(toS(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at))
     })
     sortedAv.forEach(av => rows.push({ item: av, parentName, parentData, statut: 'OK' }))
   })
@@ -974,7 +936,7 @@ function exportAllToExcel(tree, onErrors, selectedCols = null) {
 
 const BREAK_PROMPT = `Expert baux commerciaux français. Analyse UNIQUEMENT la clause de durée et de résiliation de ce bail. Retourne UNIQUEMENT un JSON minifié sur UNE SEULE LIGNE : {"date_effet":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","break_options":["jj/mm/aaaa",...],"echeances_sortie":[...]}
 
-REGLE ABSOLUE pour date_fin : les Conditions Particulieres derogent TOUJOURS aux Conditions Generales. Si une CP fixe la duree du bail (ex: 9 ans) alors que les CG en indiquent une autre (ex: 12 ans), date_fin = date_effet + duree CP (veille de l'anniversaire). Une CP qui ne parle que de duree FERME (periode sans conge) ne change pas la duree du bail — MEME SI elle est redigee "de sorte que le Bail aura une duree ferme de N annees", MEME SI elle dit "amender/modifier l'article CG-X DUREE", et a fortiori si elle ajoute "le reste de l'article demeure applicable et inchange" : date_fin = date_effet + duree fixee dans l'article CG (a lire obligatoirement). Exemple: CG2 "duree de douze annees" + CP2 "amender CG2... le PRENEUR renonce a donner conge a l'expiration de la premiere periode triennale, de sorte que le Bail aura une duree ferme de 6 annees. Le reste de l'article demeure applicable" → date_fin = date_effet + 12 ans (veille), break_options = annees 6 et 9 (PAS date_fin a 6 ans).
+REGLE ABSOLUE pour date_fin : les Conditions Particulieres derogent TOUJOURS aux Conditions Generales. Si une CP fixe la duree du bail (ex: 9 ans) alors que les CG en indiquent une autre (ex: 12 ans), date_fin = date_effet + duree CP (veille de l'anniversaire). Une CP qui ne parle que de duree FERME (periode sans conge) ne change pas la duree du bail.
 REGLE ABSOLUE pour break_options : liste COMPLETE et EXHAUSTIVE.
 REGLE ABSOLUE CONVENTION DE DATE: toute date calculee par addition d'annees entieres a date_effet s'exprime au JOUR ANNIVERSAIRE MOINS 1 JOUR (convention standard des baux commerciaux). Exemple: date_effet=15/10/2020, echeance a 6 ans → 14/10/2026 (PAS 15/10/2026). Ne s'applique pas si le bail donne une date EXPLICITE en toutes lettres.
 REGLE ABSOLUE (quelle que soit la formulation: "periode triennale", "echeance triennale", etc.): les echeances triennales SUCCESSIVES se calculent TOUJOURS comme des multiples de 3 ANS DEPUIS DATE_EFFET, JAMAIS en ajoutant 3 ans a la break precedente — meme si la premiere sortie nommee par le bail tombe sur une annee qui n'est pas un multiple de 3 (ex: annee 4 ou 7, fin de duree ferme).
@@ -998,7 +960,6 @@ REGLES :
 5) Une faculte de resiliation "a tout moment" (generalement sous condition de motif) = une entree type "a_tout_moment", date null, avec ses conditions et son preavis.
 6) break_options = exactement les dates (non nulles) de echeances_sortie, triees. Les deux doivent toujours concorder.
 7) Aucune sortie anticipee possible (ex: duree ferme egale a la duree totale) → echeances_sortie=[] et break_options=[].
-8) FACULTE TRIENNALE LEGALE RESIDUELLE (art. L.145-4): le preneur conserve de plein droit la faculte de donner conge a l'expiration de CHAQUE periode triennale a laquelle il n'a pas EXPRESSEMENT renonce. Une renonciation limitee a certaines periodes (ex: la premiere seulement) laisse donc subsister TOUTES les echeances triennales suivantes jusqu'a date_fin (exclue) — chacune doit avoir SA propre entree, MEME SI la clause ne decrit en detail qu'une seule echeance (souvent celle assortie d'une indemnite) et ne mentionne pas les suivantes. Une date citee seulement comme report d'effet du conge dans les conditions d'une autre echeance ("a defaut de versement, le conge prendra effet au 31/10/2027, fin de la 3eme periode triennale") ne remplace pas son entree : cette echeance est elle-meme une sortie possible. L'indemnite/les conditions d'une echeance ne se reportent sur les echeances suivantes que si le texte les rattache a toutes (ex: "a chaque echeance triennale"). EXEMPLE REEL: effet 01/11/2018, duree 12 ans (date_fin 31/10/2030), renonciation a la seule premiere periode triennale, conge possible a l'expiration de la deuxieme periode triennale moyennant une indemnite de 3 mois de loyer → echeances_sortie = 31/10/2024 (triennale, 2eme periode, indemnite 3 mois) ET 31/10/2027 (triennale, 3eme periode, indemnite_sortie null sauf si le texte l'y rattache) ; PAS 31/10/2021 (renoncee) ni 31/10/2030 (date_fin) → break_options=["31/10/2024","31/10/2027"]. SECOND EXEMPLE REEL (meme regle avec une duree ferme non multiple de 3): "Le Contrat est consenti pour douze annees dont huit annees fermes, du 1er juillet 2022 au 30 juin 2034. Le SOUS-LOCATAIRE renonce a sa faculte de resiliation triennale pour la duree ferme. Il aura la faculte de donner conge a l'expiration de la huitieme annee soit le 30 juin 2030 POUR LA PREMIERE FOIS" → "pour la premiere fois" annonce les sorties suivantes : echeances_sortie = 30/06/2030 (fin de la duree ferme) ET 30/06/2031 (9eme annee = prochain multiple de 3 apres 8, type triennale) ; PAS 30/06/2034 (date_fin) → break_options=["30/06/2030","30/06/2031"]. Une seule entree serait une erreur.
 EXEMPLE (bail de 10 ans dont 9 fermes, effet 12/05/2026) : "Le Preneur renonce a sa faculte de resiliation triennale pour la duree ferme. Il aura la faculte de donner conge a l'expiration de la troisieme periode triennale soit le 11 mai 2035 pour la premiere fois, preavis 6 mois. Les Parties conviennent toutefois que le Preneur aura la faculte de delivrer un conge pour le 30 septembre 2033 ; il devra alors verser une indemnite correspondant aux deux derniers mois de loyer factures a la date d'envoi du conge ; ce conge devra etre delivre par acte extrajudiciaire entre neuf et six mois avant l'echeance et accompagne d'un cheque de banque" → echeances_sortie=[{"date":"30/09/2033","type":"exceptionnelle","libelle":"Conge exceptionnel convenu entre les parties","preavis":"entre 9 et 6 mois avant l'echeance, par acte extrajudiciaire","indemnite_sortie":"2 derniers mois de loyer factures a la date d'envoi du conge","montant_indemnite":null,"compensation_maintien":null,"conditions":"Conge accompagne d'un cheque de banque du montant de l'indemnite","page":8},{"date":"11/05/2035","type":"triennale","libelle":"Expiration de la 3eme periode triennale","preavis":"6 mois, par acte extrajudiciaire ou LRAR","indemnite_sortie":null,"montant_indemnite":null,"compensation_maintien":null,"conditions":null,"page":8}] et break_options=["30/09/2033","11/05/2035"].`
 
 const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
@@ -1017,7 +978,7 @@ abattements: tableau de toutes les reductions temporaires de loyer DISTINCTES d'
 
 loyer_variable: si le bail contient une clause de loyer variable ou indexe sur le CA/chiffre d affaires. Format: {"type":"CA ou autre","taux":"ex: 3%","assiette":"ex: CA TTC annuel","plancher":"montant brut ou null","plafond":"montant brut ou null","regles":"texte complet de la formule et des conditions de declenchement"}. null si pas de loyer variable.
 
-franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnelles et complementaires. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"123405","surface_assiette":"ex: LC1 (701 m²)","indexation_incluse":"Non","condition":"null ou texte si conditionnelle ex: si non-delivrance de conge au 31/08/2030","page":3}]. UNE LIGNE PAR TRANCHE (REGLE PRIORITAIRE): quand le texte ventile une franchise en plusieurs tranches appliquees a des moments differents ("qui sera appliquee comme suit : X € a compter de la prise d'effet ; Y € a compter du premier anniversaire..."), creer UNE ENTREE PAR TRANCHE — JAMAIS une seule ligne globale avec la ventilation releguee dans "condition". Ne pas ajouter en plus une ligne reprenant le total (double comptage) : le total et sa redaction complete vont dans le champ texte franchise. Une tranche n'est PAS une condition: condition reste null sauf vraie condition (ex: si non-delivrance de conge). DATES RELATIVES: l'absence de date calendaire (date d'effet inconnue a la signature, conditions suspensives, VEFA, livraison...) n'empeche JAMAIS d'eclater les tranches. Dans ce cas ecrire dans date_debut le point de depart tel que le texte le formule, en court: "Prise d'effet du Bail", "1er anniversaire de la prise d'effet", "2e anniversaire de la prise d'effet"... ; et dans date_fin la meme reference + la duree de la tranche (ex: "Prise d'effet + 3,75 mois"). Ne JAMAIS ecrire "recalcul = ... mois" dans date_debut ou date_fin (ce marqueur est reserve aux champs duree et montant). DUREE PAR TRANCHE: si seuls la duree GLOBALE et les montants des tranches sont donnes, repartir la duree globale au prorata des montants (tranches de montants egaux → duree globale / nombre de tranches) et l'ecrire avec le marqueur: "recalcul = 3,75 mois". EXEMPLE REEL: "franchise de loyer initial de sept mois et demi (7,5), soit un montant total de 61.595,62 € HT/HC a compter de la date de prise d'effet du Bail, qui sera appliquee comme suit : 30.797,81 € a compter de la date de prise d'effet du Bail ; 30.797,81 € a compter du premier anniversaire de la date anniversaire du Bail" → DEUX entrees: [{"date_debut":"Prise d'effet du Bail","date_fin":"Prise d'effet + 3,75 mois","duree":"recalcul = 3,75 mois","montant":"30797.81","condition":null,...},{"date_debut":"1er anniversaire de la prise d'effet","date_fin":"1er anniversaire + 3,75 mois","duree":"recalcul = 3,75 mois","montant":"30797.81","condition":null,...}] — PAS une seule ligne de 7,5 mois / 61.595,62 €. montant: calculer si non explicite (loyer_annuel_assiette * duree_mois / 12). ATTENTION DISTINCTION AVEC mise_a_disposition: une franchise reduit un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero. NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation avant la date d'effet officielle du bail, "pas de loyer ni charges dus"), meme si le texte l'appelle "franchise" et meme si elle est ventilee par lot avec des dates differentes — cela va dans le champ dedie mise_a_disposition, pas ici. ATTENTION CAS INVERSE FREQUENT: quand plusieurs montants de franchise sont donnes a des dates anniversaires successives (ex: un montant "à compter du" 15/09/2025, un autre "à compter du" 15/09/2026, etc.) SANS duree ni date de fin explicite pour chaque tranche, NE JAMAIS supposer 12 mois entre deux echeances — c'est presque toujours un montant equivalent a quelques semaines/mois de loyer accorde CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an), pas une exoneration continue toute l'annee. Calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)) puis date_fin = date_debut + duree_mois mois - 1 jour. N'utiliser 12 mois que si le texte le dit explicitement. Ce calcul ne s'applique QU'AUX tranches dont la DUREE n'est PAS ecrite : quand chaque tranche enonce elle-meme sa duree (ex: "2 mois de franchise de loyer initial, soit un montant de 22.791,67 € applique a compter de la premiere date anniversaire du Bail"), reprendre "2 mois" TEL QUEL dans duree, SANS marqueur "recalcul", pour CHAQUE tranche (la 1ere comme les suivantes) — "recalcul =" est reserve a une valeur reellement absente du texte. De meme, "a compter de la premiere date anniversaire du Bail" est le POINT DE DEPART de la tranche (il va dans date_debut), PAS une condition : condition reste null. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — (a) si la duree est explicite et le montant manquant: reprendre la duree telle quelle dans "duree", calculer montant = duree_mois * (loyer_annuel_base_HT_HC/12) et ecrire "recalcul = <montant> €" dans "montant" (pas un chiffre brut). (b) si le montant est explicite et la duree manquante: montant reste un chiffre brut normal, calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC/12)) et ecrire "recalcul = <duree_mois> mois" dans "duree" (pas une phrase). Si les deux sont explicites, les reprendre tels quels sans marqueur. Jamais de formule detaillee type "A / B = C".
+franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnelles et complementaires. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"123405","surface_assiette":"ex: LC1 (701 m²)","indexation_incluse":"Non","condition":"null ou texte si conditionnelle ex: si non-delivrance de conge au 31/08/2030","page":3}]. montant: calculer si non explicite (loyer_annuel_assiette * duree_mois / 12). ATTENTION DISTINCTION AVEC mise_a_disposition: une franchise reduit un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero. NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation avant la date d'effet officielle du bail, "pas de loyer ni charges dus"), meme si le texte l'appelle "franchise" et meme si elle est ventilee par lot avec des dates differentes — cela va dans le champ dedie mise_a_disposition, pas ici. ATTENTION CAS INVERSE FREQUENT: quand plusieurs montants de franchise sont donnes a des dates anniversaires successives (ex: un montant "à compter du" 15/09/2025, un autre "à compter du" 15/09/2026, etc.) SANS duree ni date de fin explicite pour chaque tranche, NE JAMAIS supposer 12 mois entre deux echeances — c'est presque toujours un montant equivalent a quelques semaines/mois de loyer accorde CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an), pas une exoneration continue toute l'annee. Calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)) puis date_fin = date_debut + duree_mois mois - 1 jour. N'utiliser 12 mois que si le texte le dit explicitement. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — (a) si la duree est explicite et le montant manquant: reprendre la duree telle quelle dans "duree", calculer montant = duree_mois * (loyer_annuel_base_HT_HC/12) et ecrire "recalcul = <montant> €" dans "montant" (pas un chiffre brut). (b) si le montant est explicite et la duree manquante: montant reste un chiffre brut normal, calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC/12)) et ecrire "recalcul = <duree_mois> mois" dans "duree" (pas une phrase). Si les deux sont explicites, les reprendre tels quels sans marqueur. Jamais de formule detaillee type "A / B = C".
 
 participations_travaux: TOUTES les enveloppes de participation financiere du bailleur aux travaux du preneur. Format: [{"libelle":"denomination exacte ex: Locaux Initiaux R+5","montant":"822701","date_limite":"31/12/2024","remarque":null,"page":5}]. libelle OBLIGATOIRE, jamais null.
 
@@ -1026,7 +987,7 @@ indemnites_break: Sommes dues par le PRENEUR au BAILLEUR UNIQUEMENT en cas d exe
 1) FORFAIT CHIFFRE PAR DATE DE BREAK: montant ou formule specifique par echéance (ex: "6 mois de loyer si conge au 31/08/2028") -> une ligne par break date. CAS FREQUENT A NE PAS MANQUER: une indemnite exprimee en FORMULE DE LOYER plutot qu'en montant fixe (ex: "le Preneur aura la faculte de delivrer un conge pour le 30 septembre 2033 ; dans une telle situation, le Preneur devra verser au Bailleur une indemnite d'un montant correspondant aux deux derniers mois de loyer factures a la date d'envoi du conge") est TOUJOURS une ligne valide de ce cas 1, meme sans chiffre brut explicite — montant reste null (ou "recalcul = <montant> €" si calculable a partir du loyer connu), et calcul="2 derniers mois de loyer factures a la date d'envoi du conge" (reprendre la formule telle quelle, PAS un chiffre invente). Cette clause est une faculte de conge VALIDE du preneur (pas un cas 2 a exclure) des lors que le texte dit explicitement "aura la faculte de delivrer un conge" — ne jamais la confondre avec une clause de resiliation fautive/hors cadre sous pretexte qu'une indemnite est due : une indemnite associee a l'exercice REGULIER d'un conge prevu au bail n'est PAS une sanction, c'est le prix normal de la sortie anticipee.
 2) INDEMNITE DE RESTITUTION/REMISE EN ETAT: si le bail prevoit une indemnite forfaitaire due a la restitution en cas de sortie anticipee (ex: "indemnite forfaitaire de remise en etat de 115 840 € en cas de depart a compter de la 6eme annee") -> inclure avec break_date=date de la premiere break concernee et calcul=formule.
 3) REMBOURSEMENT DES MESURES D ACCOMPAGNEMENT SI CONGE: clause generale de remboursement des avantages (franchises, MDA, travaux) si le preneur exerce son conge avant terme -> une ligne sans break_date specifique.
-A EXCLURE de indemnites_break: (0) une simple FACULTE de conge/de resiliation qui n'oblige le preneur a AUCUN versement (ex: "le PRENEUR beneficiera d'une faculte de resiliation pour la date du 31 decembre 2027") n'est PAS une indemnite — ne jamais creer de ligne dont motif/calcul se borne a decrire l'existence de la break, sa date ou la renonciation a une autre echeance ; la date va dans break_options, rien dans indemnites_break ; (1) clauses de remboursement uniquement en cas de CESSION du bail ou du fonds — MEME si la clause mentionne un remboursement "au prorata temporis" ou des "mesures d'accompagnement", des lors que le fait generateur est une cession a un tiers (notamment hors du Groupe du Preneur) et NON l'exercice d'une option de conge/break par le preneur lui-meme. Exemple a EXCLURE: "remboursement des mesures d'accompagnement (franchise de loyer) accordees intuitu personae au prorata temporis en cas de cession du droit au bail ou du fonds de commerce au benefice d'une societe ne faisant pas partie du Groupe du Preneur" → ceci est une clause de cession, PAS une indemnite de break, NE JAMAIS lui attribuer de break_date ni l'inclure dans indemnites_break, meme partiellement; (2) penalites dues en cas de depart FAUTIF ou de resiliation anticipee HORS option de break (clause resolutoire, indemnite d'immobilisation) — ATTENTION CAS FREQUENT ET FACILEMENT CONFONDU AVEC LE CAS 3: une clause "boilerplate" du type "remboursement des mesures d'accompagnement (franchises de loyer) et versement des loyers et charges dus jusqu'a la prochaine date de conge en cas de resiliation anticipee ou de non-prise de possession des locaux" N'EST PAS une indemnite due pour l'exercice VALIDE d'une option de break — c'est un garde-fou/une sanction applicable UNIQUEMENT si le Preneur part EN DEHORS du cadre normal des breaks prevus (resiliation anticipee non autorisee, ou non-prise de possession des locaux). Le simple fait que le texte mentionne "mesures d'accompagnement"/"remboursement des franchises" NE SUFFIT PAS a la classer en cas 3 — il faut lire le FAIT GENERATEUR precis: si c'est "en cas de resiliation anticipee" (departement hors break) ou "non-prise de possession", EXCLURE entierement (ne pas creer de ligne indemnites_break du tout pour cette clause, meme sans break_date) ; le cas 3 ne s'applique QUE si le texte dit explicitement que le remboursement est du en cas d'EXERCICE d'une option de conge/break VALABLEMENT PREVUE au bail (fait generateur = usage normal d'un break contractuel, pas un depart anticipe hors cadre); (3) indemnites dues entre deux dates de break. Inclure UNIQUEMENT les sommes dues lorsque le preneur EXERCE VALABLEMENT une option de break prevue au bail.
+A EXCLURE de indemnites_break: (1) clauses de remboursement uniquement en cas de CESSION du bail ou du fonds — MEME si la clause mentionne un remboursement "au prorata temporis" ou des "mesures d'accompagnement", des lors que le fait generateur est une cession a un tiers (notamment hors du Groupe du Preneur) et NON l'exercice d'une option de conge/break par le preneur lui-meme. Exemple a EXCLURE: "remboursement des mesures d'accompagnement (franchise de loyer) accordees intuitu personae au prorata temporis en cas de cession du droit au bail ou du fonds de commerce au benefice d'une societe ne faisant pas partie du Groupe du Preneur" → ceci est une clause de cession, PAS une indemnite de break, NE JAMAIS lui attribuer de break_date ni l'inclure dans indemnites_break, meme partiellement; (2) penalites dues en cas de depart FAUTIF ou de resiliation anticipee HORS option de break (clause resolutoire, indemnite d'immobilisation) — ATTENTION CAS FREQUENT ET FACILEMENT CONFONDU AVEC LE CAS 3: une clause "boilerplate" du type "remboursement des mesures d'accompagnement (franchises de loyer) et versement des loyers et charges dus jusqu'a la prochaine date de conge en cas de resiliation anticipee ou de non-prise de possession des locaux" N'EST PAS une indemnite due pour l'exercice VALIDE d'une option de break — c'est un garde-fou/une sanction applicable UNIQUEMENT si le Preneur part EN DEHORS du cadre normal des breaks prevus (resiliation anticipee non autorisee, ou non-prise de possession des locaux). Le simple fait que le texte mentionne "mesures d'accompagnement"/"remboursement des franchises" NE SUFFIT PAS a la classer en cas 3 — il faut lire le FAIT GENERATEUR precis: si c'est "en cas de resiliation anticipee" (departement hors break) ou "non-prise de possession", EXCLURE entierement (ne pas creer de ligne indemnites_break du tout pour cette clause, meme sans break_date) ; le cas 3 ne s'applique QUE si le texte dit explicitement que le remboursement est du en cas d'EXERCICE d'une option de conge/break VALABLEMENT PREVUE au bail (fait generateur = usage normal d'un break contractuel, pas un depart anticipe hors cadre); (3) indemnites dues entre deux dates de break. Inclure UNIQUEMENT les sommes dues lorsque le preneur EXERCE VALABLEMENT une option de break prevue au bail.
 REPARTITION STRICTE ENTRE motif ET calcul (evite la redondance : le motif donne deja le "quand"/"dans quel cas", calcul ne doit QUE donner le "combien") :
 - motif: contexte resume ("Conge delivre par le Preneur pour l'expiration de la Neme periode triennale") — c'est ici et dans break_date que vit le "quand"/"dans quel cas", jamais dans calcul.
 - calcul: EXCLUSIVEMENT la formule ou la valeur chiffree du remboursement, condensee, JAMAIS de phrase complete recopiant le motif/la condition. Ne jamais commencer par "En cas de..."/"Si le Preneur...": aller directement au montant/formule. Exemples CORRECTS (courts, chiffres/formule seuls): "2 mois de franchise de loyer", "6 mois de loyer HT/HC", "cumul des avantages consentis (franchise, reduction de loyer, participation travaux)", "115 840 € indexes BT01". Exemples INCORRECTS (a ne jamais produire, trop verbeux/redondants avec motif): "En cas de conge delivre par le Preneur pour l'expiration de la premiere periode triennale, il devra rembourser au Bailleur l'equivalent de 2 (deux) mois de franchise" (repete le motif) → devrait etre juste "2 mois de franchise de loyer".
@@ -1052,27 +1013,11 @@ const CAT_MAP = {
   'archives': 'Archives', 'cave': 'Archives', 'local technique': 'Archives', 'reserve': 'Archives',
   'commerce': 'Commerce', 'boutique': 'Commerce', 'retail': 'Commerce',
   'rie': 'RIE', 'restaurant': 'RIE', 'cafeteria': 'RIE',
-  'industrie': 'Activités / Industrie', 'industriel': 'Activités / Industrie', 'industrielle': 'Activités / Industrie',
-  'activite': 'Activités / Industrie', 'activites': 'Activités / Industrie', 'atelier': 'Activités / Industrie', 'production': 'Activités / Industrie',
-  'entrepot': 'Entrepôt / Stockage', 'logistique': 'Entrepôt / Stockage',
 }
-// Recherche par MOT ENTIER (accents retirés), jamais par sous-chaîne : avec
-// key.includes(k), « industrie » contient « rie » et devenait « RIE »
-// (de même « galerie », « librairie »…), ce qui excluait en plus la ligne du
-// total de surface. Le premier mot-clé trouvé dans l'ordre du libellé gagne
-// (« bureaux et sanitaires en mezzanine » → Bureaux).
-const CAT_KEYS_BY_LENGTH = Object.keys(CAT_MAP).sort((a, b) => b.length - a.length)
 function normCat(cat) {
   if (!cat) return 'Bureaux'
   const key = String(cat).toLowerCase().trim()
-  if (CAT_MAP[key]) return CAT_MAP[key]
-  const plain = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[_'’]/g, ' ')
-  let best = null
-  for (const k of CAT_KEYS_BY_LENGTH) {
-    const m = new RegExp(`(?:^|[^a-z])${k.replace(/_/g, ' ')}(?:[^a-z]|$)`).exec(plain)
-    if (m && (best === null || m.index < best.index)) best = { index: m.index, k }
-  }
-  return best ? CAT_MAP[best.k] : cat
+  return CAT_MAP[key] || (Object.keys(CAT_MAP).find(k => key.includes(k)) ? CAT_MAP[Object.keys(CAT_MAP).find(k => key.includes(k))] : cat)
 }
 function normalizeSurfaces(rows) {
   if (!Array.isArray(rows)) return rows
@@ -1201,25 +1146,6 @@ function detectsFullTriennialWaiver(clauseTextLower) {
   return !(isPartialDureeFerme || (waivesFirstPeriodOnly && mentionsLaterYear))
 }
 
-// Lecture d'une durée en années, commune à toute l'appli. Accepte « 9 ans »,
-// « neuf (9) ans », mais aussi « 9 années », « neuf (9) années entières et
-// consécutives » et le nombre en toutes lettres seul (« neuf années ») —
-// formulations fréquentes dans les avenants de renouvellement. Avant, seul
-// « an(s) » collé au chiffre était reconnu : une durée « 9 années » était
-// ignorée en silence (aucune date de fin recalculée, bail invisible dans
-// l'État locatif). Renvoie un tableau façon String.match ([texte, "9"]) pour
-// rester compatible avec les appels existants qui lisent m[1].
-const NOMBRES_EN_LETTRES = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, 'dix-sept': 17, 'dix-huit': 18, 'dix-neuf': 19, vingt: 20 }
-function durMatch(input) {
-  const str = String(input || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  if (!str) return null
-  let m = str.match(/\(?(\d+)\)?\s*(?:ans?|annees?)\b/)
-  if (m) return [m[0], m[1]]
-  m = str.match(/\b(dix[- ]sept|dix[- ]huit|dix[- ]neuf|une?|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize|vingt)\s+(?:ans?|annees?)\b/)
-  if (m) { const n = NOMBRES_EN_LETTRES[m[1].replace(' ', '-')]; return n ? [m[0], String(n)] : null }
-  return null
-}
-
 // Retire d'une liste de breaks (dates "jj/mm/aaaa") celles antérieures à
 // date_effet + duree_ferme — un résidu frequent : soit un calcul triennal
 // generique renvoye par l'IA malgre une renonciation explicite pour la duree
@@ -1236,7 +1162,7 @@ function durMatch(input) {
 function computeDateFinFromDuree(date_effet_str, duree_totale_str) {
   const effet = parseFR(date_effet_str)
   if (!effet) return null
-  const ymatch = durMatch(duree_totale_str)
+  const ymatch = String(duree_totale_str || '').match(/\(?(\d+)\)?\s*ans?\b/i)
   const mmatch = String(duree_totale_str || '').match(/\(?(\d+)\)?\s*mois\b/i)
   const years = ymatch ? parseInt(ymatch[1]) : 0
   const months = mmatch ? parseInt(mmatch[1]) : 0
@@ -1253,9 +1179,8 @@ function filterBreaksByDureeFerme(breaks, date_effet_str, duree_ferme_str) {
   // format très courant dans les baux — sans ça, la parenthèse casse la
   // contiguïté attendue entre le chiffre et "ans"/"mois" et le calcul entier
   // est silencieusement ignoré (years=months=0 → aucun filtrage n'a lieu).
-  // Les années passent par durMatch (« ans » comme « années », chiffres ou
-  // lettres) ; \b après « mois » évite de matcher « moisson » etc.
-  const ymatch = durMatch(dfm), mmatch = dfm.match(/\(?(\d+)\)?\s*mois\b/i)
+  // \b après ans/mois exclu "années"/"moisson" etc. par erreur.
+  const ymatch = dfm.match(/\(?(\d+)\)?\s*ans?\b/i), mmatch = dfm.match(/\(?(\d+)\)?\s*mois\b/i)
   const years = ymatch ? parseInt(ymatch[1]) : 0, months = mmatch ? parseInt(mmatch[1]) : 0
   if (!effet || (years === 0 && months === 0)) return breaks
   const minBreak = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
@@ -1276,7 +1201,7 @@ function computeBreaks(date_effet_str, date_fin_str, conditions_break_str, exist
   // Parse duree_ferme into years+months
   const parseDureeFerme = (str) => {
     if (!str) return null
-    const ymatch = durMatch(str)
+    const ymatch = String(str).match(/\(?(\d+)\)?\s*ans?\b/i)
     const mmatch = String(str).match(/\(?(\d+)\)?\s*mois\b/i)
     const years  = ymatch ? parseInt(ymatch[1]) : 0
     const months = mmatch ? parseInt(mmatch[1]) : 0
@@ -1707,110 +1632,6 @@ function formatDureeBetween(startStr, endStr) {
   return `${days > 0 ? '≈ ' : ''}${parts.join(' et ')}`
 }
 
-// Terme absolu d'un bail à tacite reconduction plafonnée (« en tout état de
-// cause, le Bail expirera de plein droit le 31 décembre 2034, sans
-// formalité »). Par convention, date_fin reste le PREMIER terme (ex. fin de
-// la 1re année) et le plafond vit dans reconduction_tacite.date_limite_absolue.
-// Si ce champ n'a pas été rempli à l'extraction, on retrouve la date dans les
-// textes déjà extraits (conditions des échéances, détail des breaks,
-// extraits sources) — seulement si le bail est bien en reconduction tacite et
-// seulement pour une date POSTÉRIEURE au premier terme. Renvoie JJ/MM/AAAA
-// ou null.
-const PLAFOND_RECONDUCTION_RE = /(?:en\s+tout\s+[ée]tat\s+de\s+cause|de\s+plein\s+droit|automatiquement\s+fin|sans\s+formalit|terme\s+absolu|ne\s+pourra\s+(?:en\s+aucun\s+cas\s+)?exc[ée]der)[^.;]{0,120}?(\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}(?:er)?\s+[a-zéèêûô]+\s+\d{4})/gi
-function getDateLimiteAbsolue(d) {
-  if (!d || !d.reconduction_tacite?.applicable) return null
-  const fin = parseFrDate(String(d.date_fin || ''))
-  const accept = raw => {
-    const m = String(raw || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-    const n = m ? `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}` : normalizeDate(raw)
-    const dt = n && /^\d{2}\/\d{2}\/\d{4}$/.test(n) ? parseFR(n) : null
-    return dt && (!fin || dt > fin) ? { n, dt } : null
-  }
-  const explicit = accept(d.reconduction_tacite.date_limite_absolue)
-  if (explicit) return explicit.n
-  const texts = [
-    typeof d.date_fin === 'string' ? d.date_fin : null, d.duree_totale, d.conditions_break,
-    d._sources?.date_fin, d._sources?.duree_totale, d._sources?.break_options,
-    ...(Array.isArray(d.echeances_sortie) ? d.echeances_sortie.flatMap(e => [e?.conditions, e?.libelle]) : []),
-  ].filter(v => typeof v === 'string' && v)
-  let best = null
-  for (const t of texts) {
-    for (const m of t.matchAll(PLAFOND_RECONDUCTION_RE)) {
-      const c = accept(m[1].replace(/1er/i, '1'))
-      if (c && (!best || c.dt > best.dt)) best = c
-    }
-  }
-  return best ? best.n : null
-}
-
-// Le texte d'une « indemnité » de break décrit-il réellement une SOMME à
-// verser par le preneur ? Les extractions rangent parfois dans
-// indemnites_break / indemnite_sortie une simple description de la faculté
-// de sortie (« Faculté de résiliation offerte au Preneur pour le
-// 31/12/2027… ») : affichée en « Indemnité si exercée » / « Si départ », elle
-// fait passer une break standard pour une break payante. Un montant chiffré
-// ou un vocabulaire de paiement est exigé pour l'afficher comme indemnité.
-const PAYMENT_WORDS_RE = /indemnit|vers(?:er|ement|[ée])|pa(?:yer|iement|ie\b)|rembours|loyer|€|euros?\b|montant|p[ée]nalit|d[ée]dit|franchise|mesures?\s+d.accompagnement|remise\s+en\s+[ée]tat|forfait/i
-function describesPayment(texts, montant) {
-  const m = parseFloat(String(montant ?? '').replace(/\s/g, '').replace(',', '.'))
-  if (!isNaN(m) && m > 0) return true
-  return PAYMENT_WORDS_RE.test((Array.isArray(texts) ? texts : [texts]).filter(Boolean).map(String).join(' '))
-}
-
-// Faculté triennale légale résiduelle (art. L.145-4) : le preneur garde la
-// faculté de congé à CHAQUE échéance triennale à laquelle il n'a pas
-// expressément renoncé. Fréquent : la clause renonce à la 1re période,
-// détaille la 2e (avec indemnité) et ne dit plus rien de la 3e — l'extraction
-// s'arrête alors à celle qui est détaillée. Complément volontairement
-// étroit : seulement si au moins une échéance triennale est déjà lue dans le
-// texte (régime triennal avéré), seulement APRÈS la dernière lue et avant le
-// terme, et jamais pour une période dont la renonciation est écrite. Chaque
-// ajout est marqué « déduite » dans son libellé pour rester distinguable de
-// ce qui est réellement écrit dans le bail.
-const ORDINAUX_TRIENNAUX = ['', 'premi', 'deuxi|second', 'troisi', 'quatri', 'cinqui', 'sixi']
-const ORDINAUX_LIBELLES = ['', '1re', '2e', '3e', '4e', '5e', '6e']
-function addResidualTriennialExits(events, d) {
-  const effet = parseFR(d?.date_effet), fin = parseFR(d?.date_fin)
-  if (!effet || !fin) return events
-  const txt = stripAccents([d.conditions_break, d._sources?.break_options, d._sources?.duree_ferme, ...events.flatMap(e => [e.libelle, e.conditions])]
-    .filter(Boolean).map(String).join(' ')).toLowerCase()
-  const dated = events.filter(e => e.type !== 'a_tout_moment' && e.date && parseFR(e.date))
-  const triennales = dated.filter(e => e.type === 'triennale')
-  // Régime triennal avéré : une échéance triennale déjà lue, OU une première
-  // sortie lue (souvent typée « fin de durée ferme », « exceptionnelle »)
-  // dans un bail dont le texte organise la faculté triennale sans y renoncer
-  // totalement (« renonce à sa faculté de résiliation triennale pour la
-  // durée ferme… pour la première fois »).
-  const triennalRegime = triennales.length > 0
-    || (dated.length > 0 && /triennal/.test(txt) && !detectsFullTriennialWaiver(txt))
-  if (!triennalRegime) return events
-  const anchors = triennales.length ? triennales : dated
-  const lastExit = Math.max(...anchors.map(e => parseFR(e.date).getTime()))
-  // Fin de la durée ferme : aucune échéance n'est ajoutée à l'intérieur.
-  const fermeYears = (() => { const m = durMatch(d.duree_ferme); return m ? parseInt(m[1], 10) : 0 })()
-  const finFerme = fermeYears ? new Date(effet.getFullYear() + fermeYears, effet.getMonth(), effet.getDate() - 1) : null
-  const existing = new Set(events.map(e => e.date).filter(Boolean))
-  const ref = anchors[anchors.length - 1]
-  const added = []
-  for (let k = 1; k < ORDINAUX_TRIENNAUX.length; k++) {
-    const dt = new Date(effet.getFullYear() + 3 * k, effet.getMonth(), effet.getDate() - 1)
-    if (dt >= fin) break
-    if (dt.getTime() <= lastExit) continue
-    if (finFerme && dt < finFerme) continue
-    const str = fmtFR(dt)
-    if (existing.has(str)) continue
-    const renonceeRe = new RegExp(`renon\\w*[^.;]{0,80}?(?:(?:${ORDINAUX_TRIENNAUX[k]})\\w*[^.;]{0,40}?(?:periode|echeance)|${3 * k}\\s*(?:e|eme)\\s+annee)`)
-    if (renonceeRe.test(txt)) continue
-    added.push({
-      date: str, type: 'triennale',
-      libelle: `Expiration de la ${ORDINAUX_LIBELLES[k]} période triennale (${3 * k}e année) — déduite (faculté triennale non renoncée au-delà de la durée ferme, non détaillée dans la clause)`,
-      preavis: ref.preavis || null, indemnite_sortie: null, montant_indemnite: null, compensation_maintien: null, conditions: null,
-      page: ref.page ?? null, _deduite: true,
-    })
-  }
-  return added.length ? [...events, ...added] : events
-}
-
 // Échéances de sortie anticipée du preneur, telles que lues dans le bail
 // (champ echeances_sortie, produit en UNE seule lecture de la clause par
 // BREAK_PROMPT : chaque entrée porte sa date ET ce qui s'y rattache —
@@ -1823,15 +1644,14 @@ function addResidualTriennialExits(events, d) {
 function getExitEvents(d) {
   if (!d || !Array.isArray(d.echeances_sortie)) return null
   const toDate = v => { const s = normalizeDate(safeStr(v)); return s && /^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s : null }
-  const events = d.echeances_sortie
+  return d.echeances_sortie
     .filter(e => e && typeof e === 'object')
     // Une formulation du type "aucune indemnité…" n'est pas une indemnité :
     // le champ est vidé pour ne jamais afficher de faux "Si départ : …".
     .map(e => {
       const empty = v => { const t = safeStr(v); return !t || /^\s*(?:(?:aucun|aucune|pas d|pas de|n[ée]ant|sans objet|sans indemnit|non pr[ée]vu|non applicable|null)\b|[—-]+\s*$)/i.test(t) ? null : t }
-      return { ...e, date: e.type === 'a_tout_moment' ? null : (toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet)), indemnite_sortie: describesPayment(e.indemnite_sortie, e.montant_indemnite) ? empty(e.indemnite_sortie) : null, compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+      return { ...e, date: toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
     })
-  return addResidualTriennialExits(events, d)
     .sort((a, b) => {
       const da = a.date ? parseFR(a.date) : null, db = b.date ? parseFR(b.date) : null
       if (da && db) return da - db
@@ -1913,18 +1733,6 @@ function sanitizeExtracted(data) {
     d.champs_modifies.conditions_suspensives = ensureArray(d.champs_modifies.conditions_suspensives)
     d.champs_modifies.charges_impots_taxes = ensureArray(d.champs_modifies.charges_impots_taxes)
     d.champs_modifies.indemnites         = ensureArray(d.champs_modifies.indemnites)
-  }
-  // Avenant : suivi, condition par condition, des CS du bail (champ racine)
-  if (d.suivi_conditions_suspensives != null) d.suivi_conditions_suspensives = ensureArray(d.suivi_conditions_suspensives)
-  // Filet de sécurité : si l'avenant constate que la levée des CS déclenche la
-  // prise d'effet, cette date DOIT devenir la date d'effet du bail
-  // (champs_modifies.date_effet, lue par la fiche, l'état locatif et le
-  // tableau de bord) — même si le modèle a oublié de l'y reporter.
-  const pe = d.prise_effet_par_levee_cs
-  const peDate = pe && (pe.declenchee === true || pe.declenchee === 'true') ? normalizeDate(pe.date_effet) : null
-  if (peDate && /^\d{2}\/\d{2}\/\d{4}$/.test(peDate) && d.champs_modifies && !d.champs_modifies.date_effet) {
-    d.champs_modifies.date_effet = peDate
-    d.champs_modifies.date_effet_condition = null
   }
   return d
 }
@@ -2066,7 +1874,7 @@ async function callClaudeChat(messages, timeoutMs = 60000) {
 // pour ne plus dépendre d'une liste tenue à jour à la main à chaque nouveau
 // champ ajouté au prompt d'extraction (cause du manque sur
 // participations_travaux, repéré en test).
-const PORTFOLIO_CHAT_EXCLUDED_KEYS = new Set(['_sources', '_pages', 'preneur_substitution', '_qc_dismissed', '_qc_dismissed_issues', '_archived', '_avant_saisie_effet'])
+const PORTFOLIO_CHAT_EXCLUDED_KEYS = new Set(['_sources', '_pages', 'preneur_substitution', '_qc_dismissed', '_archived', '_avant_saisie_effet'])
 function stripInternalFields(obj) {
   const out = {}
   Object.keys(obj || {}).forEach(k => {
@@ -2309,39 +2117,6 @@ function parseBullets(text) {
   return [s]
 }
 
-// Texte long replié sur quelques lignes, avec « Afficher tout » / « Réduire ».
-// Le bouton n'apparaît que si le texte DÉBORDE réellement à la largeur
-// affichée (mesure du rendu), pas sur un simple nombre de caractères : un
-// texte long mais tenant en quelques lignes sur grand écran reste sans bouton.
-function ClampText({ text, lines = 4, threshold = 200 }) {
-  const [open, setOpen] = useState(false)
-  const [overflow, setOverflow] = useState(false)
-  const ref = useRef(null)
-  const t = String(text || '')
-  const candidate = t.length > threshold
-  React.useLayoutEffect(() => {
-    const el = ref.current
-    if (!el || !candidate) { setOverflow(false); return }
-    if (open) return
-    const check = () => setOverflow(el.scrollHeight > el.clientHeight + 1)
-    check()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(check) : null
-    if (ro) ro.observe(el)
-    return () => { if (ro) ro.disconnect() }
-  }, [t, candidate, open])
-  const clamp = candidate && !open
-  return (
-    <div>
-      <div ref={ref} className={clamp ? 'clamp-lines' : undefined} style={clamp ? { WebkitLineClamp: lines } : undefined}>{t}</div>
-      {(overflow || open) && (
-        <button type="button" className="clamp-toggle" onClick={e => { e.stopPropagation(); setOpen(o => !o) }}>
-          {open ? 'Réduire' : 'Afficher tout'}
-        </button>
-      )}
-    </div>
-  )
-}
-
 function BulletField({ label, value, full }) {
   const s = safeStr(value)
   if (!s) return null
@@ -2359,7 +2134,7 @@ function BulletField({ label, value, full }) {
           ))}
         </ul>
       ) : (
-        <div className="field-val verbose"><ClampText text={s} /></div>
+        <div className="field-val verbose">{s}</div>
       )}
     </div>
   )
@@ -2374,17 +2149,10 @@ function Field({ label, value, mono, verbose, full, source, item, pages, pageFie
         {label}
         {tooltip && <span className="field-info" title={tooltip}>i</span>}
       </div>
-      {verbose && safe ? (
-        <div className="field-val verbose">
-          <ClampText text={safe} />
-          {pageField && <div style={{ marginTop: '4px' }}><PageJumpIcon item={item} pages={pages} field={pageField} /></div>}
-        </div>
-      ) : (
-        <div className={`field-val${!safe ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {safe || 'Non renseigné'}
-          {safe && pageField && <PageJumpIcon item={item} pages={pages} field={pageField} />}
-        </div>
-      )}
+      <div className={`field-val${!safe ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        {safe || 'Non renseigné'}
+        {safe && pageField && <PageJumpIcon item={item} pages={pages} field={pageField} />}
+      </div>
     </div>
   )
 }
@@ -2453,10 +2221,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   // en plus des 195€/m² de loyer) — ce n'est pas une surface distincte
   // louée en plus. La compter dans le total de surface revient à compter
   // deux fois la même surface de bureaux.
-  // Mot entier « RIE » ou restauration collective — jamais la sous-chaîne
-  // « rie » (« industrie », « galerie », « librairie » étaient pris pour une
-  // RIE et retirés du total de surface).
-  const isRie = r => /(?:^|[^a-z])rie(?:[^a-z]|$)|restaurant\s+inter|restauration\s+(?:inter|collective)|cafeteria/.test(String(r.categorie || r.typologie || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+  const isRie = r => (r.categorie || r.typologie || '').toLowerCase().includes('rie')
   const mainRows = safe.filter(r => !isPark(r))
   const parkRows = safe.filter(r => isPark(r))
   // Colonne Bâtiment affichée seulement si le bail porte sur plusieurs
@@ -2492,7 +2257,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   const mainLoyerDisplay = mainLoyerSum > 0 ? mainLoyerSum : (parseAmount(totalLoyerDeclared) || 0)
   const mainLoyerIsFallback = mainLoyerSum === 0 && mainLoyerDisplay > 0
   // Le total général doit reprendre le MÊME loyer principal que la ligne
-  // "Total" ci-dessus (avec son repli sur le loyer global si
+  // "Total bureaux / locaux" ci-dessus (avec son repli sur le loyer global si
   // besoin) — et non un total brut recalculé séparément à partir des seules
   // valeurs explicites, qui ratait les loyers déductibles uniquement d'un
   // prix au m² et ignorait le repli sur le loyer global du bail.
@@ -2542,7 +2307,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
             {total > 0 && (
               <tfoot>
                 <tr style={{ borderTop: '1px solid var(--border2)' }}>
-                  <td colSpan={hasBat ? 3 : 2} style={{ fontWeight: 600, padding: '8px 10px' }}>Total</td>
+                  <td colSpan={hasBat ? 3 : 2} style={{ fontWeight: 600, padding: '8px 10px' }}>Total bureaux / locaux</td>
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{total.toLocaleString('fr-FR')} m²</td>
                   <td />
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>
@@ -2631,67 +2396,13 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
           Total général : {fmtEur(totalLoyer)}
         </div>
       )}
-      {(() => {
-        // Ventilation incohérente avec le loyer à la signature (> 1 %) :
-        // typiquement des surfaces lues dans un document postérieur
-        // (avenant/mesurage) alors que le loyer du bail portait sur une
-        // surface provisoire. On le dit au lieu de laisser deux totaux
-        // contradictoires sans explication.
-        const declared = parseAmount(totalLoyerDeclared)
-        if (!declared || !(totalLoyer > 0) || mainLoyerIsFallback) return null
-        // seulement si CHAQUE ligne porte un loyer : une ligne de surface sans
-        // loyer propre rendrait la somme partielle et l'écart artificiel
-        if (mainRows.some(r => rowLoyerAnnuel(r).value == null) || parkRows.some(r => parseAmount(r.loyer_annuel) == null)) return null
-        const gap = totalLoyer - declared
-        if (Math.abs(gap) / declared <= 0.01) return null
-        return (
-          <div style={{ marginTop: '6px', padding: '7px 10px', borderRadius: 'var(--r)', background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: '11.5px', lineHeight: 1.4 }}>
-            ⚠ La ventilation totalise {fmtEur(totalLoyer)}, soit {gap > 0 ? '+' : '−'}{fmtEur(Math.abs(gap))} par rapport au loyer à la signature ({fmtEur(declared)}). Les surfaces viennent peut-être d'un document postérieur (avenant, mesurage) alors que le bail ne les chiffrait pas — réextraction de ce bail seul recommandée.
-          </div>
-        )
-      })()}
-      {(mainRows.some(r => (!r.prix_unitaire && unitPrice(r)) || rowLoyerAnnuel(r).computed)
-        || parkRows.some(r => {
-          const loyer = parseAmount(r.loyer_annuel)
-          const nb = parseFloat(String(r.surface_m2 || ((!r.surface_m2 && parkRows.length === 1) ? parseParkingNbFallback(parkingNbPlaces) : '') || '').replace(/[^0-9.]/g, '')) || 0
-          return loyer !== null && nb > 0
-        })) && (
+      {(mainRows.length > 0 || parkRows.length > 0) && (
         <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px' }}>* Prix unitaire calculé (loyer annuel ÷ surface/places)</div>
       )}
     </div>
   )
 }
 
-
-// Normalisation d'affichage des lignes de franchise extraites :
-// (1) « recalcul = N mois » sur une tranche alors qu'une AUTRE tranche du
-// même bail porte la même durée N explicitement ET le même montant — c'est
-// la même valeur écrite dans le bail, répétée tranche par tranche (« 2 mois
-// de franchise… à compter de la 1re, 2e, 3e date anniversaire »), pas un
-// calcul : le marqueur est retiré. (2) « condition » qui ne fait que décrire
-// le point de départ de la tranche (« à compter de la première date
-// anniversaire du Bail ») sans aucune condition réelle (si, sous réserve,
-// à défaut, sauf…) : vidée — l'info est déjà dans la date de début, et la
-// tranche ne doit pas passer pour une franchise conditionnelle.
-function normalizeFranchiseRows(rows) {
-  const monthsOf = v => { const m = String(v ?? '').match(/(\d+(?:[.,]\d+)?)\s*mois/i); return m ? parseFloat(m[1].replace(',', '.')) : null }
-  const isRecalc = v => /^\s*recalcul\s*=/i.test(String(v ?? ''))
-  const explicit = rows.filter(r => r.duree && !isRecalc(r.duree)).map(r => ({ m: monthsOf(r.duree), amt: parseAmount(r.montant) })).filter(x => x.m != null)
-  return rows.map(r => {
-    let out = r
-    if (isRecalc(r.duree)) {
-      const m = monthsOf(r.duree), amt = parseAmount(r.montant)
-      const twin = explicit.find(x => x.m === m && (x.amt == null || amt == null || Math.abs(x.amt - amt) <= 1))
-      if (twin) out = { ...out, duree: String(r.duree).replace(/^\s*recalcul\s*=\s*/i, '') }
-    }
-    if (typeof out.duree === 'string' && /\d\.\d/.test(out.duree)) out = { ...out, duree: out.duree.replace(/(\d)\.(\d)/g, '$1,$2') }
-    const c = typeof r.condition === 'string' ? r.condition : ''
-    if (c && /^\s*(?:(?:applicables?|appliqu[ée]e?s?|due?s?|accord[ée]e?s?)\s+)?(?:[aà]\s+compter|[aà]\s+partir)\s+d/i.test(c) && !/\bsi\b|sous\s+r[ée]serve|condition|[aà]\s+d[ée]faut|\bsauf\b|en\s+cas/i.test(c)) {
-      out = { ...out, condition: null }
-    }
-    return out
-  })
-}
 
 // Fusionne franchise_periodes et abattements en une seule liste — les deux
 // champs se recoupent souvent (le modèle classe parfois la même clause de
@@ -2708,7 +2419,7 @@ function mergeLoyerReductions(franchisePeriodes, abattements) {
     const da = parseFR(a), db = parseFR(b)
     return !!(da && db && da.getTime() === db.getTime())
   }
-  const frTagged = normalizeFranchiseRows(fr).map(r => ({ ...r, _type: 'franchise' }))
+  const frTagged = fr.map(r => ({ ...r, _type: 'franchise' }))
   const abFiltered = ab.filter(a => !fr.some(f => sameDate(f.date_debut, a.date_debut) && sameDate(f.date_fin, a.date_fin)))
   const abAsFranchiseRows = abFiltered.map(r => {
     const s = parseFR(r.date_debut), e = parseFR(r.date_fin)
@@ -2896,128 +2607,7 @@ function FraisActesTable({ frais }) {
   )
 }
 
-// ─── Suivi des conditions suspensives par les avenants ──────────────────────
-// Chaque avenant extrait porte suivi_conditions_suspensives (une entrée par CS
-// du bail : levée / renoncée / défaillie / prorogée / modifiée / non abordée,
-// avec la date de levée) et éventuellement prise_effet_par_levee_cs (la
-// levée de toutes les CS déclenche la prise d'effet du bail).
-const CS_STATUT_LABELS = {
-  levee: { label: 'Levée', cls: 'pill-green' }, renoncee: { label: 'Renoncée', cls: 'pill-green' },
-  defaillie: { label: 'Défaillie', cls: 'pill-danger' }, prorogee: { label: 'Prorogée', cls: 'pill-blue' },
-  modifiee: { label: 'Modifiée', cls: 'pill-blue' }, non_abordee: { label: 'Non abordée', cls: '' },
-}
-function csStatutKey(v) {
-  const s = stripAccents(String(v || '')).toLowerCase()
-  if (/non.?abord/.test(s)) return 'non_abordee'
-  if (/renonc/.test(s)) return 'renoncee'
-  if (/defaill|caduc/.test(s)) return 'defaillie'
-  if (/prorog|report/.test(s)) return 'prorogee'
-  if (/modif/.test(s)) return 'modifiee'
-  if (/leve|realis|obten|purg/.test(s)) return 'levee'
-  return null
-}
-// Rapproche deux libellés de CS (bail vs avenant), formulés différemment :
-// mots de 4 lettres et plus en commun, rapportés au libellé le plus court.
-function csLibelleScore(a, b) {
-  const toks = t => new Set(stripAccents(String(t || '')).toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 4))
-  const A = toks(a), B = toks(b)
-  if (!A.size || !B.size) return 0
-  let inter = 0
-  A.forEach(w => { if (B.has(w)) inter++ })
-  return inter / Math.min(A.size, B.size)
-}
-function avenantShortLabel(av) {
-  return safeStr(av?.data?.objet_avenant) || `Avenant du ${normalizeDate(av?.data?.date_signature_avenant || av?.data?.date_effet_avenant) || '?'}`
-}
-// Pour un bail : statut le plus récent de chaque CS d'après ses avenants
-// (ordre chronologique), et éventuel déclenchement de la prise d'effet.
-function computeCsSuiviFromAvenants(conditions, avenants) {
-  const toSortable = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
-  const sorted = [...(avenants || [])].sort((a, b) =>
-    toSortable(avenantChronoDate(a))
-      .localeCompare(toSortable(avenantChronoDate(b))))
-  const perCondition = (conditions || []).map(() => null)
-  let priseEffet = null
-  sorted.forEach(av => {
-    const suivi = Array.isArray(av.data?.suivi_conditions_suspensives) ? av.data.suivi_conditions_suspensives : []
-    suivi.forEach(entry => {
-      const key = csStatutKey(entry?.statut)
-      if (!key || key === 'non_abordee') return
-      let best = -1, bestScore = 0
-      ;(conditions || []).forEach((c, i) => { const sc = csLibelleScore(c?.libelle, entry?.libelle); if (sc > bestScore) { bestScore = sc; best = i } })
-      if (best < 0 || bestScore < 0.5) return
-      perCondition[best] = { ...entry, statutKey: key, avenant: av }
-    })
-    const pe = av.data?.prise_effet_par_levee_cs
-    if (pe && typeof pe === 'object' && pe.declenchee !== undefined && pe.declenchee !== null) priseEffet = { ...pe, avenant: av }
-  })
-  return { perCondition, priseEffet }
-}
-
-// « le 15/02/2025 » / « au plus tard le 31/03/2025 (date exacte non précisée) »
-// / « constatée par l'avenant du 10/04/2025 » selon la nature de la date.
-function formatDateLevee(c) {
-  const dt = normalizeDate(c?.date_levee)
-  if (!dt) return null
-  const t = String(c?.date_levee_type || '').toLowerCase()
-  if (t.includes('plus_tard') || t.includes('plus tard')) return <> au plus tard le <strong>{dt}</strong> <span style={{ color: 'var(--text3)' }}>(date limite — date exacte non précisée)</span></>
-  if (t.includes('avenant')) return <> constatée par l'avenant du <strong>{dt}</strong> <span style={{ color: 'var(--text3)' }}>(pas de date de levée propre)</span></>
-  return <> le <strong>{dt}</strong></>
-}
-
-function PriseEffetLeveeBanner({ pe, showAvenant }) {
-  if (!pe) return null
-  const ok = pe.declenchee === true || pe.declenchee === 'true'
-  return (
-    <div style={{ padding: '9px 12px', borderRadius: 'var(--r)', fontSize: '12.5px', lineHeight: 1.45, marginBottom: '10px',
-      background: ok ? 'var(--success-bg)' : 'var(--accent-bg)', color: ok ? 'var(--success)' : 'var(--text2)' }}>
-      {ok
-        ? <><strong>Prise d'effet du bail déclenchée</strong> (levée des conditions / réalisation de l'événement prévu au bail){normalizeDate(pe.date_effet) ? <> — le <strong>{normalizeDate(pe.date_effet)}</strong></> : ''}</>
-        : <><strong>Prise d'effet du bail toujours suspendue</strong> — toutes les conditions dont elle dépend ne sont pas encore levées</>}
-      {safeStr(pe.commentaire) && <span style={{ color: 'var(--text3)' }}> · {safeStr(pe.commentaire)}</span>}
-      {showAvenant && pe.avenant && <span style={{ color: 'var(--text3)' }}> ({avenantShortLabel(pe.avenant)})</span>}
-    </div>
-  )
-}
-
-// Fiche AVENANT : ce que cet avenant dit de chaque condition suspensive du bail.
-function CsSuiviAvenantSection({ suivi, priseEffet, item }) {
-  const rows = Array.isArray(suivi) ? suivi : []
-  if (!rows.length && !priseEffet) return null
-  return (
-    <div className="sec">
-      <div className="sec-hd"><div className="sec-label">Suivi des conditions suspensives du bail</div></div>
-      <PriseEffetLeveeBanner pe={priseEffet} />
-      <div className="gx">
-        {rows.map((c, i) => {
-          const st = CS_STATUT_LABELS[csStatutKey(c?.statut)] || null
-          return (
-            <div key={i} className="field full" style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5, flex: 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {safeStr(c?.libelle) || '—'}
-                  {c?.page && <PageJumpIcon item={item} page={c.page} />}
-                </div>
-                {st && <span className={`pill ${st.cls}`} style={{ flexShrink: 0 }}>{st.label}</span>}
-              </div>
-              {normalizeDate(c?.date_levee) && (
-                <div style={{ fontSize: '12px', color: 'var(--text2)' }}>
-                  {csStatutKey(c?.statut) === 'renoncee' ? 'Renonciation' : 'Levée'}{formatDateLevee(c)}
-                </div>
-              )}
-              {normalizeDate(c?.nouvelle_date_limite) && (
-                <div style={{ fontSize: '12px', color: 'var(--text2)' }}>Nouvelle date limite de levée : <strong>{normalizeDate(c.nouvelle_date_limite)}</strong></div>
-              )}
-              {safeStr(c?.commentaire) && <div style={{ fontSize: '11px', color: 'var(--text3)', lineHeight: 1.4 }}>{safeStr(c.commentaire)}</div>}
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function ConditionsSuspensivesBoxes({ conditions, item, suivis }) {
+function ConditionsSuspensivesBoxes({ conditions, item }) {
   const safe = Array.isArray(conditions) ? conditions : []
   if (!safe.length) return null
   const statutStyle = (statut) => {
@@ -3037,23 +2627,10 @@ function ConditionsSuspensivesBoxes({ conditions, item, suivis }) {
                 {safeStr(c.libelle) || '—'}
                 <PageJumpIcon item={item} page={c.page} />
               </div>
-              {(() => {
-                const sv = suivis?.[i]
-                const svSt = sv ? CS_STATUT_LABELS[sv.statutKey] : null
-                if (svSt) return <span className={`pill ${svSt.cls}`} style={{ flexShrink: 0 }}>{svSt.label}</span>
-                return st && <span className={`pill ${st.cls}`} style={{ flexShrink: 0 }}>{st.label}</span>
-              })()}
+              {st && <span className={`pill ${st.cls}`} style={{ flexShrink: 0 }}>{st.label}</span>}
             </div>
             {c.date_limite_levee && (
               <div style={{ fontSize: '11px', color: 'var(--text3)' }}>Date limite de levée : <strong style={{ color: 'var(--text2)' }}>{safeStr(c.date_limite_levee)}</strong></div>
-            )}
-            {suivis?.[i] && (
-              <div style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>
-                {suivis[i].statutKey === 'renoncee' ? 'Renonciation' : suivis[i].statutKey === 'prorogee' ? 'Prorogation' : suivis[i].statutKey === 'defaillie' ? 'Défaillance' : suivis[i].statutKey === 'modifiee' ? 'Modification' : 'Levée'}
-                {normalizeDate(suivis[i].date_levee) ? formatDateLevee(suivis[i]) : ''}
-                {normalizeDate(suivis[i].nouvelle_date_limite) ? <> — nouvelle date limite <strong>{normalizeDate(suivis[i].nouvelle_date_limite)}</strong></> : ''}
-                <span style={{ color: 'var(--text3)' }}> — {avenantShortLabel(suivis[i].avenant)}</span>
-              </div>
             )}
           </div>
         )
@@ -3215,7 +2792,7 @@ function bailTypeLabel(typeBailStr) {
 }
 
 function parseYearsFromDureeText(s) {
-  const m = durMatch(s)
+  const m = String(s || '').match(/\(?(\d+)\)?\s*ans?\b/i)
   return m ? parseInt(m[1]) : null
 }
 
@@ -3232,35 +2809,6 @@ function matchesExactAnniversary(breakDateStr, effet) {
     if (bd.getTime() === exact.getTime()) return n
   }
   return null
-}
-
-// Contrôle qualité — statut « Vérifié » mémorisé PAR POINT et non plus par
-// bail. Avant, un seul drapeau _qc_dismissed masquait le bail entier : tout
-// point apparu ensuite (nouveau contrôle, réextraction qui change les
-// données) restait caché sous l'ancien « Vérifié ». Désormais chaque point
-// vérifié est mémorisé par une clé (type + empreinte du détail) dans
-// _qc_dismissed_issues : un point déjà vérifié ne réapparaît jamais ; un
-// point nouveau ou dont le contenu a changé réapparaît seul.
-function qcIssueKey(iss) {
-  const str = `${iss?.type || ''}|${iss?.detail || ''}`
-  let h = 5381
-  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0
-  return `${iss?.type || 'x'}:${(h >>> 0).toString(36)}`
-}
-// Contrôles ajoutés APRÈS l'ancien drapeau global : un bail marqué
-// « Vérifié » avec l'ancien système n'a pas pu les valider, ils restent donc
-// à vérifier.
-const QC_TYPES_POST_LEGACY = new Set(['duree_totale_cg_suspecte', 'franchise_tranches_non_eclatees', 'ventilation_loyer_ecart'])
-
-// Métadonnées saisies par l'utilisateur (pas lues dans le PDF) : à conserver
-// lors d'une réextraction, qui sinon remplace tout le JSON — un bail archivé
-// se désarchivait, le nom d'affichage du preneur et les points de contrôle
-// qualité déjà vérifiés étaient perdus.
-const USER_METADATA_KEYS = ['preneur_substitution', '_archived', '_qc_dismissed', '_qc_dismissed_issues']
-function keepUserMetadata(previousData, extracted) {
-  const out = { ...extracted }
-  USER_METADATA_KEYS.forEach(k => { if (previousData && previousData[k] !== undefined && out[k] === undefined) out[k] = previousData[k] })
-  return out
 }
 
 function auditBail(row) {
@@ -3432,27 +2980,7 @@ function auditBail(row) {
   // ou une erreur d'extraction (duree_ferme mal déduite faute de restriction
   // explicite dans le bail). Impossible de trancher depuis les données seules
   // — signalé pour vérification, pas comme une erreur certaine.
-  // 4bis. Cas plus précis et plus grave : durée ferme ≥ durée totale ALORS QUE
-  // la clause source renvoie à un article CG de durée (« amender l'article
-  // CG2 », « par dérogation à », « le reste de l'article demeure applicable »)
-  // ou ne renonce qu'à la PREMIÈRE période triennale. Signature typique d'une
-  // durée ferme CP recopiée à tort en durée totale alors que les CG fixent
-  // une durée plus longue (ex. bail 6/9/12 extrait comme un 6 ans ferme).
-  const srcDuree = [d._sources?.duree_ferme, d._sources?.duree_totale, d._sources?.break_options, d.conditions_break]
-    .filter(Boolean).map(String).join(' ')
-  const renvoiCG = /\bCG\s*-?\s*\d|conditions\s+g[ée]n[ée]rales|amend|d[ée]rogation|demeure\s+applicable/i.test(srcDuree)
-  const renoncePremiereSeule = /premi[eè]re\s+(p[ée]riode|[ée]ch[ée]ance)\s+triennale/i.test(srcDuree)
-    && !/(deuxi[eè]me|seconde|troisi[eè]me)\s+(p[ée]riode|[ée]ch[ée]ance)/i.test(srcDuree)
-  const suspectDureeCG = dureeFermeYears && dureeTotaleYears && dureeFermeYears >= dureeTotaleYears && (renvoiCG || renoncePremiereSeule)
-  if (suspectDureeCG) {
-    issues.push({
-      type: 'duree_totale_cg_suspecte',
-      severity: 'medium',
-      detail: `Durée totale (${dureeTotaleYears} ans) égale à la durée ferme, alors que la clause source ${renoncePremiereSeule ? 'ne renonce qu\'à la première période triennale' : 'renvoie à un article des Conditions Générales'} — la durée ferme des CP a probablement été recopiée en durée totale, et la vraie durée est celle de l'article CG de durée (souvent plus longue, ex. 12 ans). À vérifier ; réextraction de ce bail seul recommandée.`,
-    })
-  }
-
-  if (!suspectDureeCG && dureeFermeYears && dureeTotaleYears && dureeFermeYears >= dureeTotaleYears - 1) {
+  if (dureeFermeYears && dureeTotaleYears && dureeFermeYears >= dureeTotaleYears - 1) {
     issues.push({
       type: 'duree_ferme_ambigue',
       severity: 'low',
@@ -3603,50 +3131,11 @@ function auditBail(row) {
     const totalMonths = d.franchise_periodes.reduce((sum, f) => sum + (parseMonths(f.duree) || 0), 0)
     const threshold = 5 * dureeFermeYears
     if (totalMonths > threshold) {
-      const hasConditional = normalizeFranchiseRows(d.franchise_periodes).some(f => f.condition)
+      const hasConditional = d.franchise_periodes.some(f => f.condition)
       issues.push({
         type: 'franchise_excessive',
         severity: 'medium',
         detail: `Franchises totales de ${totalMonths.toLocaleString('fr-FR')} mois pour une durée ferme de ${dureeFermeYears} ans (seuil interne : ${threshold} mois, soit 5 mois/an) — à vérifier.${hasConditional ? ' Inclut au moins une franchise conditionnelle (peut ne pas se réaliser).' : ''}`,
-      })
-    }
-  }
-
-  // 15. Ventilation du loyer (somme des loyer_annuel de surfaces_detail,
-  // stationnement compris) différente de plus de 1 % du loyer à la
-  // signature, alors que TOUTES les lignes portent un loyer. Signature
-  // typique d'un bail signé sur une surface non encore mesurée dont la
-  // surface définitive (avenant) a été reprise à tort dans le bail.
-  ;(() => {
-    const rows = Array.isArray(d.surfaces_detail) ? d.surfaces_detail : []
-    const declared = parseAmount(d.loyer_signature_montant)
-    if (!rows.length || !declared) return
-    const amounts = rows.map(r => parseAmount(r.loyer_annuel))
-    if (amounts.some(a => a == null)) return
-    const sum = amounts.reduce((a, b) => a + b, 0)
-    if (!(sum > 0) || Math.abs(sum - declared) / declared <= 0.01) return
-    issues.push({
-      type: 'ventilation_loyer_ecart',
-      severity: 'medium',
-      detail: `Ventilation du loyer par composante = ${Math.round(sum).toLocaleString('fr-FR')} € ≠ loyer à la signature ${Math.round(declared).toLocaleString('fr-FR')} € (écart ${Math.round(sum - declared).toLocaleString('fr-FR')} €) — surfaces possiblement issues d'un avenant/mesurage postérieur alors que le bail ne les chiffrait pas. Réextraction de ce bail seul recommandée.`,
-    })
-  })()
-
-  // 14. Franchise ventilée en plusieurs tranches mais extraite en UNE seule
-  // ligne (la ventilation reléguée dans « condition » ou dans le texte
-  // libre) — cas typique quand la date d'effet n'était pas connue à la
-  // signature (conditions suspensives). Le prompt exige désormais une ligne
-  // par tranche ; ce contrôle repère les baux extraits avant ce correctif,
-  // pour une réextraction à l'unité.
-  if (Array.isArray(d.franchise_periodes) && d.franchise_periodes.length === 1) {
-    const f0 = d.franchise_periodes[0] || {}
-    const txt = [f0.condition, d.franchise].filter(Boolean).map(String).join(' ')
-    const nbACompter = (txt.match(/[aà]\s+compter\s+d/gi) || []).length
-    if (/tranche|appliqu[ée]e?s?\s+comme\s+suit/i.test(txt) || nbACompter >= 2) {
-      issues.push({
-        type: 'franchise_tranches_non_eclatees',
-        severity: 'low',
-        detail: `Franchise ventilée en plusieurs tranches dans le texte, mais extraite sur une seule ligne — le tableau devrait comporter une ligne par tranche. Réextraction de ce bail seul recommandée.`,
       })
     }
   }
@@ -3709,8 +3198,8 @@ function mergedBailData(row) {
     return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '')
   }
   const avs = [...(row.avenants || [])].sort((a, b) => {
-    const ka = toSortable(avenantChronoDate(a))
-    const kb = toSortable(avenantChronoDate(b))
+    const ka = toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
+    const kb = toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)
     return ka.localeCompare(kb)
   })
   avs.forEach(av => {
@@ -3736,6 +3225,30 @@ function mergedBailData(row) {
   return base
 }
 
+// Prochaine sortie possible d'un bail (break ou fin de bail), avenants
+// compris — même règle que le badge "Échéance proche" de l'État locatif.
+// Renvoie { kind: 'break'|'fin', date, months } ou { kind: 'tacite' } si la
+// date de fin est passée (bail en tacite prolongation : sortie possible à
+// tout moment moyennant préavis), ou null si rien n'est déterminable.
+function computeNextExit(row, today = new Date()) {
+  if (!row || row.document_type !== 'bail' || row.data?._archived) return null
+  const d = mergedBailData(row)
+  const exits = getExitEvents(d)
+  let breaks = exits ? exits.map(e => e.date).filter(Boolean) : (Array.isArray(d.break_options) ? d.break_options : [])
+  if (!exits && !(d._breakOptionsFromAvenant && !d._dureeFermeFromAvenant)) {
+    breaks = filterBreaksByDureeFerme(breaks, d.date_effet, d.duree_ferme)
+  }
+  const finStr = normalizeDate(safeStr(d.date_fin))
+  const end = parseFR(finStr && /^\d{2}\/\d{2}\/\d{4}$/.test(finStr) ? finStr : computeDateFinFromDuree(d.date_effet, d.duree_totale))
+  const future = breaks.map(b => ({ kind: 'break', date: parseFR(normalizeDate(safeStr(b))) }))
+    .concat(end ? [{ kind: 'fin', date: end }] : [])
+    .filter(x => x.date && x.date > today)
+    .sort((a, b) => a.date - b.date)
+  if (future.length) return { ...future[0], months: monthsBetweenDates(today, future[0].date) }
+  if (end && end <= today) return { kind: 'tacite' }
+  return null
+}
+
 function EtatLocatifModal({ building, bails, onClose }) {
   const [tooltip, setTooltip] = useState(null) // { x, y, tenant }
   const today = new Date()
@@ -3756,8 +3269,8 @@ function EtatLocatifModal({ building, bails, onClose }) {
       if (Array.isArray(row.avenants) && row.avenants.length > 0) {
         const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
         const sortedAvs = [...row.avenants].sort((a, b) =>
-          toSortableAv(avenantChronoDate(a))
-            .localeCompare(toSortableAv(avenantChronoDate(b))))
+          toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
+            .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
         let confirmedByAvenant = false
         let explicitDateFin = null
         let explicitBreaks = null
@@ -3786,7 +3299,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
             if (explicitDateFin) {
               d.date_fin = explicitDateFin
             } else {
-              const m = durMatch(d.duree_totale)
+              const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
               if (m) {
                 const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
                 d.date_fin = fmtFR(end)
@@ -3806,19 +3319,12 @@ function EtatLocatifModal({ building, bails, onClose }) {
       let end = parseFrDate(d.date_fin)
       let estimated = false
       let estimatedField = null // 'end' | 'start' — précise quelle date a été calculée
-      // Date de fin ANTÉRIEURE à la date d'effet (typiquement : avenant de
-      // renouvellement qui fixe une nouvelle date d'effet sans que la nouvelle
-      // date de fin ait pu être recalculée — l'ancienne fin reste en place) :
-      // la barre aurait une largeur négative et le bail disparaîtrait
-      // silencieusement de la frise. On écarte cette fin incohérente pour
-      // laisser le calcul ci-dessous la ré-estimer depuis la durée totale.
-      if (start && end && end <= start) end = null
       // Cas VEFA : la date de fin est souvent formulée en relatif
       // ("9 ans à compter de la Date de Livraison") plutôt qu'en date fixe.
       // Si on a une date de départ (même prévisionnelle) et une durée totale,
       // on calcule une échéance estimée plutôt que de renoncer à afficher le bail.
       if (start && !end) {
-        const m = durMatch(d.duree_totale)
+        const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
         if (m) {
           end = new Date(start)
           end.setFullYear(end.getFullYear() + parseInt(m[1]))
@@ -3830,7 +3336,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
         // l'extraction (champ manquant, pas forcément un VEFA) — on la
         // recalcule en remontant depuis la date de fin et la durée totale,
         // plutôt que de perdre le bail dans le filet "dates non déterminées".
-        const m = durMatch(d.duree_totale)
+        const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
         if (m) {
           start = new Date(end.getFullYear() - parseInt(m[1]), end.getMonth(), end.getDate() + 1)
           estimated = true
@@ -3934,7 +3440,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
           reconductionTacite: d.reconduction_tacite?.applicable ? {
             preavis: d.reconduction_tacite.preavis || null,
             periodicite: d.reconduction_tacite.periodicite || null,
-            dateLimiteAbsolue: parseFrDate(getDateLimiteAbsolue(d) || '') || null,
+            dateLimiteAbsolue: parseFrDate(d.reconduction_tacite.date_limite_absolue) || null,
           } : null,
           row,
           locationLabel,
@@ -3972,18 +3478,11 @@ function EtatLocatifModal({ building, bails, onClose }) {
     return cutoff > t.end ? cutoff : t.end // jamais avant le terme ferme lui-même
   }
   const effectiveEnd = t => reconductionCutoff(t)
-  // Domaine calé sur des années ENTIÈRES (1er janvier → 1er janvier) : avant,
-  // il démarrait en cours d'année (première date − 6 mois), si bien que le
-  // 1er janvier de la première année tombait AVANT le bord gauche, était
-  // rabattu à 0 % et venait s'empiler sur l'étiquette de l'année suivante
-  // (« '18 » par-dessus « '19 »). Désormais chaque étiquette a sa colonne.
-  const rawStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
-  const rawEnd = withDates.length ? new Date(Math.max(...withDates.map(t => effectiveEnd(t))) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
-  const domainStart = new Date(rawStart.getFullYear(), 0, 1)
-  const domainEnd = new Date(rawEnd.getFullYear() + 1, 0, 1)
+  const domainStart = withDates.length ? new Date(Math.min(...withDates.map(t => t.start)) - 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() - 1, 0, 1)
+  const domainEnd = withDates.length ? new Date(Math.max(...withDates.map(t => effectiveEnd(t))) + 1000 * 60 * 60 * 24 * 180) : new Date(today.getFullYear() + 5, 0, 1)
   const domainMs = domainEnd - domainStart
   const allYears = []
-  for (let y = domainStart.getFullYear(); y < domainEnd.getFullYear(); y++) allYears.push(y)
+  for (let y = domainStart.getFullYear(); y <= domainEnd.getFullYear(); y++) allYears.push(y)
   // Largeur minimale garantie par année : la zone de frise ne descend jamais
   // en dessous de allYears.length * MIN_YEAR_PX — sur un écran étroit ou une
   // longue période, la frise devient alors plus large que son cadre et défile
@@ -4115,7 +3614,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                     // Éviter que l'étiquette de bord (première/dernière année)
                     // ne dépasse du cadre — on la cale contre son trait plutôt
                     // que de la centrer dessus.
-                    const align = pct <= 0 ? 'left' : pct >= 100 ? 'right' : 'center'
+                    const align = pct < 4 ? 'left' : pct > 96 ? 'right' : 'center'
                     const transform = align === 'left' ? 'translateX(0)' : align === 'right' ? 'translateX(-100%)' : 'translateX(-50%)'
                     return (
                       <div key={y} style={{ position: 'absolute', left: `${pct}%`, top: 0, bottom: 0, borderLeft: '1px solid var(--border)' }}>
@@ -4244,100 +3743,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-// ─── Fiche : bande de chiffres clés, changements d'un avenant ───────────────
-function kpiNum(v) {
-  if (v === null || v === undefined || v === '') return null
-  const n = parseFloat(String(v).replace(/\s/g, '').replace(/[€m²]/g, '').replace(',', '.').replace(/[^0-9.-]/g, ''))
-  return isNaN(n) ? null : n
-}
-function fmtM2(v) {
-  const n = kpiNum(v)
-  return n ? `${n.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m²` : null
-}
-function KpiStrip({ items }) {
-  if (!items?.length) return null
-  return (
-    <div className="kpi-strip">
-      {items.map((k, i) => (
-        <div key={i} className={`kpi${k.tone ? ` kpi-${k.tone}` : ''}${k.muted ? ' kpi-muted' : ''}`}>
-          <div className="kpi-lbl">{k.label}</div>
-          <div className="kpi-val">{k.value}</div>
-          {(k.old || k.delta) && (
-            <div className="kpi-sub">
-              {k.old && <span className="kpi-old">{k.old}</span>}
-              {k.old && k.delta ? ' · ' : ''}
-              {k.delta && <strong className={k.deltaNeg ? 'kpi-neg' : 'kpi-pos'}>{k.delta}</strong>}
-            </div>
-          )}
-          {k.sub && <div className="kpi-sub">{k.sub}</div>}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// Libellés des stipulations qu'un avenant peut modifier (champs_modifies).
-const AV_FIELD_LABELS = {
-  adresse: 'Adresse', immeuble: 'Immeuble', ville: 'Ville', classification_batiment: 'Classification réglementaire', type_bail: 'Type de contrat',
-  duree_totale: 'Durée totale', duree_ferme: 'Durée ferme', preneur: 'Preneur', bailleur: 'Bailleur', garant: 'Garant / caution',
-  date_effet: "Prise d'effet", date_effet_condition: "Condition de prise d'effet", date_signature: 'Date de signature',
-  break_options: 'Sorties anticipées', echeances_sortie: 'Sorties anticipées', notice: 'Préavis', date_conge: 'Date limite de congé',
-  date_fin: 'Expiration', date_limite_travaux: 'Date limite travaux preneur', conditions_break: 'Conditions de sortie',
-  reconduction_tacite: 'Tacite reconduction', frais_redaction_actes: "Frais de rédaction d'actes", conditions_suspensives: 'Conditions suspensives',
-  charges_impots_taxes: 'Refacturation des impôts et taxes', charges_vetuste: 'Vétusté', charges_force_majeure: 'Force majeure',
-  surface_totale_m2: 'Surface louée', surfaces_detail: 'Ventilation des surfaces', parking_nb_places: 'Stationnement (places)', parking: 'Stationnement',
-  rie: 'RIE', loyer_signature_montant: 'Loyer annuel HT/HC', loyer_signature: 'Loyer — détail', loyer_cours: 'Loyer en cours', indexation: 'Indexation',
-  indexation_indice: 'Indice', franchise_periodes: 'Franchises', franchise: 'Franchise', charges: 'Charges', depot_garantie_montant: 'Dépôt de garantie',
-  depot_garantie_duree_mois: 'Dépôt de garantie (mois)', depot_garantie: 'Dépôt de garantie — modalités', gapd_montant: 'Garantie à première demande',
-  gapd_duree_mois: 'GAPD (mois)', gapd: 'GAPD — modalités', travaux_montant: 'Participation travaux bailleur', travaux_date_factures: 'Date limite réception factures',
-  travaux_modalites: 'Participation travaux — modalités', participations_travaux: 'Participation travaux bailleur', indemnites: 'Indemnités', indemnites_detail: 'Indemnités — détail',
-  article_606: 'Article 606', conformite: 'Conformité', accession: 'Accession', remise_en_etat: 'Remise en état', restitution_etat: 'État de restitution requis',
-  restitution_delai_edl: "Délai de l'état des lieux de sortie", restitution_conditions_specifiques: 'Conditions de restitution spécifiques', maintenance: 'Maintenance et travaux',
-  destination: 'Destination', sous_location: 'Sous-location', cession: 'Cession', mise_a_disposition: 'Mise à disposition anticipée',
-  indemnites_restitution: 'Indemnités de restitution', paliers_loyer: 'Paliers de loyer', loyer_variable: 'Loyer variable', abattements: 'Abattements',
-}
-const AV_MONEY_KEYS = new Set(['loyer_signature_montant', 'loyer_cours', 'depot_garantie_montant', 'gapd_montant', 'travaux_montant'])
-const AV_DATE_KEYS = new Set(['date_effet', 'date_signature', 'date_conge', 'date_fin', 'date_limite_travaux', 'travaux_date_factures'])
-function avIsEmpty(v) {
-  if (v === null || v === undefined) return true
-  if (typeof v === 'string') return !v.trim()
-  if (Array.isArray(v)) return v.length === 0
-  if (typeof v === 'object') return Object.values(v).every(avIsEmpty)
-  return false
-}
-function avFmt(key, v) {
-  if (avIsEmpty(v)) return null
-  if (AV_MONEY_KEYS.has(key)) return fmtEur(v) || safeStr(v)
-  if (AV_DATE_KEYS.has(key)) return normalizeDate(v) || safeStr(v)
-  if (key === 'surface_totale_m2') return fmtM2(v) || safeStr(v)
-  if (typeof v === 'object') return null
-  return safeStr(v)
-}
-// Liste des stipulations modifiées par un avenant, avec l'ancienne valeur
-// (bail d'origine) quand elle est simple à afficher.
-function computeAvenantChanges(mods, parent) {
-  const out = []
-  const seen = new Set()
-  Object.entries(mods || {}).forEach(([key, v]) => {
-    if (key.startsWith('_') || avIsEmpty(v)) return
-    const label = AV_FIELD_LABELS[key] || (key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '))
-    if (seen.has(label)) return
-    seen.add(label)
-    const after = avFmt(key, v)
-    const before = avFmt(key, parent?.[key])
-    const complex = after === null
-    const shortAfter = after && after.length > 140 ? after.slice(0, 137).replace(/\s+\S*$/, '') + '…' : after
-    const shortBefore = before && before.length > 80 ? null : before
-    out.push({ key, label, before: complex ? null : (shortBefore !== after ? shortBefore : null), after: shortAfter, complex })
-  })
-  const order = ['date_effet', 'date_fin', 'duree_totale', 'duree_ferme', 'surface_totale_m2', 'loyer_signature_montant']
-  return out.sort((a, b) => {
-    const ia = order.indexOf(a.key), ib = order.indexOf(b.key)
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || (a.complex === b.complex ? 0 : a.complex ? 1 : -1)
-  })
-}
-
-function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme, onSaveManualPreneurSub }) {
+function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme, onSaveManualPreneurSub }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
@@ -4407,8 +3813,8 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
   if (!isAv && Array.isArray(item.avenants) && item.avenants.length > 0) {
     const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
     const sortedAvs = [...item.avenants].sort((a, b) =>
-      toSortableAv(avenantChronoDate(a))
-        .localeCompare(toSortableAv(avenantChronoDate(b))))
+      toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
+        .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
     let explicitDateFin = null
     let explicitBreaks = null
     let avenantExits = null
@@ -4450,7 +3856,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
         if (explicitDateFin) {
           d.date_fin = explicitDateFin
         } else {
-          const m = durMatch(d.duree_totale)
+          const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
           if (m) {
             const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
             d.date_fin = fmtFR(end)
@@ -4503,15 +3909,15 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
   const indemnites = d.indemnites.length > 0 ? d.indemnites : null
 
   const pills = []
-  if (d.indexation && !d.indexation_indice) {
+  if (d.indexation) {
     const idx = safeStr(d.indexation)?.toLowerCase() || ''
     if (idx.includes('ilat')) pills.push({ label: 'ILAT', cls: 'pill-blue' })
     else if (idx.includes('ilc')) pills.push({ label: 'ILC', cls: 'pill-blue' })
     else if (idx.includes('icc')) pills.push({ label: 'ICC', cls: 'pill-blue' })
   }
   if (d.franchise_periodes?.length > 0) {
-    const totalMois = d.franchise_periodes.reduce((acc, p) => { const m = String(p?.duree ?? '').match(/(\d+(?:[.,]\d+)?)\s*mois/i); return acc + (m ? parseFloat(m[1].replace(',', '.')) : 0) }, 0)
-    pills.push({ label: totalMois > 0 ? `Franchise ${totalMois.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} mois` : 'Franchise', cls: 'pill-green' })
+    const totalMois = d.franchise_periodes.reduce((acc, p) => acc + (parseInt(p.duree) || 0), 0)
+    pills.push({ label: totalMois > 0 ? `Franchise ${totalMois} mois` : 'Franchise', cls: 'pill-green' })
   } else if (d.franchise) {
     pills.push({ label: 'Franchise', cls: 'pill-green' })
   }
@@ -4538,8 +3944,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
       const ibDate = r ? parseFR(r) : null
       return ibDate && Math.abs(ibDate - bd) <= 3 * 24 * 60 * 60 * 1000
     })
-    if (!match || !describesPayment([match.motif, match.calcul], match.montant)) return null
-    return formatIndemnityForCard(match)
+    return match ? formatIndemnityForCard(match) : null
   }
 
   const breakItems = [
@@ -4551,7 +3956,6 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
   // s'y rattache) — quand le champ existe, il remplace entièrement l'ancienne
   // reconstitution (dates calculées + indemnités appariées par date).
   const exitEvents = getExitEvents(d)
-  const dateLimiteAbsolue = getDateLimiteAbsolue(d)
   const exitCards = exitEvents ? exitEvents.map((e, i) => {
     const hasIndem = !!(safeStr(e.indemnite_sortie) || e.montant_indemnite)
     const hasComp = !!safeStr(e.compensation_maintien)
@@ -4585,10 +3989,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
         bNum: item.conditional ? null : bNum,
       }
     }),
-    d.date_fin ? (dateLimiteAbsolue
-      ? { key: 'date_fin', label: 'Expiration (terme absolu)', type: 'primary', val: dateLimiteAbsolue,
-          sub: `Premier terme le ${normalizeDate(d.date_fin)}, puis reconduction tacite${d.reconduction_tacite?.periodicite ? ' ' + d.reconduction_tacite.periodicite : ''} jusqu'à cette date — fin de plein droit, sans formalité` }
-      : { key: 'date_fin', label: 'Expiration', type: 'primary' }) : null,
+    d.date_fin   ? { key: 'date_fin',   label: 'Expiration',    type: 'primary' } : null,
   ].filter(Boolean)
 
   const secondaryDates = [
@@ -4599,74 +4000,15 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
 
   const show = key => !isAv || d[key] != null
 
-  // ── Bande de chiffres clés en tête de fiche ──
-  const kpiItems = (() => {
-    const out = []
-    const today0 = new Date(); today0.setHours(0, 0, 0, 0)
-    const yearsOf = v => { const m = durMatch(v); return m ? `${m[1]} ans` : null }
-    if (!isAv) {
-      if (d.loyer_signature_montant) out.push({
-        label: 'Loyer annuel HT/HC',
-        value: fmtEur(d.loyer_signature_montant) || safeStr(d.loyer_signature_montant),
-        sub: [d.indexation_indice, inseeIndex?.label && inseeIndex?.value ? `${inseeIndex.label} = ${inseeIndex.value.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}` : null].filter(Boolean).join(' · ') || null,
-      })
-      const surf = fmtM2(d.surface_totale_m2)
-      if (surf) out.push({ label: 'Surface louée', value: surf, sub: kpiNum(d.parking_nb_places) ? `+ ${kpiNum(d.parking_nb_places)} places de stationnement` : null })
-      if (d.duree_totale) out.push({ label: 'Durée', value: yearsOf(d.duree_totale) || safeStr(d.duree_totale), sub: yearsOf(d.duree_ferme) ? `dont ${yearsOf(d.duree_ferme)} fermes` : null })
-      const effet = normalizeDate(d.date_effet)
-      if (effet && /^\d{2}\/\d{2}\/\d{4}$/.test(effet)) out.push({ label: "Prise d'effet", value: effet, sub: effetConfirmePar ? 'confirmée par avenant' : null })
-      else if (d.date_effet_condition) {
-        const lib = safeStr(d.date_effet_condition.libelle) || ''
-        out.push({ label: "Prise d'effet", value: 'Conditionnelle', tone: 'warn', sub: lib.length > 70 ? lib.slice(0, 67).replace(/\s+\S*$/, '') + '…' : (lib || null) })
-      }
-      // Baux extraits avant la refonte des échéances : pas d'echeances_sortie
-      // (getExitEvents → null), les sorties sont alors les break_options.
-      const exitList = Array.isArray(exitEvents) ? exitEvents
-        : (Array.isArray(d.break_options) ? d.break_options : []).map(b => ({ date: normalizeDate(safeStr(b)), type: 'break' }))
-      const dated = exitList.filter(e => e.date && parseFR(e.date)).sort((a, b) => parseFR(a.date) - parseFR(b.date))
-      const next = dated.find(e => parseFR(e.date) >= today0)
-      if (next) out.push({ label: 'Prochaine sortie', value: next.date, sub: (safeStr(next.preavis) || safeStr(d.notice)) ? `préavis ${safeStr(next.preavis) || safeStr(d.notice)}` : null })
-      else if (exitList.some(e => e.type === 'a_tout_moment')) out.push({ label: 'Sortie anticipée', value: 'À tout moment', sub: safeStr(d.notice) ? `préavis ${safeStr(d.notice)}` : null })
-      else if (dated.length) out.push({ label: 'Prochaine sortie', value: 'Aucune à venir', muted: true })
-      const exp = dateLimiteAbsolue || normalizeDate(d.date_fin)
-      if (exp) {
-        const finD = parseFR(exp)
-        const before = finD ? dated.filter(e => parseFR(e.date) >= today0 && parseFR(e.date) < finD).length : 0
-        out.push({ label: 'Expiration', value: exp, sub: dateLimiteAbsolue ? 'terme absolu' : (before ? `${before} sortie${before > 1 ? 's' : ''} possible${before > 1 ? 's' : ''} d'ici là` : null) })
-      }
-    } else {
-      const p = parentBailData || {}
-      out.push({ label: "Effet de l'avenant", value: normalizeDate(meta.date_effet_avenant) || 'Non renseigné', muted: !meta.date_effet_avenant, sub: meta.date_signature_avenant ? `signé le ${normalizeDate(meta.date_signature_avenant)}` : null })
-      const pair = (label, newV, oldV, fmt) => {
-        const nN = kpiNum(newV), oN = kpiNum(oldV)
-        if (nN == null) return
-        const delta = oN != null && oN !== nN ? nN - oN : null
-        out.push({ label, value: fmt(newV), old: oN != null && oN !== nN ? fmt(oldV) : null, delta: delta != null ? `${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))}` : null, deltaNeg: delta != null && delta < 0 })
-      }
-      pair('Surface', d.surface_totale_m2, p.surface_totale_m2, v => fmtM2(v) || safeStr(v))
-      pair('Loyer annuel HT/HC', d.loyer_signature_montant, p.loyer_signature_montant, v => fmtEur(v) || safeStr(v))
-      if (d.date_effet && normalizeDate(d.date_effet)) out.push({ label: "Prise d'effet du bail", value: normalizeDate(d.date_effet), old: normalizeDate(p.date_effet) && normalizeDate(p.date_effet) !== normalizeDate(d.date_effet) ? normalizeDate(p.date_effet) : null })
-      if (d.date_fin && normalizeDate(d.date_fin)) out.push({ label: 'Expiration', value: normalizeDate(d.date_fin), old: normalizeDate(p.date_fin) && normalizeDate(p.date_fin) !== normalizeDate(d.date_fin) ? normalizeDate(p.date_fin) : null })
-      else if (p.date_fin) out.push({ label: 'Expiration', value: normalizeDate(p.date_fin), muted: true, sub: 'inchangée' })
-    }
-    return out
-  })()
-  const avChanges = isAv ? computeAvenantChanges(item.data?.champs_modifies || {}, parentBailData || {}) : []
-  const sortedSiblings = [...(siblings || [])].sort((a, b) => {
-    const toS = x => { const m = String(x || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(x || '') }
-    return toS(avenantChronoDate(a)).localeCompare(toS(avenantChronoDate(b)))
-  })
-
   return (
     <div className="result-body">
-      <KpiStrip items={kpiItems} />
       {isAv && (
         <div className="av-banner">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: 1 }}>
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
-          <div className="av-banner-body"><div className="av-banner-title">Objet de l'avenant</div>{meta.objet_avenant ? <div className="av-banner-text">{meta.objet_avenant}</div> : <div className="av-banner-text" style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Objet non renseigné</div>}</div>
+          <div><strong>Avenant</strong>{meta.objet_avenant && <span style={{ fontWeight: 400 }}> — {meta.objet_avenant}</span>}</div>
           {editingEffet ? (
             <span className="av-banner-date" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               Effet :
@@ -4702,7 +4044,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                 <button
                   onClick={() => { setEffetInput(meta.date_effet_avenant || ''); setEditingEffet(true) }}
                   title="Saisir ou corriger la date d'effet de cet avenant — détermine son ordre parmi les autres avenants du bail"
-                  className="edit-pen" aria-label="Modifier">
+                  style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
                   ✎
                 </button>
               )}
@@ -4713,7 +4055,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
 
       {/* Parties */}
       {(show('preneur') || show('bailleur')) && (
-        <div className="sec sec-half">
+        <div className="sec">
           <div className="sec-hd"><div className="sec-label">Parties</div></div>
           <div className="gx">
             {show('preneur') && (
@@ -4759,7 +4101,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                       <button
                         onClick={() => { setPreneurSubInput(d.preneur_substitution || ''); setEditingPreneurSub(true) }}
                         title="Nom de substitution — remplace le preneur dans la colonne Preneur du dashboard et des exports Excel, sans modifier la donnée extraite"
-                        className="edit-pen" aria-label="Modifier">
+                        style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '10px', lineHeight: 1, padding: 0 }}>
                         ✎
                       </button>
                     </div>
@@ -4773,46 +4115,17 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
         </div>
       )}
 
-      {/* Avenant : liste des stipulations modifiées (avant → après) */}
-      {isAv && (
+      {/* Conditions suspensives */}
+      {d.conditions_suspensives?.length > 0 && (
         <div className="sec">
-          <div className="sec-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
-            <div className="sec-label">Ce que modifie l'avenant</div>
-            {avChanges.length > 0 && <span style={{ fontSize: '12px', color: 'var(--text3)' }}>{avChanges.length} stipulation{avChanges.length > 1 ? 's' : ''} modifiée{avChanges.length > 1 ? 's' : ''} · les autres demeurent inchangées</span>}
-          </div>
-          {avChanges.length === 0 ? (
-            <div className="av-empty">
-              <strong>Aucune donnée du bail n'est modifiée</strong>
-              <span>L'avenant porte sur des obligations ou des précisions : voir son objet ci-dessus et le document source pour le détail.</span>
-            </div>
-          ) : (
-            <div className="av-changes">
-              {avChanges.map(c => (
-                <div key={c.key} className="av-change">
-                  <span className="av-change-lbl">{c.label}</span>
-                  {c.complex ? (
-                    <span className="av-change-complex">Modifié — détail dans la section correspondante ci-dessous</span>
-                  ) : (
-                    <span className="av-change-vals">
-                      {c.before && <><span className="av-change-old">{c.before}</span><span className="av-change-arrow" aria-hidden="true">→</span></>}
-                      <span className="av-change-new">{c.after}</span>
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="sec-hd"><div className="sec-label">Conditions suspensives</div></div>
+          <ConditionsSuspensivesBoxes conditions={d.conditions_suspensives} item={item} />
         </div>
-      )}
-
-      {/* Avenant : suivi, une par une, des conditions suspensives du bail */}
-      {isAv && (
-        <CsSuiviAvenantSection suivi={meta.suivi_conditions_suspensives} priseEffet={meta.prise_effet_par_levee_cs} item={item} />
       )}
 
       {/* Contrat */}
       {(show('type_bail') || show('duree_totale') || show('duree_ferme')) && (
-        <div className="sec sec-half">
+        <div className="sec">
           <div className="sec-hd"><div className="sec-label">Contrat et durée</div></div>
           <div className="gx">
             <Field label="Type de contrat" value={simplifyTypeBail(d.type_bail)} />
@@ -4879,7 +4192,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                         <button
                           onClick={() => { setDureeFermeInput(d.duree_ferme || ''); setEditingDureeFerme(true) }}
                           title="Saisir ou corriger la durée ferme — utile quand elle se déduit d'une clause de renonciation que l'extraction n'a pas su chiffrer"
-                          className="edit-pen" aria-label="Modifier">
+                          style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
                           ✎
                         </button>
                       )}
@@ -4891,18 +4204,6 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
           </div>
         </div>
       )}
-
-      {/* Conditions suspensives */}
-      {d.conditions_suspensives?.length > 0 && (() => {
-        const csSuivi = !isAv ? computeCsSuiviFromAvenants(d.conditions_suspensives, item.avenants) : null
-        return (
-          <div className="sec">
-            <div className="sec-hd"><div className="sec-label">Conditions suspensives</div></div>
-            {csSuivi?.priseEffet && <PriseEffetLeveeBanner pe={csSuivi.priseEffet} showAvenant />}
-            <ConditionsSuspensivesBoxes conditions={d.conditions_suspensives} item={item} suivis={csSuivi?.perCondition} />
-          </div>
-        )
-      })()}
 
       {/* Dates */}
       {(primaryDates.length > 0 || secondaryDates.length > 0 || show('conditions_break')) && (
@@ -4935,7 +4236,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                   ? (pages.indemnites_break || pages.conditions_break || null)
                   : pages[f.key]
                 return (
-                <div key={f.key} className={`date-card${(f.type === 'break' || isExit) ? ' date-card-break' : ''}${f.key === 'date_fin' ? ' date-card-end' : ''}`}
+                <div key={f.key} className={`date-card${(f.type === 'break' || isExit) ? ' date-card-break' : ''}`}
                   style={(isCondBreak || isEffetCond || (isExit && f.hasIndem)) ? { background: '#FAEEDA', border: '1px solid #EF9F27' }
                     : (isExit && f.hasComp) ? { background: 'var(--success-bg)', border: '1px solid rgba(14,107,80,0.35)' }
                     : undefined}>
@@ -4984,7 +4285,6 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                           <button
                             onClick={() => { setEffetInput(isEffetCond ? '' : (d.date_effet || '')); setEditingEffet(true) }}
                             title="Saisir ou corriger la date d'effet manuellement — recalcule date de fin et breaks"
-                            className={isEffetCond ? undefined : 'edit-pen'} aria-label="Modifier la date d'effet"
                             style={{ background: 'none', border: `1px solid ${isEffetCond ? '#EF9F27' : 'var(--border2)'}`, color: isEffetCond ? '#B8860B' : 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
                             ✎
                           </button>
@@ -4993,7 +4293,6 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                     )}
                   </div>
                   {f.type === 'break' && d.notice && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Préavis : {d.notice}</div>}
-                  {f.sub && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px', lineHeight: 1.4 }}>{f.sub}</div>}
                   {isExit && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px', fontSize: '11px', lineHeight: 1.4 }}>
                       {f.val && safeStr(f.exit.libelle) && <div style={{ color: 'var(--text3)' }}>{safeStr(f.exit.libelle)}</div>}
@@ -5021,11 +4320,11 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
           )}
           {/* Rangée secondaire : signature, congé, travaux */}
           {secondaryDates.length > 0 && (
-            <div className="date-strip date-strip-sec">
+            <div className="gx" style={{ marginBottom: '8px' }}>
               {secondaryDates.map(f => (
-                <div key={f.key} className="date-card date-card-sec">
-                  <div className="date-lbl">{f.label}</div>
-                  <div className="date-val">{d[f.key]}</div>
+                <div key={f.key} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 14px', minWidth: '160px' }}>
+                  <div className="field-lbl">{f.label}</div>
+                  <div className="field-val">{d[f.key]}</div>
                 </div>
               ))}
             </div>
@@ -5046,8 +4345,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
               <span style={{ fontSize: '12.5px', color: 'var(--text2)' }}>
                 <strong style={{ color: 'var(--text)' }}>Reconduction tacite</strong> au-delà du {normalizeDate(d.date_fin) || 'terme ferme'} — le bail se poursuit
                 {d.reconduction_tacite.periodicite ? ` ${d.reconduction_tacite.periodicite}` : ''} sauf congé donné
-                {d.reconduction_tacite.preavis ? ` avec un préavis de ${d.reconduction_tacite.preavis}` : ''}
-                {dateLimiteAbsolue ? `, et au plus tard jusqu'au ${dateLimiteAbsolue} (fin de plein droit, sans formalité)` : ''}.
+                {d.reconduction_tacite.preavis ? ` avec un préavis de ${d.reconduction_tacite.preavis}` : ''}.
               </span>
             </div>
           )}
@@ -5140,7 +4438,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                         <button
                           onClick={() => { setSurfaceInput(d.surface_totale_m2 || ''); setEditingSurface(true) }}
                           title="Saisir ou corriger la surface totale — utile quand elle n'est chiffrée que dans une annexe (plan, état des lieux) non lue par l'extraction"
-                          className="edit-pen" aria-label="Modifier">
+                          style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
                           ✎
                         </button>
                       )}
@@ -5194,7 +4492,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                         <button
                           onClick={() => { setParkingInput(d.parking_nb_places || ''); setEditingParking(true) }}
                           title="Saisir ou corriger le nombre de places — utile quand il n'est chiffré que dans une annexe non lue par l'extraction"
-                          className="edit-pen" aria-label="Modifier">
+                          style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
                           ✎
                         </button>
                       )}
@@ -5339,48 +4637,43 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
               {pills.length > 0 && <div className="pills">{pills.map((p, i) => <span key={i} className={`pill ${p.cls}`}>{p.label}</span>)}</div>}
             </div>
           )}
-          {((show('indexation') && safeStr(d.indexation)) || (show('loyer_signature') && safeStr(d.loyer_signature))) && (
-            <div className="field verbose-field full">
-              {show('indexation') && safeStr(d.indexation) && (
-                <div>
-                  <div className="field-lbl">Indexation</div>
-                  <div className="field-val verbose"><ClampText text={safeStr(d.indexation)} /></div>
-                </div>
-              )}
-              {show('loyer_signature') && safeStr(d.loyer_signature) && (
-                <div style={{ marginTop: show('indexation') && safeStr(d.indexation) ? '10px' : 0 }}>
-                  <div className="field-lbl">Loyer à la signature — détail complet</div>
-                  <div className="field-val verbose"><ClampText text={safeStr(d.loyer_signature)} /></div>
-                </div>
-              )}
-            </div>
-          )}
           {!isAv && d.surfaces_detail?.length > 0 && (() => {
             const enriched = computeUnitPrices(d.surfaces_detail, d.parking_nb_places, null)
             return (
-              <div>
+              <div style={{ marginBottom: '16px' }}>
                 <div className="field-lbl" style={{ marginBottom: '6px' }}>Ventilation du loyer par composante</div>
                 <SurfaceTable surfaces={enriched} totalDeclared={d.surface_totale_m2} totalLoyerDeclared={d.loyer_signature_montant} parkingNbPlaces={d.parking_nb_places} />
               </div>
             )
           })()}
+          <div className="gx" style={{ marginBottom: '8px' }}>
+
+          </div>
+          {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose full />}
+          {show('loyer_signature') && d.loyer_signature && (
+            <div style={{ marginBottom: '8px' }}>
+              <Field label="Loyer à la signature — détail complet" value={d.loyer_signature} verbose />
+            </div>
+          )}
           {(() => {
             const merged = mergeLoyerReductions(d.franchise_periodes, d.abattements)
             const computedSummary = !d.franchise ? computeFranchiseSummary(merged) : null
             return (merged.length > 0 || d.franchise) && (
-              <div className="loyer-sub">
-                <div className="field-lbl" style={{ marginBottom: '6px' }}>Franchises & abattements de loyer</div>
-                {d.franchise
-                  ? <Field label="Modalités complètes" value={d.franchise} verbose />
-                  : computedSummary && <Field label="Résumé calculé (d'après le tableau, pas une citation du bail)" value={computedSummary} verbose />}
+              <div style={{ marginTop: '8px' }}>
                 {merged.length > 0 && (
-                  <div style={{ marginTop: '10px' }}>
+                  <div style={{ marginBottom: '4px' }}>
+                    <div className="field-lbl" style={{ marginBottom: '6px', marginTop: '24px' }}>Franchises & abattements de loyer</div>
                     <FranchiseTable periodes={merged} item={item} />
                   </div>
                 )}
+                {d.franchise
+                  ? <Field label="Franchise — modalités complètes" value={d.franchise} verbose />
+                  : computedSummary && <Field label="Franchise — résumé (calculé à partir du tableau, pas une citation du bail)" value={computedSummary} verbose />}
               </div>
             )
           })()}
+          <div className="gx" style={{ marginTop: '8px' }}>
+          </div>
         </div>
       )}
 
@@ -5416,7 +4709,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
 
       {/* Dépôt de garantie + GAPD éventuelle */}
       {show('depot_garantie_montant') && (
-        <div className={`sec${(d.gapd_montant || d.gapd) ? '' : ' sec-half'}`}>
+        <div className="sec">
           <div className="sec-hd"><div className="sec-label">{(d.gapd_montant || d.gapd) ? 'Garanties' : 'Dépôt de garantie'}</div></div>
           <div style={{ display: 'grid', gridTemplateColumns: (d.gapd_montant || d.gapd) ? '1fr 1fr' : '1fr', gap: '10px' }}>
             {(() => {
@@ -5459,7 +4752,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
 
       {/* Frais de rédaction d'actes */}
       {d.frais_redaction_actes?.length > 0 && (
-        <div className="sec sec-half">
+        <div className="sec">
           <div className="sec-hd"><div className="sec-label">Frais de rédaction d'actes</div></div>
           <FraisActesTable frais={d.frais_redaction_actes} />
         </div>
@@ -5481,9 +4774,6 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                   </div>
                 )
               })()}
-              {show('travaux_modalites') && d.travaux_modalites && (
-                <div style={{ marginBottom: '10px' }}><Field label="Modalités complètes" value={d.travaux_modalites} verbose /></div>
-              )}
               <div className="table-wrap" style={{ marginBottom: '8px' }}>
                 <table className="indemnites-table">
                   <thead>
@@ -5530,7 +4820,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
               {show('travaux_date_factures') && <Field label="Date limite réception factures" value={d.travaux_date_factures} />}
             </div>
           )}
-          {!(d.participations_travaux?.length > 0) && show('travaux_modalites') && d.travaux_modalites && (
+          {show('travaux_modalites') && d.travaux_modalites && (
             <Field label="Modalités complètes" value={d.travaux_modalites} verbose />
           )}
         </div>
@@ -5679,66 +4969,6 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
             {d.restitution_delai_edl && <Field label="Délai pour l'état des lieux de sortie" value={d.restitution_delai_edl} verbose />}
             {d.restitution_conditions_specifiques && <Field label="Conditions spécifiques" value={d.restitution_conditions_specifiques} verbose />}
             {d.remise_en_etat && <Field label="Remise en état (indemnité forfaitaire à la signature)" value={d.remise_en_etat} verbose />}
-          </div>
-        </div>
-      )}
-
-      {/* Avenant : rappel des éléments du bail non modifiés */}
-      {isAv && parentBailData && (() => {
-        const mods = item.data?.champs_modifies || {}
-        const p = parentBailData
-        const pExits = (getExitEvents(p) || (Array.isArray(p.break_options) ? p.break_options : []).map(b => ({ date: normalizeDate(safeStr(b)) }))).filter(e => e.date && /\d{4}$/.test(e.date)).map(e => e.date.slice(-4))
-        const tiles = [
-          ['date_effet', "Prise d'effet", normalizeDate(p.date_effet)],
-          ['loyer_signature_montant', 'Loyer annuel HT/HC', fmtEur(p.loyer_signature_montant)],
-          ['surface_totale_m2', 'Surface louée', fmtM2(p.surface_totale_m2)],
-          ['echeances_sortie', 'Sorties', pExits.length ? [...new Set(pExits)].join(' · ') : null],
-          ['date_fin', 'Expiration', getDateLimiteAbsolue(p) || normalizeDate(p.date_fin)],
-          ['duree_totale', 'Durée', safeStr(p.duree_totale)],
-          ['type_bail', 'Type', simplifyTypeBail(p.type_bail)],
-        ].filter(([k, , v]) => v && avIsEmpty(mods[k]) && !(k === 'echeances_sortie' && !avIsEmpty(mods.break_options)))
-        if (!tiles.length) return null
-        return (
-          <div className="sec">
-            <div className="sec-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
-              <div className="sec-label">Rappel du bail</div>
-              <span style={{ fontSize: '12px', color: 'var(--text3)' }}>non modifié par cet avenant</span>
-            </div>
-            <div className="recall-grid">
-              {tiles.map(([k, l, v]) => (
-                <div key={k} className="recall-tile"><div className="field-lbl">{l}</div><div className="recall-val">{v}</div></div>
-              ))}
-            </div>
-          </div>
-        )
-      })()}
-
-      {/* Liste chronologique des avenants du bail (fiche bail comme fiche avenant) */}
-      {sortedSiblings.length > 0 && (
-        <div className="sec">
-          <div className="sec-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
-            <div className="sec-label">Avenants du bail</div>
-            <span style={{ fontSize: '12px', color: 'var(--text3)' }}>ordre chronologique</span>
-          </div>
-          <div className="av-list">
-            {isAv && parentItem && (
-              <button type="button" className="av-list-row" onClick={() => onOpen?.(parentItem)}>
-                <span className="av-list-date">{normalizeDate(parentItem.data?.date_signature) || normalizeDate(parentItem.data?.date_effet) || '—'}</span>
-                <span><strong>Bail d'origine</strong> · {safeStr(parentItem.data?.immeuble) || parentItem.file_name}</span>
-                <span className="av-list-go">Ouvrir</span>
-              </button>
-            )}
-            {sortedSiblings.map((av, i) => {
-              const current = av.id === item.id
-              const dt = normalizeDate(avenantChronoDate(av))
-              return (
-                <button type="button" key={av.id} className={`av-list-row${current ? ' current' : ''}`} onClick={() => !current && onOpen?.(av)} aria-current={current ? 'page' : undefined}>
-                  <span className="av-list-date">{dt && /^\d{2}\/\d{2}\/\d{4}$/.test(dt) ? dt : '—'}</span>
-                  <span><strong>Avenant {i + 1}</strong> · {avenantShortTitle(av)}</span>
-                  <span className="av-list-go">{current ? 'affiché' : 'Ouvrir'}</span>
-                </button>
-              )
-            })}
           </div>
         </div>
       )}
@@ -6606,47 +5836,32 @@ function PortfolioChatModal({ history, onClose, onSelect }) {
   )
 }
 
-// Résultats du contrôle qualité pour une liste de baux, avec le statut
-// « Vérifié » point par point. Partagé entre la fenêtre de contrôle et le
-// compteur du bouton d'en-tête, pour qu'ils affichent toujours le même total.
-function computeQcResults(bails) {
-  const dupDetails = findDuplicateBails(bails)
-  return bails.map(row => {
-    const r = auditBail(row)
-    if (dupDetails[row.id]) {
-      r.issues = [...r.issues, { type: 'doublon_suspect', severity: 'high', detail: dupDetails[row.id] }]
-    }
-    const doneKeys = new Set(Array.isArray(row.data?._qc_dismissed_issues) ? row.data._qc_dismissed_issues : [])
-    const legacyAll = row.data?._qc_dismissed === true && !Array.isArray(row.data?._qc_dismissed_issues)
-    r.issues = r.issues.map(iss => {
-      const key = qcIssueKey(iss)
-      return { ...iss, _key: key, _done: doneKeys.has(key) || (legacyAll && !QC_TYPES_POST_LEGACY.has(iss.type)) }
-    })
-    r.pendingIssues = r.issues.filter(i => !i._done)
-    r.doneIssues = r.issues.filter(i => i._done)
-    r.dismissed = r.pendingIssues.length === 0
-    return r
-  }).filter(r => r.issues.length > 0)
-}
-
 function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary, onFixSurfaceLoyer }) {
   const [showDismissed, setShowDismissed] = useState(false)
   const [pending, setPending] = useState({}) // { [rowId]: true } — évite double-clic pendant l'écriture
   const [fixPending, setFixPending] = useState({}) // { [rowId]: true } — pour le bouton "−1 jour"
   const [fixSurfacePending, setFixSurfacePending] = useState({}) // { [rowId]: true } — pour le bouton de correction surface/loyer
-  const allResults = useMemo(() => computeQcResults(bails), [bails])
+  const allResults = useMemo(() => {
+    const dupDetails = findDuplicateBails(bails)
+    return bails.map(row => {
+      const r = auditBail(row)
+      if (dupDetails[row.id]) {
+        r.issues = [...r.issues, { type: 'doublon_suspect', severity: 'high', detail: dupDetails[row.id] }]
+      }
+      return r
+    }).filter(r => r.issues.length > 0)
+  }, [bails])
   const activeResults = allResults.filter(r => !r.dismissed)
   const dismissedResults = allResults.filter(r => r.dismissed)
-  const pendingPointCount = activeResults.reduce((n, r) => n + r.pendingIssues.length, 0)
   const severityColor = { high: 'var(--danger)', medium: 'var(--accent)', low: 'var(--text3)' }
   const severityBg = { high: 'var(--danger-bg)', medium: 'var(--accent-bg)', low: 'var(--surface2)' }
   const severityLabel = { high: 'À vérifier en priorité', medium: 'À vérifier', low: 'Info' }
 
-  async function handleDismiss(e, rowId, dismissed, keys) {
+  async function handleDismiss(e, rowId, dismissed) {
     e.stopPropagation()
     if (pending[rowId]) return
     setPending(prev => ({ ...prev, [rowId]: true }))
-    await onDismiss?.(rowId, dismissed, keys)
+    await onDismiss?.(rowId, dismissed)
     setPending(prev => { const n = { ...prev }; delete n[rowId]; return n })
   }
 
@@ -6675,9 +5890,9 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px', marginBottom: '6px' }}>
           <div style={{ fontWeight: 700, fontSize: '13px' }}>{r.label}</div>
           <button
-            onClick={e => handleDismiss(e, r.row.id, !dismissedCard, r.issues.map(i => i._key))}
+            onClick={e => handleDismiss(e, r.row.id, !dismissedCard)}
             disabled={pending[r.row.id]}
-            title={dismissedCard ? 'Réafficher dans la liste active' : 'Marquer ces points comme vérifiés — ils ne réapparaîtront plus (seul un point nouveau ou modifié réapparaîtra)'}
+            title={dismissedCard ? 'Réafficher dans la liste active' : 'Marquer comme vérifié — ne réapparaîtra plus'}
             style={{
               flexShrink: 0, fontSize: '11px', fontWeight: 600, padding: '3px 9px', borderRadius: '999px', cursor: pending[r.row.id] ? 'default' : 'pointer',
               border: `1px solid ${dismissedCard ? 'var(--border2)' : 'var(--success)'}`,
@@ -6689,12 +5904,7 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
           </button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-          {!dismissedCard && r.doneIssues?.length > 0 && (
-            <div style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic' }}>
-              {r.doneIssues.length} point{r.doneIssues.length > 1 ? 's' : ''} déjà vérifié{r.doneIssues.length > 1 ? 's' : ''} masqué{r.doneIssues.length > 1 ? 's' : ''} — nouveau{r.pendingIssues.length > 1 ? 'x' : ''} point{r.pendingIssues.length > 1 ? 's' : ''} ci-dessous
-            </div>
-          )}
-          {(dismissedCard ? r.issues : r.pendingIssues).map((iss, i) => (
+          {r.issues.map((iss, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
               <span style={{
                 fontSize: '10px', fontWeight: 700, padding: '1px 7px', borderRadius: '999px', flexShrink: 0, marginTop: '1px',
@@ -6739,31 +5949,10 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
       <div className="modal" style={{ width: '820px', maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              Contrôle qualité
-              {allResults.length > 0 && (
-                <span style={{ fontSize: '12px', fontWeight: 700, padding: '2px 10px', borderRadius: '999px',
-                  background: activeResults.length ? 'var(--danger-bg)' : 'var(--success-bg)',
-                  color: activeResults.length ? 'var(--danger)' : 'var(--success)' }}>
-                  {activeResults.length
-                    ? `${activeResults.length} ${activeResults.length > 1 ? 'baux' : 'bail'} à traiter · ${pendingPointCount} point${pendingPointCount > 1 ? 's' : ''}`
-                    : 'Tout est traité'}
-                </span>
-              )}
-            </div>
+            <div className="modal-title">Contrôle qualité</div>
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
               Détection heuristique — ne modifie rien, à vérifier/réextraire manuellement au cas par cas
             </div>
-            {allResults.length > 0 && (
-              <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '220px', height: '6px', borderRadius: '3px', background: 'var(--surface2)', overflow: 'hidden' }}>
-                  <div style={{ width: `${Math.round(100 * dismissedResults.length / allResults.length)}%`, height: '100%', background: 'var(--success)', transition: 'width .3s' }} />
-                </div>
-                <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
-                  {dismissedResults.length} / {allResults.length} baux signalés traités
-                </span>
-              </div>
-            )}
           </div>
           <button onClick={onClose} title="Fermer" style={{ background: 'none', border: 'none', fontSize: '20px', lineHeight: 1, cursor: 'pointer', color: 'var(--text2)', padding: '4px' }}>✕</button>
         </div>
@@ -6892,7 +6081,7 @@ async function reextractOne(row, onProgress) {
       }
     } catch (_) { /* non bloquant */ }
 
-    const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(keepUserMetadata(row.data, extracted)) }).eq('id', row.id)
+    const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
     if (updateErr) throw updateErr
     return { success: true, originalPages, keptPages, removedCount, detectedPage }
   } catch (err) {
@@ -7017,7 +6206,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
         } catch (_) { /* non bloquant */ }
 
         await uploadSourceFile(row.id, prepared)
-        const { error } = await supabase.from('extractions').update({ data: stampExtractionDate(keepUserMetadata(row.data, extracted)) }).eq('id', row.id)
+        const { error } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
         if (error) throw error
         success++
       } catch (err) {
@@ -7163,17 +6352,6 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
   const [scope, setScope] = useState('all') // 'all' | 'bail' | 'avenant'
   const [buildingFilter, setBuildingFilter] = useState('') // '' = tous les immeubles
   const [excludeArchived, setExcludeArchived] = useState(true)
-  // Filtre par date d'extraction (_extracted_at, horodatage posé à chaque
-  // extraction) : « extraits strictement avant le JJ/MM/AAAA », avec option
-  // d'inclure les documents SANS date — extraits avant la mise en place de
-  // l'horodatage, donc forcément les plus anciens.
-  // Ne cibler que les avenants des baux à conditions suspensives (pour
-  // remplir leur suivi des CS sans réextraire tout le portefeuille).
-  const [csAvenantsOnly, setCsAvenantsOnly] = useState(false)
-  const csBailIds = useMemo(() => new Set(tree.filter(b => (Array.isArray(b.data?.conditions_suspensives) && b.data.conditions_suspensives.length > 0) || b.data?.date_effet_condition).map(b => b.id)), [tree])
-  const [dateFilterOn, setDateFilterOn] = useState(false)
-  const [cutoffDay, setCutoffDay] = useState('') // 'AAAA-MM-JJ' (date locale), '' = aucune date choisie
-  const [includeUndated, setIncludeUndated] = useState(true)
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState(null) // { current, total, fileName, state }
   const [results, setResults] = useState(null) // { success, failed: [{name, msg}], stopped }
@@ -7187,61 +6365,15 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
 
   const rowLabel = r => r.data?.immeuble || r.data?.adresse || r.file_name
 
-  // Date d'extraction d'un document (objet Date) ou null s'il n'en a pas.
-  const extractedAt = r => { const v = r.data?._extracted_at; if (!v) return null; const dt = new Date(v); return isNaN(dt.getTime()) ? null : dt }
-  const dayKey = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
-  const cutoffDate = cutoffDay ? new Date(`${cutoffDay}T00:00:00`) : null
-
-  const matchesBase = r => {
+  const matchesScope = r => {
     if (scope === 'bail' && r.document_type !== 'bail') return false
     if (scope === 'avenant' && r.document_type !== 'avenant') return false
     if (buildingFilter && r.actif_group !== buildingFilter) return false
     if (excludeArchived && r.data?._archived) return false
-    if (csAvenantsOnly && (r.document_type !== 'avenant' || !csBailIds.has(r.parent_id))) return false
     return true
   }
-  const matchesDate = r => {
-    if (!dateFilterOn) return true
-    const at = extractedAt(r)
-    if (!at) return includeUndated
-    return !!cutoffDate && at < cutoffDate
-  }
-  const matchesScope = r => matchesBase(r) && matchesDate(r)
   const targetRows = allRows.filter(r => r.storage_path && matchesScope(r))
-  // Compteurs par périmètre : nombre de documents réextractibles (fichier
-  // source attaché) pour chaque choix possible, les AUTRES filtres restant
-  // appliqués — on voit ce que donnerait chaque option avant de la choisir.
-  const withSource = allRows.filter(r => r.storage_path)
-  const passesOthers = (r, ignore) =>
-    (ignore === 'scope' || !((scope === 'bail' && r.document_type !== 'bail') || (scope === 'avenant' && r.document_type !== 'avenant'))) &&
-    (ignore === 'building' || !buildingFilter || r.actif_group === buildingFilter) &&
-    !(excludeArchived && r.data?._archived) && matchesDate(r) &&
-    !(csAvenantsOnly && (r.document_type !== 'avenant' || !csBailIds.has(r.parent_id)))
-  const scopeCounts = {
-    all: withSource.filter(r => passesOthers(r, 'scope')).length,
-    bail: withSource.filter(r => r.document_type === 'bail' && passesOthers(r, 'scope')).length,
-    avenant: withSource.filter(r => r.document_type === 'avenant' && passesOthers(r, 'scope')).length,
-  }
-  const buildingCounts = {}
-  withSource.forEach(r => { if (r.actif_group && passesOthers(r, 'building')) buildingCounts[r.actif_group] = (buildingCounts[r.actif_group] || 0) + 1 })
-  const buildingAllCount = withSource.filter(r => passesOthers(r, 'building')).length
-  const targetBails = targetRows.filter(r => r.document_type === 'bail').length
-  const targetAvenants = targetRows.length - targetBails
   const noSourceCount = allRows.filter(r => !r.storage_path && matchesScope(r)).length
-
-  // Liste des jours d'extraction présents en base (sur le périmètre choisi
-  // hors filtre de date), du plus récent au plus ancien, avec pour chacun le
-  // nombre de documents qui seraient réextraits en le choisissant.
-  const baseRows = allRows.filter(r => r.storage_path && matchesBase(r))
-  const undatedCount = baseRows.filter(r => !extractedAt(r)).length
-  const dayOptions = useMemo(() => {
-    const days = [...new Set(baseRows.map(extractedAt).filter(Boolean).map(dayKey))].sort().reverse()
-    return days.map(day => {
-      const limit = new Date(`${day}T00:00:00`)
-      return { day, label: new Date(`${day}T00:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }), before: baseRows.filter(r => { const at = extractedAt(r); return at && at < limit }).length, sameDay: baseRows.filter(r => { const at = extractedAt(r); return at && dayKey(at) === day }).length }
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allRows, scope, buildingFilter, excludeArchived, csAvenantsOnly])
 
   async function runBulkReextract() {
     setRunning(true)
@@ -7331,10 +6463,6 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
                   background: scope === s ? 'var(--accent)' : 'transparent', color: scope === s ? '#fff' : 'var(--text2)',
                 }}>
                   {s === 'all' ? 'Tout' : s === 'bail' ? 'Baux' : 'Avenants'}
-                  <span style={{ marginLeft: '6px', fontSize: '11px', fontWeight: 700, padding: '0 6px', borderRadius: '999px',
-                    background: scope === s ? 'rgba(255,255,255,0.25)' : 'var(--surface2)', color: scope === s ? '#fff' : 'var(--text3)' }}>
-                    {scopeCounts[s]}
-                  </span>
                 </button>
               ))}
             </div>
@@ -7343,67 +6471,20 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
               value={buildingFilter}
               onChange={e => setBuildingFilter(e.target.value)}
               style={{ display: 'block', width: '100%', padding: '8px 10px', fontSize: '13px', border: '1px solid var(--border2)', borderRadius: '6px', marginBottom: '14px', background: 'var(--surface)', color: 'var(--text)' }}>
-              <option value="">Tous les immeubles ({buildingAllCount})</option>
-              {buildingOptions.map(name => <option key={name} value={name}>{name} ({buildingCounts[name] || 0})</option>)}
+              <option value="">Tous les immeubles</option>
+              {buildingOptions.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '12px', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '16px', cursor: 'pointer' }}>
               <input type="checkbox" checked={excludeArchived} onChange={e => setExcludeArchived(e.target.checked)} />
               Exclure les baux archivés
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '12px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={csAvenantsOnly} onChange={e => setCsAvenantsOnly(e.target.checked)} />
-              Seulement les avenants des baux à conditions suspensives ({csBailIds.size} {csBailIds.size > 1 ? 'baux concernés' : 'bail concerné'})
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: dateFilterOn ? '8px' : '16px', cursor: 'pointer', fontWeight: 600 }}>
-              <input type="checkbox" checked={dateFilterOn} onChange={e => setDateFilterOn(e.target.checked)} />
-              Filtrer par date d'extraction
-            </label>
-            {dateFilterOn && (
-              <div style={{ border: '1px solid var(--border2)', borderRadius: '6px', padding: '10px 12px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '13px' }}>
-                  <span>Extraits avant le</span>
-                  <input type="date" value={cutoffDay} onChange={e => setCutoffDay(e.target.value)}
-                    style={{ padding: '6px 8px', fontSize: '13px', border: '1px solid var(--border2)', borderRadius: '6px', background: 'var(--surface)', color: 'var(--text)' }} />
-                  <span style={{ color: 'var(--text3)', fontSize: '12px' }}>(ce jour exclu)</span>
-                </div>
-                {dayOptions.length > 0 && (
-                  <select value={dayOptions.some(o => o.day === cutoffDay) ? cutoffDay : ''} onChange={e => setCutoffDay(e.target.value)}
-                    style={{ display: 'block', width: '100%', padding: '7px 10px', fontSize: '12.5px', border: '1px solid var(--border2)', borderRadius: '6px', background: 'var(--surface)', color: 'var(--text)' }}>
-                    <option value="">… ou choisir parmi les dates d'extraction de la base</option>
-                    {dayOptions.map(o => (
-                      <option key={o.day} value={o.day}>
-                        Avant le {o.label} — {o.before} document{o.before > 1 ? 's' : ''} (le {o.label} : {o.sameDay} extrait{o.sameDay > 1 ? 's' : ''})
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={includeUndated} onChange={e => setIncludeUndated(e.target.checked)} style={{ marginTop: '2px' }} />
-                  <span>
-                    Inclure les documents sans date d'extraction ({undatedCount}) — extraits avant la mise en place de l'horodatage, donc les plus anciens
-                  </span>
-                </label>
-                {!cutoffDay && includeUndated && (
-                  <div style={{ fontSize: '11.5px', color: 'var(--text3)' }}>Aucune date choisie : seuls les documents sans date d'extraction sont retenus.</div>
-                )}
-              </div>
-            )}
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', padding: '9px 12px', marginBottom: '10px', borderRadius: '6px', background: 'var(--surface2)', fontSize: '13px' }}>
-              <span style={{ fontWeight: 700, fontSize: '15px' }}>{targetRows.length}</span>
-              <span>document{targetRows.length > 1 ? 's' : ''} dans le périmètre choisi</span>
-              <span style={{ color: 'var(--text3)', fontSize: '12px' }}>
-                {targetBails} {targetBails > 1 ? 'baux' : 'bail'} · {targetAvenants} avenant{targetAvenants > 1 ? 's' : ''}
-                {noSourceCount > 0 ? ` · ${noSourceCount} sans fichier source (ignoré${noSourceCount > 1 ? 's' : ''})` : ''}
-              </span>
-            </div>
             <div className="warning-box" style={{ marginBottom: '18px' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: '1px' }}>
                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>
               <span>
                 <strong>{targetRows.length} document{targetRows.length > 1 ? 's' : ''}</strong> {targetRows.length > 1 ? 'seront réextraits' : 'sera réextrait'} à partir de leur fichier source déjà attaché.
-                Ceci remplace les données actuelles, y compris toute correction manuelle (le nom d'affichage du preneur, l'archivage et les points de contrôle qualité vérifiés sont conservés). Ça peut prendre du temps (plusieurs appels par document).
-                {dateFilterOn && ' Chaque document réextrait reçoit la date du jour : en cas d\'arrêt, relancer avec le même filtre reprend uniquement ceux qui restent.'}
+                Ceci remplace les données actuelles, y compris toute correction manuelle. Ça peut prendre du temps (plusieurs appels par document).
                 {noSourceCount > 0 && ` ${noSourceCount} document${noSourceCount > 1 ? 's' : ''} sans fichier source attaché ${noSourceCount > 1 ? 'seront ignorés' : 'sera ignoré'}.`}
               </span>
             </div>
@@ -7512,6 +6593,21 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [publicSectorOnly, setPublicSectorOnly] = useState(false)
   const [errorOnly, setErrorOnly] = useState(false)
+  const [riskHorizon, setRiskHorizon] = useState(null) // null | 18 | 24 (mois)
+  // Prochaine sortie possible par bail — sert au filtre "À risque" et au badge
+  // d'échéance de la colonne Type.
+  const riskMap = useMemo(() => {
+    const today = new Date()
+    const m = new Map()
+    tree.forEach(b => { const r = computeNextExit(b, today); if (r) m.set(b.id, r) })
+    return m
+  }, [tree])
+  const isAtRisk = (r, h) => !!r && (r.kind === 'tacite' || r.months <= h)
+  const riskCounts = useMemo(() => {
+    const c = { 18: 0, 24: 0 }
+    riskMap.forEach(r => { if (isAtRisk(r, 18)) c[18]++; if (isAtRisk(r, 24)) c[24]++ })
+    return c
+  }, [riskMap])
   const [editingActifRect, setEditingActifRect] = useState(null) // position du bouton cliqué
   const [editingActif2, setEditingActif2] = useState(null) // bail id (second actif, cas rare)
   const [editingActif2Rect, setEditingActif2Rect] = useState(null)
@@ -7928,7 +7024,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       if (previousStoragePath && previousStoragePath !== `${row.id}/${sanitizeStorageKey(prepared.name)}`) {
         try { await supabase.storage.from('lease-sources').remove([previousStoragePath]) } catch (_) {}
       }
-      const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(keepUserMetadata(row.data, extracted)) }).eq('id', row.id)
+      const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
       if (updateErr) throw updateErr
 
       setReextractProgress(null)
@@ -7980,8 +7076,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       return s
     }
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
-      const da = toSortable(avenantChronoDate(a))
-      const db = toSortable(avenantChronoDate(b))
+      const da = toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at || '')
+      const db = toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at || '')
       return da.localeCompare(db)
     })
     const avRows = sortedAv.map((av, idx) => ({
@@ -8046,6 +7142,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       return isPublicSectorTenant(bailData.preneur) || isPublicSectorTenant(bailRef.preneur)
     })
     .filter(row => !errorOnly || row.data?.extraction_error === true)
+    .filter(row => {
+      if (!riskHorizon) return true
+      // Un avenant suit le sort de son bail
+      return isAtRisk(riskMap.get(row.document_type === 'avenant' ? row.parent_id : row.id), riskHorizon)
+    })
 
   // Sort top-level bails by actif name or preneur, avenants follow their bail
   const getActifName = row => (row.data?.immeuble || row.data?.adresse || row.file_name || '').toLowerCase()
@@ -8331,6 +7432,17 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
               </button>
             )
           })()}
+          <span style={{ width: '1px', background: 'var(--border)', margin: '4px 2px' }} />
+          <span style={{ fontSize: '12px', color: 'var(--text3)', alignSelf: 'center', padding: '0 2px' }}>À risque</span>
+          {[18, 24].map(h => (
+            <button
+              key={h}
+              className={`dash-filter${riskHorizon === h ? ' active' : ''}`}
+              onClick={() => setRiskHorizon(v => v === h ? null : h)}
+              title={`Baux dont la prochaine sortie possible (break ou fin de bail, avenants compris) tombe dans les ${h} prochains mois, ou en tacite prolongation (sortie possible à tout moment)`}>
+              {h} mois ({riskCounts[h]})
+            </button>
+          ))}
         </div>
         {tree.length > 0 && (
           <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
@@ -8550,7 +7662,6 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   : (computeDateFinFromDuree(effectiveDateEffet, d.duree_totale) || normalizedDateFin))
             const effetCondOverdue = !!(effetCond && isDatePast(effetCond.date_limite))
             const dashExits = getExitEvents(d)
-            const dashLimiteAbsolue = getDateLimiteAbsolue(d)
             const breaks = dashExits
               ? dashExits.map(e => e.date).filter(Boolean)
               : filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
@@ -8563,7 +7674,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             // champ, le DERNIER avenant (par ordre chronologique) qui l'a
             // effectivement modifié, pour afficher un petit repère dessus.
             const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
-            const avKeyLocal = av => toSortableAv(avenantChronoDate(av))
+            const avKeyLocal = av => toSortableAv(av.data?.date_effet_avenant || av.data?.date_signature_avenant || av.created_at)
             const sortedAvenantsForOverride = !isAv ? (row.avenants || []).slice().sort((a, b) => avKeyLocal(a).localeCompare(avKeyLocal(b))) : []
             const lastOverride = field => {
               for (let k = sortedAvenantsForOverride.length - 1; k >= 0; k--) {
@@ -8719,6 +7830,24 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`}>
                     {isAv ? 'Avenant' : bailTypeLabel(d.type_bail)}
                   </span>
+                  {!isAv && (() => {
+                    const r = riskMap.get(row.id)
+                    if (!isAtRisk(r, 24)) return null
+                    const strong = isAtRisk(r, 18)
+                    const label = r.kind === 'tacite' ? 'Tacite prol.' : `${String(r.date.getMonth() + 1).padStart(2, '0')}/${r.date.getFullYear()}`
+                    const tip = r.kind === 'tacite'
+                      ? 'Bail échu, en tacite prolongation : sortie possible à tout moment moyennant préavis'
+                      : `Prochaine sortie possible : ${fmtFR(r.date)} (${r.kind === 'fin' ? 'fin de bail' : 'break'}) — dans ${Math.max(0, Math.round(r.months))} mois`
+                    return (
+                      <span title={tip} style={{
+                        fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', whiteSpace: 'nowrap', cursor: 'help',
+                        background: strong ? '#FAEEDA' : 'var(--surface2)', color: strong ? '#B8860B' : 'var(--text2)',
+                        border: `1px solid ${strong ? '#EF9F27' : 'var(--border2)'}`,
+                      }}>
+                        ⚠ {label}
+                      </span>
+                    )
+                  })()}
                   {isExtractionError && (
                     <span title={d.error_message || 'Erreur lors de l\'extraction'} style={{ fontSize: '11px', width: '18px', height: '18px', lineHeight: '16px', textAlign: 'center', background: 'var(--danger-bg)', color: 'var(--danger)', border: '1px solid rgba(176,42,42,.2)', borderRadius: '4px', fontWeight: 600, cursor: 'help', flexShrink: 0 }}>
                       ❌
@@ -8773,12 +7902,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 {/* Date fin */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4, overflowWrap: 'anywhere', display: 'inline-block' }}>
-                    {dashLimiteAbsolue ? (
-                      <span title={`Terme absolu (reconduction tacite plafonnée) — premier terme le ${cleanDateFin || '?'}`}>
-                        {dashLimiteAbsolue}
-                        <span style={{ display: 'block', fontSize: '10px', color: 'var(--text3)' }}>↻ terme absolu</span>
-                      </span>
-                    ) : (cleanDateFin || '—')}
+                    {cleanDateFin || '—'}
                     <OverrideMark field="date_fin" formatValue={v => normalizeDate(v) || v} />
                   </span>
                 </div>
@@ -9219,9 +8343,6 @@ export default function App() {
   const [etatLocatifSearch, setEtatLocatifSearch] = useState('')
   const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
   const [showQualityCheck, setShowQualityCheck] = useState(false)
-  // Nombre de baux avec au moins un point de contrôle qualité non vérifié —
-  // affiché en pastille sur le bouton d'en-tête.
-  const qcRemaining = useMemo(() => computeQcResults(history.filter(row => row.document_type === 'bail')).filter(r => !r.dismissed).length, [history])
   const [showPortfolioChat, setShowPortfolioChat] = useState(false)
   const [showSynthese, setShowSynthese] = useState(false)
   // Recherche/filtre du dashboard remontés ici (plutôt que locaux à Dashboard)
@@ -9849,7 +8970,7 @@ export default function App() {
     }
     const startConfirmed = parseFR(newDateEffetStr)
     if (startConfirmed) {
-      const m = durMatch(newData.duree_totale)
+      const m = String(newData.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
       if (m) {
         const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
         newData.date_fin = fmtFR(end)
@@ -9991,14 +9112,9 @@ export default function App() {
       window.scrollTo(0, 0)
     })
   }, [activeItem?.id])
-  const activeParent = activeItem?.document_type === 'avenant' ? history.find(b => b.id === activeItem.parent_id) : null
-  const resultTitle = activeItem?.document_type === 'avenant'
-    ? avenantShortTitle(activeItem)
-    : (d.immeuble || d.adresse || activeItem?.file_name || '')
+  const resultTitle = d.immeuble || d.adresse || activeItem?.file_name || ''
   const shortName = s => s?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim()
-  const resultSub = activeItem?.document_type === 'avenant'
-    ? [activeParent?.data?.preneur ? `Avenant au bail de ${shortName(activeParent.data.preneur)}` : 'Avenant', safeStr(activeParent?.data?.immeuble)].filter(Boolean).join(' · ')
-    : [shortName(d.preneur), shortName(d.bailleur), d.date_signature ? `Signé le ${d.date_signature}` : null].filter(Boolean).join(' · ')
+  const resultSub = [shortName(d.preneur), shortName(d.bailleur), d.date_signature ? `Signé le ${d.date_signature}` : null].filter(Boolean).join(' · ')
 
   if (authLoading) {
     return <div style={{minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text3)", fontSize: "13px"}}>Chargement…</div>
@@ -10101,13 +9217,6 @@ export default function App() {
               <path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><path d="M22 4L12 14.01l-3-3"/>
             </svg>
             Contrôle qualité
-            {histLoaded && (
-              <span title={qcRemaining ? `${qcRemaining} ${qcRemaining > 1 ? 'baux' : 'bail'} avec au moins un point à vérifier` : 'Aucun point en attente'}
-                style={{ fontSize: '11px', fontWeight: 700, minWidth: '18px', textAlign: 'center', padding: '1px 6px', borderRadius: '999px',
-                  background: qcRemaining ? '#C0392B' : 'rgba(255,255,255,0.15)', color: '#fff' }}>
-                {qcRemaining || '✓'}
-              </span>
-            )}
           </button>
 
           <button
@@ -10159,19 +9268,11 @@ export default function App() {
             bails={history.filter(row => row.document_type === 'bail')}
             onClose={() => setShowQualityCheck(false)}
             onSelect={row => { setShowQualityCheck(false); setActiveItem(row); navigate(`/bail/${row.id}`) }}
-            onDismiss={async (rowId, dismissed, keys = []) => {
+            onDismiss={async (rowId, dismissed) => {
               const row = history.find(b => b.id === rowId)
               if (!row) return
-              const prevKeys = Array.isArray(row.data?._qc_dismissed_issues) ? row.data._qc_dismissed_issues : []
-              const nextKeys = dismissed ? [...new Set([...prevKeys, ...keys])] : prevKeys.filter(k => !keys.includes(k))
-              const newData = { ...row.data, _qc_dismissed_issues: nextKeys }
-              delete newData._qc_dismissed // ancien drapeau global, remplacé par la liste par point
-              const { error } = await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
-              if (error) {
-                console.error('Enregistrement du statut « Vérifié » échoué', error)
-                alert(`Le statut « Vérifié » n'a pas pu être enregistré (${error.message || 'erreur inconnue'}) — il réapparaîtrait à la prochaine ouverture.`)
-                return
-              }
+              const newData = { ...row.data, _qc_dismissed: dismissed }
+              await supabase.from('extractions').update({ data: newData }).eq('id', rowId)
               setHistory(prev => prev.map(b => b.id === rowId ? { ...b, data: newData } : b))
               if (activeItem?.id === rowId) setActiveItem(prev => ({ ...prev, data: newData }))
             }}
@@ -10248,7 +9349,7 @@ export default function App() {
               const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
               return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '')
             }
-            const avKey = av => toSortable(avenantChronoDate(av))
+            const avKey = av => toSortable(av.data?.date_effet_avenant || av.data?.date_signature_avenant || av.created_at)
             let avNav = null
             if (activeItem.document_type === 'bail' && activeItem.avenants?.length > 0) {
               const sorted = [...activeItem.avenants].sort((a, b) => avKey(a).localeCompare(avKey(b)))
@@ -10259,7 +9360,6 @@ export default function App() {
                 const sorted = [...(parentBail.avenants || [])].sort((a, b) => avKey(a).localeCompare(avKey(b)))
                 const idx = sorted.findIndex(a => a.id === activeItem.id)
                 avNav = {
-                  position: idx >= 0 ? { idx: idx + 1, total: sorted.length } : null,
                   prev: idx > 0 ? sorted[idx - 1] : parentBail,
                   prevLabel: idx > 0 ? `← Avenant ${idx}/${sorted.length}` : '← Bail',
                   next: idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null,
@@ -10282,13 +9382,10 @@ export default function App() {
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
                 </svg>
-                {activeItem.document_type === 'avenant' ? (avNav?.position ? `Avenant n°${avNav.position.idx} sur ${avNav.position.total}` : 'Avenant') : 'Bail commercial'}
+                {activeItem.document_type === 'avenant' ? 'Avenant' : 'Bail commercial'}
               </div>
               <div className="result-title">{resultTitle}</div>
               {resultSub && <div className="result-sub">{resultSub}</div>}
-              {activeItem.document_type === 'avenant' && activeItem.file_name && resultTitle !== activeItem.file_name && (
-                <div className="result-file" title="Nom du fichier source">{activeItem.file_name}</div>
-              )}
               {sharedBail && (
                 <div
                   onClick={() => { setActiveItem(sharedBail); navigate(`/bail/${sharedBail.id}`) }}
@@ -10345,11 +9442,6 @@ export default function App() {
               <ResultsView
                 item={activeItem}
                 parentBailData={activeItem?.document_type === 'avenant' ? history.find(b => b.id === activeItem.parent_id)?.data : null}
-                parentItem={activeItem?.document_type === 'avenant' ? history.find(b => b.id === activeItem.parent_id) || null : null}
-                siblings={activeItem?.document_type === 'avenant'
-                  ? (history.find(b => b.id === activeItem.parent_id)?.avenants || [])
-                  : (activeItem?.avenants || [])}
-                onOpen={it => { setActiveItem(it); navigate(`/bail/${it.id}`) }}
                 onSaveManualDateEffet={handleManualDateEffet}
                 onSaveManualDateEffetAvenant={handleManualDateEffetAvenant}
                 onSaveManualSurface={handleManualSurface}
