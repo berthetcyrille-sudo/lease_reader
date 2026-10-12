@@ -2310,14 +2310,30 @@ function parseBullets(text) {
 }
 
 // Texte long replié sur quelques lignes, avec « Afficher tout » / « Réduire ».
-function ClampText({ text, lines = 4, threshold = 320 }) {
+// Le bouton n'apparaît que si le texte DÉBORDE réellement à la largeur
+// affichée (mesure du rendu), pas sur un simple nombre de caractères : un
+// texte long mais tenant en quelques lignes sur grand écran reste sans bouton.
+function ClampText({ text, lines = 4, threshold = 200 }) {
   const [open, setOpen] = useState(false)
+  const [overflow, setOverflow] = useState(false)
+  const ref = useRef(null)
   const t = String(text || '')
-  const long = t.length > threshold
+  const candidate = t.length > threshold
+  React.useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || !candidate) { setOverflow(false); return }
+    if (open) return
+    const check = () => setOverflow(el.scrollHeight > el.clientHeight + 1)
+    check()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(check) : null
+    if (ro) ro.observe(el)
+    return () => { if (ro) ro.disconnect() }
+  }, [t, candidate, open])
+  const clamp = candidate && !open
   return (
     <div>
-      <div className={!open && long ? 'clamp-lines' : undefined} style={!open && long ? { WebkitLineClamp: lines } : undefined}>{t}</div>
-      {long && (
+      <div ref={ref} className={clamp ? 'clamp-lines' : undefined} style={clamp ? { WebkitLineClamp: lines } : undefined}>{t}</div>
+      {(overflow || open) && (
         <button type="button" className="clamp-toggle" onClick={e => { e.stopPropagation(); setOpen(o => !o) }}>
           {open ? 'Réduire' : 'Afficher tout'}
         </button>
@@ -5318,43 +5334,36 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
               {pills.length > 0 && <div className="pills">{pills.map((p, i) => <span key={i} className={`pill ${p.cls}`}>{p.label}</span>)}</div>}
             </div>
           )}
+          {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose full />}
+          {show('loyer_signature') && d.loyer_signature && (
+            <Field label="Loyer à la signature — détail complet" value={d.loyer_signature} verbose />
+          )}
           {!isAv && d.surfaces_detail?.length > 0 && (() => {
             const enriched = computeUnitPrices(d.surfaces_detail, d.parking_nb_places, null)
             return (
-              <div style={{ marginBottom: '16px' }}>
+              <div>
                 <div className="field-lbl" style={{ marginBottom: '6px' }}>Ventilation du loyer par composante</div>
                 <SurfaceTable surfaces={enriched} totalDeclared={d.surface_totale_m2} totalLoyerDeclared={d.loyer_signature_montant} parkingNbPlaces={d.parking_nb_places} />
               </div>
             )
           })()}
-          <div className="gx" style={{ marginBottom: '8px' }}>
-
-          </div>
-          {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose full />}
-          {show('loyer_signature') && d.loyer_signature && (
-            <div style={{ marginBottom: '8px' }}>
-              <Field label="Loyer à la signature — détail complet" value={d.loyer_signature} verbose />
-            </div>
-          )}
           {(() => {
             const merged = mergeLoyerReductions(d.franchise_periodes, d.abattements)
             const computedSummary = !d.franchise ? computeFranchiseSummary(merged) : null
             return (merged.length > 0 || d.franchise) && (
-              <div style={{ marginTop: '8px' }}>
-                {merged.length > 0 && (
-                  <div style={{ marginBottom: '4px' }}>
-                    <div className="field-lbl" style={{ marginBottom: '6px', marginTop: '24px' }}>Franchises & abattements de loyer</div>
-                    <FranchiseTable periodes={merged} item={item} />
-                  </div>
-                )}
+              <div className="loyer-sub">
+                <div className="field-lbl" style={{ marginBottom: '6px' }}>Franchises & abattements de loyer</div>
                 {d.franchise
                   ? <Field label="Franchise — modalités complètes" value={d.franchise} verbose />
                   : computedSummary && <Field label="Franchise — résumé (calculé à partir du tableau, pas une citation du bail)" value={computedSummary} verbose />}
+                {merged.length > 0 && (
+                  <div style={{ marginTop: '10px' }}>
+                    <FranchiseTable periodes={merged} item={item} />
+                  </div>
+                )}
               </div>
             )
           })()}
-          <div className="gx" style={{ marginTop: '8px' }}>
-          </div>
         </div>
       )}
 
@@ -5455,6 +5464,9 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                   </div>
                 )
               })()}
+              {show('travaux_modalites') && d.travaux_modalites && (
+                <div style={{ marginBottom: '10px' }}><Field label="Modalités complètes" value={d.travaux_modalites} verbose /></div>
+              )}
               <div className="table-wrap" style={{ marginBottom: '8px' }}>
                 <table className="indemnites-table">
                   <thead>
@@ -5501,7 +5513,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
               {show('travaux_date_factures') && <Field label="Date limite réception factures" value={d.travaux_date_factures} />}
             </div>
           )}
-          {show('travaux_modalites') && d.travaux_modalites && (
+          {!(d.participations_travaux?.length > 0) && show('travaux_modalites') && d.travaux_modalites && (
             <Field label="Modalités complètes" value={d.travaux_modalites} verbose />
           )}
         </div>
