@@ -4930,7 +4930,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                   ? (pages.indemnites_break || pages.conditions_break || null)
                   : pages[f.key]
                 return (
-                <div key={f.key} className={`date-card${(f.type === 'break' || isExit) ? ' date-card-break' : ''}`}
+                <div key={f.key} className={`date-card${(f.type === 'break' || isExit) ? ' date-card-break' : ''}${f.key === 'date_fin' ? ' date-card-end' : ''}`}
                   style={(isCondBreak || isEffetCond || (isExit && f.hasIndem)) ? { background: '#FAEEDA', border: '1px solid #EF9F27' }
                     : (isExit && f.hasComp) ? { background: 'var(--success-bg)', border: '1px solid rgba(14,107,80,0.35)' }
                     : undefined}>
