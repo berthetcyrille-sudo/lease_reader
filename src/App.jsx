@@ -4789,18 +4789,6 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
         <CsSuiviAvenantSection suivi={meta.suivi_conditions_suspensives} priseEffet={meta.prise_effet_par_levee_cs} item={item} />
       )}
 
-      {/* Conditions suspensives */}
-      {d.conditions_suspensives?.length > 0 && (() => {
-        const csSuivi = !isAv ? computeCsSuiviFromAvenants(d.conditions_suspensives, item.avenants) : null
-        return (
-          <div className="sec">
-            <div className="sec-hd"><div className="sec-label">Conditions suspensives</div></div>
-            {csSuivi?.priseEffet && <PriseEffetLeveeBanner pe={csSuivi.priseEffet} showAvenant />}
-            <ConditionsSuspensivesBoxes conditions={d.conditions_suspensives} item={item} suivis={csSuivi?.perCondition} />
-          </div>
-        )
-      })()}
-
       {/* Contrat */}
       {(show('type_bail') || show('duree_totale') || show('duree_ferme')) && (
         <div className="sec sec-half">
@@ -4883,6 +4871,18 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
         </div>
       )}
 
+      {/* Conditions suspensives */}
+      {d.conditions_suspensives?.length > 0 && (() => {
+        const csSuivi = !isAv ? computeCsSuiviFromAvenants(d.conditions_suspensives, item.avenants) : null
+        return (
+          <div className="sec">
+            <div className="sec-hd"><div className="sec-label">Conditions suspensives</div></div>
+            {csSuivi?.priseEffet && <PriseEffetLeveeBanner pe={csSuivi.priseEffet} showAvenant />}
+            <ConditionsSuspensivesBoxes conditions={d.conditions_suspensives} item={item} suivis={csSuivi?.perCondition} />
+          </div>
+        )
+      })()}
+
       {/* Dates */}
       {(primaryDates.length > 0 || secondaryDates.length > 0 || show('conditions_break')) && (
         <div className="sec">
@@ -4963,6 +4963,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
                           <button
                             onClick={() => { setEffetInput(isEffetCond ? '' : (d.date_effet || '')); setEditingEffet(true) }}
                             title="Saisir ou corriger la date d'effet manuellement — recalcule date de fin et breaks"
+                            className={isEffetCond ? undefined : 'edit-pen'} aria-label="Modifier la date d'effet"
                             style={{ background: 'none', border: `1px solid ${isEffetCond ? '#EF9F27' : 'var(--border2)'}`, color: isEffetCond ? '#B8860B' : 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
                             ✎
                           </button>
