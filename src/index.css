@@ -299,9 +299,13 @@ button, input { font-family: inherit; cursor: pointer; }
 .result-body .gx:has(> .verbose-field) { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .result-body .field,
 .result-body .party-card,
-.result-body .pair-key,
+.result-body .pair-key { background: transparent; border: 0; border-top: 1px solid var(--border); border-radius: 0; padding: 8px 0 9px; }
+/* Textes longs (conditions, indexation, détail du loyer, résumé de
+   franchise, charges, formules, modalités…) : détourés dans un encart
+   légèrement teinté, comme le « Détail des échéances » de la maquette. */
 .result-body .field.verbose-field,
-.result-body .pair-verbose { background: transparent; border: 0; border-top: 1px solid var(--border); border-radius: 0; padding: 8px 0 9px; }
+.result-body .pair-verbose { background: #F8F4EC; border: 0; border-radius: 6px; padding: 10px 14px 11px; }
+.result-body .gx > .field.verbose-field { margin: 6px 0; }
 .result-body .field-lbl,
 .result-body .party-role,
 .result-body .date-lbl,
@@ -314,17 +318,17 @@ button, input { font-family: inherit; cursor: pointer; }
 .result-body .due-par { font-size: 10.5px; padding: 1px 7px; }
 
 /* Dates clés : cases fines, teinte réservée aux sorties */
-.result-body .date-strip { gap: 8px; }
+.result-body .date-strip { gap: 8px; align-items: start; }
 .result-body .date-card { background: #F7F4EE; border: 0; border-radius: 4px; padding: 9px 12px; }
 .result-body .date-card-break { background: #F5ECD4; }
 .result-body .date-card-break .date-lbl { color: #6E4E00; }
 /* Expiration : case encre, comme dans la maquette */
-.result-body .date-card-end { background: #1C1A17; color: #D9D2C5; }
-.result-body .date-card-end .date-lbl { color: #CFC6B6; }
+.result-body .date-card-end { background: #4A443C; color: #E4DDD0; }
+.result-body .date-card-end .date-lbl { color: #D6CDBE; }
 .result-body .date-card-end .date-val { color: #F6F2EA; }
-.result-body .date-card-end .page-ref { color: #E2C17A; border-bottom-color: #8A6100; }
+.result-body .date-card-end .page-ref { color: #EBCB85; border-bottom-color: #B8954A; }
 .result-body .date-card-end .page-ref:hover { color: #FFFFFF; }
-.result-body .date-card-end [style*="var(--text3)"], .result-body .date-card-end [style*="var(--text2)"] { color: #B8B0A2 !important; }
+.result-body .date-card-end [style*="var(--text3)"], .result-body .date-card-end [style*="var(--text2)"] { color: #D6CDBE !important; }
 .result-body .date-card-end .edit-pen { color: #CFC6B6; }
 .result-body .date-val { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .result-body .date-val.break { color: var(--accent-dark); }
