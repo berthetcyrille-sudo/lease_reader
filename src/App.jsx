@@ -6556,6 +6556,17 @@ function BailPickerModal({ row, bails, progress, onConfirm, onClose, title, subt
   )
 }
 
+// Indicateur de tri d'un en-tête de colonne : ↑/↓ quand la colonne est
+// triée, ⇅ discret sinon — pour signaler qu'elle est triable avant même le
+// premier clic.
+function SortIndicator({ active, dir }) {
+  return (
+    <span style={{ fontSize: '10px', color: 'var(--text3)', opacity: active ? 1 : 0.45 }}>
+      {active ? (dir === 'asc' ? '↑' : '↓') : '⇅'}
+    </span>
+  )
+}
+
 function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived, immeubles, onEnsureImmeuble, userEmail }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
@@ -7180,6 +7191,15 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         : getActifName(a).localeCompare(getActifName(b), 'fr')
       return sortDir === 'asc' ? cmp : -cmp
     })
+    // Tri par loyer : classement GLOBAL des baux, tous immeubles confondus
+    // (pas de regroupement par immeuble, sinon un gros loyer d'un immeuble
+    // "suivant" apparaît sous un petit loyer). L'immeuble reste visible sur
+    // chaque ligne via son étiquette d'actif ; les avenants suivent leur bail.
+    if (sortBy === 'loyer') {
+      const flat = []
+      bails.forEach(bail => { flat.push(bail, ...(avMap[bail.id] || [])) })
+      return flat
+    }
     // Group by actif_group
     const groups = {} // actif_group -> [bail rows + avenants]
     const noGroup = [] // bails without actif_group
@@ -7195,11 +7215,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     })
     // Build final list: group headers + rows
     const result = []
-    // Tri par loyer : les immeubles sont eux aussi classés par loyer total de
-    // leurs baux (les plus gros actifs en tête en tri décroissant).
-    const groupLoyer = rows => rows.filter(r => r._level === 0).reduce((t, r) => t + (getLoyer(r) || 0), 0)
-    Object.entries(groups).sort(([a, ra], [b, rb]) => {
-      if (sortBy === 'loyer') return sortDir === 'asc' ? groupLoyer(ra) - groupLoyer(rb) : groupLoyer(rb) - groupLoyer(ra)
+    Object.entries(groups).sort(([a], [b]) => {
       const cmp = a.localeCompare(b, 'fr')
       return sortDir === 'asc' ? cmp : -cmp
     }).forEach(([grp, rows]) => {
@@ -7528,12 +7544,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           <div className="dash-th" style={{ gridColumn: '1', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
             onClick={() => { if (sortBy === 'actif') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('actif'); setSortDir('asc') } }}>
             Actif / Document
-            {sortBy === 'actif' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+            <SortIndicator active={sortBy === 'actif'} dir={sortDir} />
           </div>
           <div className="dash-th" style={{ gridColumn: '2', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
             onClick={() => { if (sortBy === 'preneur') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('preneur'); setSortDir('asc') } }}>
             Preneur
-            {sortBy === 'preneur' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+            <SortIndicator active={sortBy === 'preneur'} dir={sortDir} />
           </div>
           <div className="dash-th" style={{ gridColumn: '3' }}>Type</div>
           <div className="dash-th dash-th-right" style={{ gridColumn: '4' }}>Surface</div>
@@ -7541,10 +7557,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           <div className="dash-th" style={{ gridColumn: '6' }}>Date fin</div>
           <div className="dash-th" style={{ gridColumn: '7' }}>Break</div>
           <div className="dash-th dash-th-right" style={{ gridColumn: '8', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px' }}
-            title="Loyer de base HT/HC à la signature — cliquer pour trier (immeubles classés par loyer total, baux par loyer)"
+            title="Loyer de base HT/HC à la signature — cliquer pour classer tous les baux par loyer, tous immeubles confondus"
             onClick={() => { if (sortBy === 'loyer') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('loyer'); setSortDir('desc') } }}>
             Loyer base
-            {sortBy === 'loyer' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+            <SortIndicator active={sortBy === 'loyer'} dir={sortDir} />
           </div>
           <div style={{ gridColumn: '9' }}/>
         </div>
