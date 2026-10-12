@@ -306,6 +306,39 @@ async function openSourceAtPage(item, page) {
 }
 
 // Petite icône cliquable renvoyant à la page source d'un champ, si connue.
+// Date servant à classer un avenant parmi ceux de son bail : date d'effet,
+// sinon date de signature, sinon date lisible dans le NOM DU FICHIER
+// (« 2022.09.22_Protocole… », « … - 28.06.2021.docx.pdf »), sinon date
+// d'import. Avant, l'absence des deux premières faisait retomber sur la date
+// d'import : une lettre-avenant de 2021 importée après un protocole de 2022
+// passait derrière lui. Renvoie JJ/MM/AAAA (ou la date d'import brute).
+function dateFromFileName(name) {
+  const s = String(name || '')
+  let m = s.match(/(?:^|[^\d])((?:19|20)\d{2})[._-](\d{2})[._-](\d{2})(?!\d)/)
+  if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) return `${m[3]}/${m[2]}/${m[1]}`
+  m = s.match(/(?:^|[^\d])(\d{2})[._-](\d{2})[._-]((?:19|20)\d{2})(?!\d)/)
+  if (m && +m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) return `${m[1]}/${m[2]}/${m[3]}`
+  m = s.match(/(?:^|[^\d])((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)/)
+  if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) return `${m[3]}/${m[2]}/${m[1]}`
+  return null
+}
+function avenantChronoDate(av) {
+  return av?.data?.date_effet_avenant || av?.data?.date_signature_avenant || dateFromFileName(av?.file_name) || av?.created_at
+}
+// Titre court d'un avenant, tiré de son objet (« Protocole transactionnel
+// relatif au solde de la participation travaux due à CARIBOO : … » →
+// partie avant le deux-points), à défaut le nom du fichier.
+function avenantShortTitle(av) {
+  const o = safeStr(av?.data?.objet_avenant)
+  if (!o) return av?.file_name || 'Avenant'
+  let t = o
+  const cut = t.search(/\s[:;—–]\s|\s-\s|:\s/)
+  if (cut >= 12) t = t.slice(0, cut)
+  t = t.trim().replace(/[.,;]+$/, '')
+  if (t.length > 95) t = t.slice(0, 92).replace(/\s+\S*$/, '') + '…'
+  return t.charAt(0).toUpperCase() + t.slice(1)
+}
+
 function PageJumpIcon({ item, pages, field, page: pageProp, title }) {
   const page = pageProp ?? pages?.[field]
   if (!page || !item?.storage_path) return null
@@ -313,12 +346,7 @@ function PageJumpIcon({ item, pages, field, page: pageProp, title }) {
     <span
       onClick={e => { e.stopPropagation(); openSourceAtPage(item, page) }}
       title={title || `Voir la page ${page} du document source`}
-      style={{
-        cursor: 'pointer', fontSize: '10px', fontWeight: 700, color: 'var(--accent)',
-        border: '1px solid rgba(26,95,168,.3)', borderRadius: '4px', padding: '0px 4px',
-        display: 'inline-flex', alignItems: 'center', gap: '2px', whiteSpace: 'nowrap',
-        background: 'var(--accent-bg)', lineHeight: '15px',
-      }}>
+      className="page-ref">
       p.{page}
     </span>
   )
@@ -921,8 +949,8 @@ function exportAllToExcel(tree, onErrors, selectedCols = null) {
     rows.push({ item: bail, parentName: '', parentData: null, statut: 'OK' })
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
       const toS = d => { const m = String(d||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d||'') }
-      return toS(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
-            .localeCompare(toS(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at))
+      return toS(avenantChronoDate(a))
+            .localeCompare(toS(avenantChronoDate(b)))
     })
     sortedAv.forEach(av => rows.push({ item: av, parentName, parentData, statut: 'OK' }))
   })
@@ -2281,6 +2309,23 @@ function parseBullets(text) {
   return [s]
 }
 
+// Texte long replié sur quelques lignes, avec « Afficher tout » / « Réduire ».
+function ClampText({ text, lines = 4, threshold = 320 }) {
+  const [open, setOpen] = useState(false)
+  const t = String(text || '')
+  const long = t.length > threshold
+  return (
+    <div>
+      <div className={!open && long ? 'clamp-lines' : undefined} style={!open && long ? { WebkitLineClamp: lines } : undefined}>{t}</div>
+      {long && (
+        <button type="button" className="clamp-toggle" onClick={e => { e.stopPropagation(); setOpen(o => !o) }}>
+          {open ? 'Réduire' : 'Afficher tout'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function BulletField({ label, value, full }) {
   const s = safeStr(value)
   if (!s) return null
@@ -2298,7 +2343,7 @@ function BulletField({ label, value, full }) {
           ))}
         </ul>
       ) : (
-        <div className="field-val verbose">{s}</div>
+        <div className="field-val verbose"><ClampText text={s} /></div>
       )}
     </div>
   )
@@ -2313,10 +2358,17 @@ function Field({ label, value, mono, verbose, full, source, item, pages, pageFie
         {label}
         {tooltip && <span className="field-info" title={tooltip}>i</span>}
       </div>
-      <div className={`field-val${!safe ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-        {safe || 'Non renseigné'}
-        {safe && pageField && <PageJumpIcon item={item} pages={pages} field={pageField} />}
-      </div>
+      {verbose && safe ? (
+        <div className="field-val verbose">
+          <ClampText text={safe} />
+          {pageField && <div style={{ marginTop: '4px' }}><PageJumpIcon item={item} pages={pages} field={pageField} /></div>}
+        </div>
+      ) : (
+        <div className={`field-val${!safe ? ' empty' : mono ? ' mono' : verbose ? ' verbose' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {safe || 'Non renseigné'}
+          {safe && pageField && <PageJumpIcon item={item} pages={pages} field={pageField} />}
+        </div>
+      )}
     </div>
   )
 }
@@ -2611,8 +2663,9 @@ function normalizeFranchiseRows(rows) {
       const twin = explicit.find(x => x.m === m && (x.amt == null || amt == null || Math.abs(x.amt - amt) <= 1))
       if (twin) out = { ...out, duree: String(r.duree).replace(/^\s*recalcul\s*=\s*/i, '') }
     }
+    if (typeof out.duree === 'string' && /\d\.\d/.test(out.duree)) out = { ...out, duree: out.duree.replace(/(\d)\.(\d)/g, '$1,$2') }
     const c = typeof r.condition === 'string' ? r.condition : ''
-    if (c && /^\s*(?:[aà]\s+compter|[aà]\s+partir)\s+d/i.test(c) && !/\bsi\b|sous\s+r[ée]serve|condition|[aà]\s+d[ée]faut|\bsauf\b|en\s+cas/i.test(c)) {
+    if (c && /^\s*(?:(?:applicables?|appliqu[ée]e?s?|due?s?|accord[ée]e?s?)\s+)?(?:[aà]\s+compter|[aà]\s+partir)\s+d/i.test(c) && !/\bsi\b|sous\s+r[ée]serve|condition|[aà]\s+d[ée]faut|\bsauf\b|en\s+cas/i.test(c)) {
       out = { ...out, condition: null }
     }
     return out
@@ -2860,8 +2913,8 @@ function avenantShortLabel(av) {
 function computeCsSuiviFromAvenants(conditions, avenants) {
   const toSortable = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
   const sorted = [...(avenants || [])].sort((a, b) =>
-    toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
-      .localeCompare(toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
+    toSortable(avenantChronoDate(a))
+      .localeCompare(toSortable(avenantChronoDate(b))))
   const perCondition = (conditions || []).map(() => null)
   let priseEffet = null
   sorted.forEach(av => {
@@ -3635,8 +3688,8 @@ function mergedBailData(row) {
     return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '')
   }
   const avs = [...(row.avenants || [])].sort((a, b) => {
-    const ka = toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
-    const kb = toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)
+    const ka = toSortable(avenantChronoDate(a))
+    const kb = toSortable(avenantChronoDate(b))
     return ka.localeCompare(kb)
   })
   avs.forEach(av => {
@@ -3682,8 +3735,8 @@ function EtatLocatifModal({ building, bails, onClose }) {
       if (Array.isArray(row.avenants) && row.avenants.length > 0) {
         const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
         const sortedAvs = [...row.avenants].sort((a, b) =>
-          toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
-            .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
+          toSortableAv(avenantChronoDate(a))
+            .localeCompare(toSortableAv(avenantChronoDate(b))))
         let confirmedByAvenant = false
         let explicitDateFin = null
         let explicitBreaks = null
@@ -4170,7 +4223,100 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme, onSaveManualPreneurSub }) {
+// ─── Fiche : bande de chiffres clés, changements d'un avenant ───────────────
+function kpiNum(v) {
+  if (v === null || v === undefined || v === '') return null
+  const n = parseFloat(String(v).replace(/\s/g, '').replace(/[€m²]/g, '').replace(',', '.').replace(/[^0-9.-]/g, ''))
+  return isNaN(n) ? null : n
+}
+function fmtM2(v) {
+  const n = kpiNum(v)
+  return n ? `${n.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m²` : null
+}
+function KpiStrip({ items }) {
+  if (!items?.length) return null
+  return (
+    <div className="kpi-strip">
+      {items.map((k, i) => (
+        <div key={i} className={`kpi${k.tone ? ` kpi-${k.tone}` : ''}${k.muted ? ' kpi-muted' : ''}`}>
+          <div className="kpi-lbl">{k.label}</div>
+          <div className="kpi-val">{k.value}</div>
+          {(k.old || k.delta) && (
+            <div className="kpi-sub">
+              {k.old && <span className="kpi-old">{k.old}</span>}
+              {k.old && k.delta ? ' · ' : ''}
+              {k.delta && <strong className={k.deltaNeg ? 'kpi-neg' : 'kpi-pos'}>{k.delta}</strong>}
+            </div>
+          )}
+          {k.sub && <div className="kpi-sub">{k.sub}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Libellés des stipulations qu'un avenant peut modifier (champs_modifies).
+const AV_FIELD_LABELS = {
+  adresse: 'Adresse', immeuble: 'Immeuble', ville: 'Ville', classification_batiment: 'Classification réglementaire', type_bail: 'Type de contrat',
+  duree_totale: 'Durée totale', duree_ferme: 'Durée ferme', preneur: 'Preneur', bailleur: 'Bailleur', garant: 'Garant / caution',
+  date_effet: "Prise d'effet", date_effet_condition: "Condition de prise d'effet", date_signature: 'Date de signature',
+  break_options: 'Sorties anticipées', echeances_sortie: 'Sorties anticipées', notice: 'Préavis', date_conge: 'Date limite de congé',
+  date_fin: 'Expiration', date_limite_travaux: 'Date limite travaux preneur', conditions_break: 'Conditions de sortie',
+  reconduction_tacite: 'Tacite reconduction', frais_redaction_actes: "Frais de rédaction d'actes", conditions_suspensives: 'Conditions suspensives',
+  charges_impots_taxes: 'Refacturation des impôts et taxes', charges_vetuste: 'Vétusté', charges_force_majeure: 'Force majeure',
+  surface_totale_m2: 'Surface louée', surfaces_detail: 'Ventilation des surfaces', parking_nb_places: 'Stationnement (places)', parking: 'Stationnement',
+  rie: 'RIE', loyer_signature_montant: 'Loyer annuel HT/HC', loyer_signature: 'Loyer — détail', loyer_cours: 'Loyer en cours', indexation: 'Indexation',
+  indexation_indice: 'Indice', franchise_periodes: 'Franchises', franchise: 'Franchise', charges: 'Charges', depot_garantie_montant: 'Dépôt de garantie',
+  depot_garantie_duree_mois: 'Dépôt de garantie (mois)', depot_garantie: 'Dépôt de garantie — modalités', gapd_montant: 'Garantie à première demande',
+  gapd_duree_mois: 'GAPD (mois)', gapd: 'GAPD — modalités', travaux_montant: 'Participation travaux bailleur', travaux_date_factures: 'Date limite réception factures',
+  travaux_modalites: 'Participation travaux — modalités', participations_travaux: 'Participation travaux bailleur', indemnites: 'Indemnités', indemnites_detail: 'Indemnités — détail',
+  article_606: 'Article 606', conformite: 'Conformité', accession: 'Accession', remise_en_etat: 'Remise en état', restitution_etat: 'État de restitution requis',
+  restitution_delai_edl: "Délai de l'état des lieux de sortie", restitution_conditions_specifiques: 'Conditions de restitution spécifiques', maintenance: 'Maintenance et travaux',
+  destination: 'Destination', sous_location: 'Sous-location', cession: 'Cession', mise_a_disposition: 'Mise à disposition anticipée',
+  indemnites_restitution: 'Indemnités de restitution', paliers_loyer: 'Paliers de loyer', loyer_variable: 'Loyer variable', abattements: 'Abattements',
+}
+const AV_MONEY_KEYS = new Set(['loyer_signature_montant', 'loyer_cours', 'depot_garantie_montant', 'gapd_montant', 'travaux_montant'])
+const AV_DATE_KEYS = new Set(['date_effet', 'date_signature', 'date_conge', 'date_fin', 'date_limite_travaux', 'travaux_date_factures'])
+function avIsEmpty(v) {
+  if (v === null || v === undefined) return true
+  if (typeof v === 'string') return !v.trim()
+  if (Array.isArray(v)) return v.length === 0
+  if (typeof v === 'object') return Object.values(v).every(avIsEmpty)
+  return false
+}
+function avFmt(key, v) {
+  if (avIsEmpty(v)) return null
+  if (AV_MONEY_KEYS.has(key)) return fmtEur(v) || safeStr(v)
+  if (AV_DATE_KEYS.has(key)) return normalizeDate(v) || safeStr(v)
+  if (key === 'surface_totale_m2') return fmtM2(v) || safeStr(v)
+  if (typeof v === 'object') return null
+  return safeStr(v)
+}
+// Liste des stipulations modifiées par un avenant, avec l'ancienne valeur
+// (bail d'origine) quand elle est simple à afficher.
+function computeAvenantChanges(mods, parent) {
+  const out = []
+  const seen = new Set()
+  Object.entries(mods || {}).forEach(([key, v]) => {
+    if (key.startsWith('_') || avIsEmpty(v)) return
+    const label = AV_FIELD_LABELS[key] || (key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '))
+    if (seen.has(label)) return
+    seen.add(label)
+    const after = avFmt(key, v)
+    const before = avFmt(key, parent?.[key])
+    const complex = after === null
+    const shortAfter = after && after.length > 140 ? after.slice(0, 137).replace(/\s+\S*$/, '') + '…' : after
+    const shortBefore = before && before.length > 80 ? null : before
+    out.push({ key, label, before: complex ? null : (shortBefore !== after ? shortBefore : null), after: shortAfter, complex })
+  })
+  const order = ['date_effet', 'date_fin', 'duree_totale', 'duree_ferme', 'surface_totale_m2', 'loyer_signature_montant']
+  return out.sort((a, b) => {
+    const ia = order.indexOf(a.key), ib = order.indexOf(b.key)
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || (a.complex === b.complex ? 0 : a.complex ? 1 : -1)
+  })
+}
+
+function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme, onSaveManualPreneurSub }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
@@ -4240,8 +4386,8 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   if (!isAv && Array.isArray(item.avenants) && item.avenants.length > 0) {
     const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
     const sortedAvs = [...item.avenants].sort((a, b) =>
-      toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
-        .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
+      toSortableAv(avenantChronoDate(a))
+        .localeCompare(toSortableAv(avenantChronoDate(b))))
     let explicitDateFin = null
     let explicitBreaks = null
     let avenantExits = null
@@ -4336,15 +4482,15 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   const indemnites = d.indemnites.length > 0 ? d.indemnites : null
 
   const pills = []
-  if (d.indexation) {
+  if (d.indexation && !d.indexation_indice) {
     const idx = safeStr(d.indexation)?.toLowerCase() || ''
     if (idx.includes('ilat')) pills.push({ label: 'ILAT', cls: 'pill-blue' })
     else if (idx.includes('ilc')) pills.push({ label: 'ILC', cls: 'pill-blue' })
     else if (idx.includes('icc')) pills.push({ label: 'ICC', cls: 'pill-blue' })
   }
   if (d.franchise_periodes?.length > 0) {
-    const totalMois = d.franchise_periodes.reduce((acc, p) => acc + (parseInt(p.duree) || 0), 0)
-    pills.push({ label: totalMois > 0 ? `Franchise ${totalMois} mois` : 'Franchise', cls: 'pill-green' })
+    const totalMois = d.franchise_periodes.reduce((acc, p) => { const m = String(p?.duree ?? '').match(/(\d+(?:[.,]\d+)?)\s*mois/i); return acc + (m ? parseFloat(m[1].replace(',', '.')) : 0) }, 0)
+    pills.push({ label: totalMois > 0 ? `Franchise ${totalMois.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} mois` : 'Franchise', cls: 'pill-green' })
   } else if (d.franchise) {
     pills.push({ label: 'Franchise', cls: 'pill-green' })
   }
@@ -4432,15 +4578,70 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
 
   const show = key => !isAv || d[key] != null
 
+  // ── Bande de chiffres clés en tête de fiche ──
+  const kpiItems = (() => {
+    const out = []
+    const today0 = new Date(); today0.setHours(0, 0, 0, 0)
+    const yearsOf = v => { const m = durMatch(v); return m ? `${m[1]} ans` : null }
+    if (!isAv) {
+      if (d.loyer_signature_montant) out.push({
+        label: 'Loyer annuel HT/HC',
+        value: fmtEur(d.loyer_signature_montant) || safeStr(d.loyer_signature_montant),
+        sub: [d.indexation_indice, inseeIndex?.label && inseeIndex?.value ? `${inseeIndex.label} = ${inseeIndex.value.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}` : null].filter(Boolean).join(' · ') || null,
+      })
+      const surf = fmtM2(d.surface_totale_m2)
+      if (surf) out.push({ label: 'Surface louée', value: surf, sub: kpiNum(d.parking_nb_places) ? `+ ${kpiNum(d.parking_nb_places)} places de stationnement` : null })
+      if (d.duree_totale) out.push({ label: 'Durée', value: yearsOf(d.duree_totale) || safeStr(d.duree_totale), sub: yearsOf(d.duree_ferme) ? `dont ${yearsOf(d.duree_ferme)} fermes` : null })
+      const effet = normalizeDate(d.date_effet)
+      if (effet && /^\d{2}\/\d{2}\/\d{4}$/.test(effet)) out.push({ label: "Prise d'effet", value: effet, sub: effetConfirmePar ? 'confirmée par avenant' : null })
+      else if (d.date_effet_condition) {
+        const lib = safeStr(d.date_effet_condition.libelle) || ''
+        out.push({ label: "Prise d'effet", value: 'Conditionnelle', tone: 'warn', sub: lib.length > 70 ? lib.slice(0, 67).replace(/\s+\S*$/, '') + '…' : (lib || null) })
+      }
+      const dated = exitEvents.filter(e => e.date && parseFR(e.date)).sort((a, b) => parseFR(a.date) - parseFR(b.date))
+      const next = dated.find(e => parseFR(e.date) >= today0)
+      if (next) out.push({ label: 'Prochaine sortie', value: next.date, sub: (safeStr(next.preavis) || safeStr(d.notice)) ? `préavis ${safeStr(next.preavis) || safeStr(d.notice)}` : null })
+      else if (exitEvents.some(e => e.type === 'a_tout_moment')) out.push({ label: 'Sortie anticipée', value: 'À tout moment', sub: safeStr(d.notice) ? `préavis ${safeStr(d.notice)}` : null })
+      else if (dated.length) out.push({ label: 'Prochaine sortie', value: 'Aucune à venir', muted: true })
+      const exp = dateLimiteAbsolue || normalizeDate(d.date_fin)
+      if (exp) {
+        const finD = parseFR(exp)
+        const before = finD ? dated.filter(e => parseFR(e.date) >= today0 && parseFR(e.date) < finD).length : 0
+        out.push({ label: 'Expiration', value: exp, sub: dateLimiteAbsolue ? 'terme absolu' : (before ? `${before} sortie${before > 1 ? 's' : ''} possible${before > 1 ? 's' : ''} d'ici là` : null) })
+      }
+    } else {
+      const p = parentBailData || {}
+      out.push({ label: "Effet de l'avenant", value: normalizeDate(meta.date_effet_avenant) || 'Non renseigné', muted: !meta.date_effet_avenant, sub: meta.date_signature_avenant ? `signé le ${normalizeDate(meta.date_signature_avenant)}` : null })
+      const pair = (label, newV, oldV, fmt) => {
+        const nN = kpiNum(newV), oN = kpiNum(oldV)
+        if (nN == null) return
+        const delta = oN != null && oN !== nN ? nN - oN : null
+        out.push({ label, value: fmt(newV), old: oN != null && oN !== nN ? fmt(oldV) : null, delta: delta != null ? `${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))}` : null, deltaNeg: delta != null && delta < 0 })
+      }
+      pair('Surface', d.surface_totale_m2, p.surface_totale_m2, v => fmtM2(v) || safeStr(v))
+      pair('Loyer annuel HT/HC', d.loyer_signature_montant, p.loyer_signature_montant, v => fmtEur(v) || safeStr(v))
+      if (d.date_effet && normalizeDate(d.date_effet)) out.push({ label: "Prise d'effet du bail", value: normalizeDate(d.date_effet), old: normalizeDate(p.date_effet) && normalizeDate(p.date_effet) !== normalizeDate(d.date_effet) ? normalizeDate(p.date_effet) : null })
+      if (d.date_fin && normalizeDate(d.date_fin)) out.push({ label: 'Expiration', value: normalizeDate(d.date_fin), old: normalizeDate(p.date_fin) && normalizeDate(p.date_fin) !== normalizeDate(d.date_fin) ? normalizeDate(p.date_fin) : null })
+      else if (p.date_fin) out.push({ label: 'Expiration', value: normalizeDate(p.date_fin), muted: true, sub: 'inchangée' })
+    }
+    return out
+  })()
+  const avChanges = isAv ? computeAvenantChanges(item.data?.champs_modifies || {}, parentBailData || {}) : []
+  const sortedSiblings = [...(siblings || [])].sort((a, b) => {
+    const toS = x => { const m = String(x || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(x || '') }
+    return toS(avenantChronoDate(a)).localeCompare(toS(avenantChronoDate(b)))
+  })
+
   return (
     <div className="result-body">
+      <KpiStrip items={kpiItems} />
       {isAv && (
         <div className="av-banner">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, marginTop: 1 }}>
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
-          <div><strong>Avenant</strong>{meta.objet_avenant && <span style={{ fontWeight: 400 }}> — {meta.objet_avenant}</span>}</div>
+          <div className="av-banner-body"><div className="av-banner-title">Objet de l'avenant</div>{meta.objet_avenant ? <div className="av-banner-text">{meta.objet_avenant}</div> : <div className="av-banner-text" style={{ color: 'var(--text3)', fontStyle: 'italic' }}>Objet non renseigné</div>}</div>
           {editingEffet ? (
             <span className="av-banner-date" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               Effet :
@@ -4476,7 +4677,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                 <button
                   onClick={() => { setEffetInput(meta.date_effet_avenant || ''); setEditingEffet(true) }}
                   title="Saisir ou corriger la date d'effet de cet avenant — détermine son ordre parmi les autres avenants du bail"
-                  style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                  className="edit-pen" aria-label="Modifier">
                   ✎
                 </button>
               )}
@@ -4487,7 +4688,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
 
       {/* Parties */}
       {(show('preneur') || show('bailleur')) && (
-        <div className="sec">
+        <div className="sec sec-half">
           <div className="sec-hd"><div className="sec-label">Parties</div></div>
           <div className="gx">
             {show('preneur') && (
@@ -4533,7 +4734,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                       <button
                         onClick={() => { setPreneurSubInput(d.preneur_substitution || ''); setEditingPreneurSub(true) }}
                         title="Nom de substitution — remplace le preneur dans la colonne Preneur du dashboard et des exports Excel, sans modifier la donnée extraite"
-                        style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '18px', height: '18px', cursor: 'pointer', fontSize: '10px', lineHeight: 1, padding: 0 }}>
+                        className="edit-pen" aria-label="Modifier">
                         ✎
                       </button>
                     </div>
@@ -4544,6 +4745,38 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
             {show('bailleur') && <div className="party-card"><div className="party-role">Bailleur</div><div className="party-name" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>{shortPartyName(d.bailleur) || <span style={{ color: 'var(--text3)', fontStyle: 'italic', fontWeight: 400 }}>Non renseigné</span>}<PageJumpIcon item={item} pages={pages} field="bailleur" /></div></div>}
             {show('garant') && d.garant && <div className="party-card" style={{gridColumn:'1/-1'}}><div className="party-role">Garant / Caution</div><div className="party-name">{shortPartyName(d.garant)}</div></div>}
           </div>
+        </div>
+      )}
+
+      {/* Avenant : liste des stipulations modifiées (avant → après) */}
+      {isAv && (
+        <div className="sec">
+          <div className="sec-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="sec-label">Ce que modifie l'avenant</div>
+            {avChanges.length > 0 && <span style={{ fontSize: '12px', color: 'var(--text3)' }}>{avChanges.length} stipulation{avChanges.length > 1 ? 's' : ''} modifiée{avChanges.length > 1 ? 's' : ''} · les autres demeurent inchangées</span>}
+          </div>
+          {avChanges.length === 0 ? (
+            <div className="av-empty">
+              <strong>Aucune donnée du bail n'est modifiée</strong>
+              <span>L'avenant porte sur des obligations ou des précisions : voir son objet ci-dessus et le document source pour le détail.</span>
+            </div>
+          ) : (
+            <div className="av-changes">
+              {avChanges.map(c => (
+                <div key={c.key} className="av-change">
+                  <span className="av-change-lbl">{c.label}</span>
+                  {c.complex ? (
+                    <span className="av-change-complex">Modifié — détail dans la section correspondante ci-dessous</span>
+                  ) : (
+                    <span className="av-change-vals">
+                      {c.before && <><span className="av-change-old">{c.before}</span><span className="av-change-arrow" aria-hidden="true">→</span></>}
+                      <span className="av-change-new">{c.after}</span>
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -4566,7 +4799,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
 
       {/* Contrat */}
       {(show('type_bail') || show('duree_totale') || show('duree_ferme')) && (
-        <div className="sec">
+        <div className="sec sec-half">
           <div className="sec-hd"><div className="sec-label">Contrat et durée</div></div>
           <div className="gx">
             <Field label="Type de contrat" value={simplifyTypeBail(d.type_bail)} />
@@ -4633,7 +4866,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                         <button
                           onClick={() => { setDureeFermeInput(d.duree_ferme || ''); setEditingDureeFerme(true) }}
                           title="Saisir ou corriger la durée ferme — utile quand elle se déduit d'une clause de renonciation que l'extraction n'a pas su chiffrer"
-                          style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                          className="edit-pen" aria-label="Modifier">
                           ✎
                         </button>
                       )}
@@ -4881,7 +5114,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                         <button
                           onClick={() => { setSurfaceInput(d.surface_totale_m2 || ''); setEditingSurface(true) }}
                           title="Saisir ou corriger la surface totale — utile quand elle n'est chiffrée que dans une annexe (plan, état des lieux) non lue par l'extraction"
-                          style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                          className="edit-pen" aria-label="Modifier">
                           ✎
                         </button>
                       )}
@@ -4935,7 +5168,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                         <button
                           onClick={() => { setParkingInput(d.parking_nb_places || ''); setEditingParking(true) }}
                           title="Saisir ou corriger le nombre de places — utile quand il n'est chiffré que dans une annexe non lue par l'extraction"
-                          style={{ background: 'none', border: '1px solid var(--border2)', color: 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
+                          className="edit-pen" aria-label="Modifier">
                           ✎
                         </button>
                       )}
@@ -5152,7 +5385,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
 
       {/* Dépôt de garantie + GAPD éventuelle */}
       {show('depot_garantie_montant') && (
-        <div className="sec">
+        <div className={`sec${(d.gapd_montant || d.gapd) ? '' : ' sec-half'}`}>
           <div className="sec-hd"><div className="sec-label">{(d.gapd_montant || d.gapd) ? 'Garanties' : 'Dépôt de garantie'}</div></div>
           <div style={{ display: 'grid', gridTemplateColumns: (d.gapd_montant || d.gapd) ? '1fr 1fr' : '1fr', gap: '10px' }}>
             {(() => {
@@ -5195,7 +5428,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
 
       {/* Frais de rédaction d'actes */}
       {d.frais_redaction_actes?.length > 0 && (
-        <div className="sec">
+        <div className="sec sec-half">
           <div className="sec-hd"><div className="sec-label">Frais de rédaction d'actes</div></div>
           <FraisActesTable frais={d.frais_redaction_actes} />
         </div>
@@ -5412,6 +5645,66 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
             {d.restitution_delai_edl && <Field label="Délai pour l'état des lieux de sortie" value={d.restitution_delai_edl} verbose />}
             {d.restitution_conditions_specifiques && <Field label="Conditions spécifiques" value={d.restitution_conditions_specifiques} verbose />}
             {d.remise_en_etat && <Field label="Remise en état (indemnité forfaitaire à la signature)" value={d.remise_en_etat} verbose />}
+          </div>
+        </div>
+      )}
+
+      {/* Avenant : rappel des éléments du bail non modifiés */}
+      {isAv && parentBailData && (() => {
+        const mods = item.data?.champs_modifies || {}
+        const p = parentBailData
+        const pExits = getExitEvents(p).filter(e => e.date).map(e => e.date.slice(-4))
+        const tiles = [
+          ['date_effet', "Prise d'effet", normalizeDate(p.date_effet)],
+          ['loyer_signature_montant', 'Loyer annuel HT/HC', fmtEur(p.loyer_signature_montant)],
+          ['surface_totale_m2', 'Surface louée', fmtM2(p.surface_totale_m2)],
+          ['echeances_sortie', 'Sorties', pExits.length ? [...new Set(pExits)].join(' · ') : null],
+          ['date_fin', 'Expiration', getDateLimiteAbsolue(p) || normalizeDate(p.date_fin)],
+          ['duree_totale', 'Durée', safeStr(p.duree_totale)],
+          ['type_bail', 'Type', simplifyTypeBail(p.type_bail)],
+        ].filter(([k, , v]) => v && avIsEmpty(mods[k]) && !(k === 'echeances_sortie' && !avIsEmpty(mods.break_options)))
+        if (!tiles.length) return null
+        return (
+          <div className="sec">
+            <div className="sec-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
+              <div className="sec-label">Rappel du bail</div>
+              <span style={{ fontSize: '12px', color: 'var(--text3)' }}>non modifié par cet avenant</span>
+            </div>
+            <div className="recall-grid">
+              {tiles.map(([k, l, v]) => (
+                <div key={k} className="recall-tile"><div className="field-lbl">{l}</div><div className="recall-val">{v}</div></div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Liste chronologique des avenants du bail (fiche bail comme fiche avenant) */}
+      {sortedSiblings.length > 0 && (
+        <div className="sec">
+          <div className="sec-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="sec-label">Avenants du bail</div>
+            <span style={{ fontSize: '12px', color: 'var(--text3)' }}>ordre chronologique</span>
+          </div>
+          <div className="av-list">
+            {isAv && parentItem && (
+              <button type="button" className="av-list-row" onClick={() => onOpen?.(parentItem)}>
+                <span className="av-list-date">{normalizeDate(parentItem.data?.date_signature) || normalizeDate(parentItem.data?.date_effet) || '—'}</span>
+                <span><strong>Bail d'origine</strong> · {safeStr(parentItem.data?.immeuble) || parentItem.file_name}</span>
+                <span className="av-list-go">Ouvrir</span>
+              </button>
+            )}
+            {sortedSiblings.map((av, i) => {
+              const current = av.id === item.id
+              const dt = normalizeDate(avenantChronoDate(av))
+              return (
+                <button type="button" key={av.id} className={`av-list-row${current ? ' current' : ''}`} onClick={() => !current && onOpen?.(av)} aria-current={current ? 'page' : undefined}>
+                  <span className="av-list-date">{dt && /^\d{2}\/\d{2}\/\d{4}$/.test(dt) ? dt : '—'}</span>
+                  <span><strong>Avenant {i + 1}</strong> · {avenantShortTitle(av)}</span>
+                  <span className="av-list-go">{current ? 'affiché' : 'Ouvrir'}</span>
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
@@ -7653,8 +7946,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       return s
     }
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
-      const da = toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at || '')
-      const db = toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at || '')
+      const da = toSortable(avenantChronoDate(a))
+      const db = toSortable(avenantChronoDate(b))
       return da.localeCompare(db)
     })
     const avRows = sortedAv.map((av, idx) => ({
@@ -8236,7 +8529,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             // champ, le DERNIER avenant (par ordre chronologique) qui l'a
             // effectivement modifié, pour afficher un petit repère dessus.
             const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
-            const avKeyLocal = av => toSortableAv(av.data?.date_effet_avenant || av.data?.date_signature_avenant || av.created_at)
+            const avKeyLocal = av => toSortableAv(avenantChronoDate(av))
             const sortedAvenantsForOverride = !isAv ? (row.avenants || []).slice().sort((a, b) => avKeyLocal(a).localeCompare(avKeyLocal(b))) : []
             const lastOverride = field => {
               for (let k = sortedAvenantsForOverride.length - 1; k >= 0; k--) {
@@ -9664,9 +9957,14 @@ export default function App() {
       window.scrollTo(0, 0)
     })
   }, [activeItem?.id])
-  const resultTitle = d.immeuble || d.adresse || activeItem?.file_name || ''
+  const activeParent = activeItem?.document_type === 'avenant' ? history.find(b => b.id === activeItem.parent_id) : null
+  const resultTitle = activeItem?.document_type === 'avenant'
+    ? avenantShortTitle(activeItem)
+    : (d.immeuble || d.adresse || activeItem?.file_name || '')
   const shortName = s => s?.split(',')[0]?.split('(')[0]?.split(' SAS')[0]?.split(' SA ')[0]?.trim()
-  const resultSub = [shortName(d.preneur), shortName(d.bailleur), d.date_signature ? `Signé le ${d.date_signature}` : null].filter(Boolean).join(' · ')
+  const resultSub = activeItem?.document_type === 'avenant'
+    ? [activeParent?.data?.preneur ? `Avenant au bail de ${shortName(activeParent.data.preneur)}` : 'Avenant', safeStr(activeParent?.data?.immeuble)].filter(Boolean).join(' · ')
+    : [shortName(d.preneur), shortName(d.bailleur), d.date_signature ? `Signé le ${d.date_signature}` : null].filter(Boolean).join(' · ')
 
   if (authLoading) {
     return <div style={{minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text3)", fontSize: "13px"}}>Chargement…</div>
@@ -9916,7 +10214,7 @@ export default function App() {
               const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
               return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '')
             }
-            const avKey = av => toSortable(av.data?.date_effet_avenant || av.data?.date_signature_avenant || av.created_at)
+            const avKey = av => toSortable(avenantChronoDate(av))
             let avNav = null
             if (activeItem.document_type === 'bail' && activeItem.avenants?.length > 0) {
               const sorted = [...activeItem.avenants].sort((a, b) => avKey(a).localeCompare(avKey(b)))
@@ -9927,6 +10225,7 @@ export default function App() {
                 const sorted = [...(parentBail.avenants || [])].sort((a, b) => avKey(a).localeCompare(avKey(b)))
                 const idx = sorted.findIndex(a => a.id === activeItem.id)
                 avNav = {
+                  position: idx >= 0 ? { idx: idx + 1, total: sorted.length } : null,
                   prev: idx > 0 ? sorted[idx - 1] : parentBail,
                   prevLabel: idx > 0 ? `← Avenant ${idx}/${sorted.length}` : '← Bail',
                   next: idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1] : null,
@@ -9949,10 +10248,13 @@ export default function App() {
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
                 </svg>
-                {activeItem.document_type === 'avenant' ? 'Avenant' : 'Bail commercial'}
+                {activeItem.document_type === 'avenant' ? (avNav?.position ? `Avenant n°${avNav.position.idx} sur ${avNav.position.total}` : 'Avenant') : 'Bail commercial'}
               </div>
               <div className="result-title">{resultTitle}</div>
               {resultSub && <div className="result-sub">{resultSub}</div>}
+              {activeItem.document_type === 'avenant' && activeItem.file_name && resultTitle !== activeItem.file_name && (
+                <div className="result-file" title="Nom du fichier source">{activeItem.file_name}</div>
+              )}
               {sharedBail && (
                 <div
                   onClick={() => { setActiveItem(sharedBail); navigate(`/bail/${sharedBail.id}`) }}
@@ -10009,6 +10311,11 @@ export default function App() {
               <ResultsView
                 item={activeItem}
                 parentBailData={activeItem?.document_type === 'avenant' ? history.find(b => b.id === activeItem.parent_id)?.data : null}
+                parentItem={activeItem?.document_type === 'avenant' ? history.find(b => b.id === activeItem.parent_id) || null : null}
+                siblings={activeItem?.document_type === 'avenant'
+                  ? (history.find(b => b.id === activeItem.parent_id)?.avenants || [])
+                  : (activeItem?.avenants || [])}
+                onOpen={it => { setActiveItem(it); navigate(`/bail/${it.id}`) }}
                 onSaveManualDateEffet={handleManualDateEffet}
                 onSaveManualDateEffetAvenant={handleManualDateEffetAvenant}
                 onSaveManualSurface={handleManualSurface}
