@@ -5836,21 +5836,25 @@ function PortfolioChatModal({ history, onClose, onSelect }) {
   )
 }
 
+// Résultats du contrôle qualité — partagé entre la fenêtre et la pastille du
+// bouton de la barre du haut, pour que les deux chiffres soient identiques.
+function computeQcResults(bails) {
+  const dupDetails = findDuplicateBails(bails)
+  return bails.map(row => {
+    const r = auditBail(row)
+    if (dupDetails[row.id]) {
+      r.issues = [...r.issues, { type: 'doublon_suspect', severity: 'high', detail: dupDetails[row.id] }]
+    }
+    return r
+  }).filter(r => r.issues.length > 0)
+}
+
 function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary, onFixSurfaceLoyer }) {
   const [showDismissed, setShowDismissed] = useState(false)
   const [pending, setPending] = useState({}) // { [rowId]: true } — évite double-clic pendant l'écriture
   const [fixPending, setFixPending] = useState({}) // { [rowId]: true } — pour le bouton "−1 jour"
   const [fixSurfacePending, setFixSurfacePending] = useState({}) // { [rowId]: true } — pour le bouton de correction surface/loyer
-  const allResults = useMemo(() => {
-    const dupDetails = findDuplicateBails(bails)
-    return bails.map(row => {
-      const r = auditBail(row)
-      if (dupDetails[row.id]) {
-        r.issues = [...r.issues, { type: 'doublon_suspect', severity: 'high', detail: dupDetails[row.id] }]
-      }
-      return r
-    }).filter(r => r.issues.length > 0)
-  }, [bails])
+  const allResults = useMemo(() => computeQcResults(bails), [bails])
   const activeResults = allResults.filter(r => !r.dismissed)
   const dismissedResults = allResults.filter(r => r.dismissed)
   const severityColor = { high: 'var(--danger)', medium: 'var(--accent)', low: 'var(--text3)' }
@@ -6589,7 +6593,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // Flatten all items for table
   const [expanded, setExpanded] = useState({})
   const [sortDir, setSortDir] = useState('asc')
-  const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur'
+  const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur' | 'loyer'
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [publicSectorOnly, setPublicSectorOnly] = useState(false)
   const [errorOnly, setErrorOnly] = useState(false)
@@ -7151,6 +7155,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // Sort top-level bails by actif name or preneur, avenants follow their bail
   const getActifName = row => (row.data?.immeuble || row.data?.adresse || row.file_name || '').toLowerCase()
   const getPreneurName = row => (shortPartyName(row.data?.preneur) || '').toLowerCase()
+  // Loyer affiché dans la colonne "Loyer HT/HC à la signature" — le tri suit
+  // exactement les montants visibles. Les baux sans loyer restent en fin de
+  // liste quel que soit le sens du tri.
+  const getLoyer = row => { const v = parseAmount(row.data?.loyer_signature_montant); return v && v > 0 ? v : null }
   const sortedFiltered = (() => {
     const bails = filtered.filter(r => r._level === 0)
     const avMap = {}
@@ -7160,6 +7168,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       avMap[pid].push(r)
     })
     bails.sort((a, b) => {
+      if (sortBy === 'loyer') {
+        const la = getLoyer(a), lb = getLoyer(b)
+        if (la === null && lb === null) return 0
+        if (la === null) return 1
+        if (lb === null) return -1
+        return sortDir === 'asc' ? la - lb : lb - la
+      }
       const cmp = sortBy === 'preneur'
         ? getPreneurName(a).localeCompare(getPreneurName(b), 'fr')
         : getActifName(a).localeCompare(getActifName(b), 'fr')
@@ -7180,7 +7195,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     })
     // Build final list: group headers + rows
     const result = []
-    Object.entries(groups).sort(([a], [b]) => {
+    // Tri par loyer : les immeubles sont eux aussi classés par loyer total de
+    // leurs baux (les plus gros actifs en tête en tri décroissant).
+    const groupLoyer = rows => rows.filter(r => r._level === 0).reduce((t, r) => t + (getLoyer(r) || 0), 0)
+    Object.entries(groups).sort(([a, ra], [b, rb]) => {
+      if (sortBy === 'loyer') return sortDir === 'asc' ? groupLoyer(ra) - groupLoyer(rb) : groupLoyer(rb) - groupLoyer(ra)
       const cmp = a.localeCompare(b, 'fr')
       return sortDir === 'asc' ? cmp : -cmp
     }).forEach(([grp, rows]) => {
@@ -7521,7 +7540,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           <div className="dash-th" style={{ gridColumn: '5' }}>Date effet</div>
           <div className="dash-th" style={{ gridColumn: '6' }}>Date fin</div>
           <div className="dash-th" style={{ gridColumn: '7' }}>Break</div>
-          <div className="dash-th dash-th-right" style={{ gridColumn: '8' }}>Loyer HT/HC à la signature</div>
+          <div className="dash-th dash-th-right" style={{ gridColumn: '8', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px' }}
+            title="Trier par loyer (immeubles classés par loyer total, baux par loyer)"
+            onClick={() => { if (sortBy === 'loyer') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('loyer'); setSortDir('desc') } }}>
+            Loyer HT/HC à la signature
+            {sortBy === 'loyer' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+          </div>
           <div style={{ gridColumn: '9' }}/>
         </div>
       )}
@@ -8344,6 +8368,12 @@ export default function App() {
   const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
   const [showQualityCheck, setShowQualityCheck] = useState(false)
   const [showPortfolioChat, setShowPortfolioChat] = useState(false)
+  // Pastille du bouton Contrôle qualité : même calcul que la fenêtre (hors
+  // baux déjà marqués vérifiés).
+  const qcPendingCount = useMemo(
+    () => computeQcResults(history.filter(row => row.document_type === 'bail')).filter(r => !r.dismissed).length,
+    [history]
+  )
   const [showSynthese, setShowSynthese] = useState(false)
   // Recherche/filtre du dashboard remontés ici (plutôt que locaux à Dashboard)
   // pour survivre à la navigation vers une fiche détail et retour.
@@ -9217,6 +9247,12 @@ export default function App() {
               <path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><path d="M22 4L12 14.01l-3-3"/>
             </svg>
             Contrôle qualité
+            {qcPendingCount > 0 && (
+              <span title={`${qcPendingCount} ${qcPendingCount > 1 ? 'baux' : 'bail'} avec au moins un point à vérifier (hors déjà vérifiés)`} style={{
+                minWidth: '18px', height: '18px', padding: '0 5px', borderRadius: '9px', background: 'var(--accent)', color: '#fff',
+                fontSize: '10.5px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+              }}>{qcPendingCount}</span>
+            )}
           </button>
 
           <button
