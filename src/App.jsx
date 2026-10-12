@@ -7155,7 +7155,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // Sort top-level bails by actif name or preneur, avenants follow their bail
   const getActifName = row => (row.data?.immeuble || row.data?.adresse || row.file_name || '').toLowerCase()
   const getPreneurName = row => (shortPartyName(row.data?.preneur) || '').toLowerCase()
-  // Loyer affiché dans la colonne "Loyer HT/HC à la signature" — le tri suit
+  // Loyer affiché dans la colonne "Loyer base" (HT/HC à la signature) — le tri suit
   // exactement les montants visibles. Les baux sans loyer restent en fin de
   // liste quel que soit le sens du tri.
   const getLoyer = row => { const v = parseAmount(row.data?.loyer_signature_montant); return v && v > 0 ? v : null }
@@ -7541,9 +7541,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           <div className="dash-th" style={{ gridColumn: '6' }}>Date fin</div>
           <div className="dash-th" style={{ gridColumn: '7' }}>Break</div>
           <div className="dash-th dash-th-right" style={{ gridColumn: '8', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px' }}
-            title="Trier par loyer (immeubles classés par loyer total, baux par loyer)"
+            title="Loyer de base HT/HC à la signature — cliquer pour trier (immeubles classés par loyer total, baux par loyer)"
             onClick={() => { if (sortBy === 'loyer') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('loyer'); setSortDir('desc') } }}>
-            Loyer HT/HC à la signature
+            Loyer base
             {sortBy === 'loyer' && <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>}
           </div>
           <div style={{ gridColumn: '9' }}/>
