@@ -2650,7 +2650,12 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
           </div>
         )
       })()}
-      {(mainRows.length > 0 || parkRows.length > 0) && (
+      {(mainRows.some(r => (!r.prix_unitaire && unitPrice(r)) || rowLoyerAnnuel(r).computed)
+        || parkRows.some(r => {
+          const loyer = parseAmount(r.loyer_annuel)
+          const nb = parseFloat(String(r.surface_m2 || ((!r.surface_m2 && parkRows.length === 1) ? parseParkingNbFallback(parkingNbPlaces) : '') || '').replace(/[^0-9.]/g, '')) || 0
+          return loyer !== null && nb > 0
+        })) && (
         <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px' }}>* Prix unitaire calculé (loyer annuel ÷ surface/places)</div>
       )}
     </div>
@@ -5016,11 +5021,11 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
           )}
           {/* Rangée secondaire : signature, congé, travaux */}
           {secondaryDates.length > 0 && (
-            <div className="gx" style={{ marginBottom: '8px' }}>
+            <div className="date-strip date-strip-sec">
               {secondaryDates.map(f => (
-                <div key={f.key} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r)', padding: '8px 14px', minWidth: '160px' }}>
-                  <div className="field-lbl">{f.label}</div>
-                  <div className="field-val">{d[f.key]}</div>
+                <div key={f.key} className="date-card date-card-sec">
+                  <div className="date-lbl">{f.label}</div>
+                  <div className="date-val">{d[f.key]}</div>
                 </div>
               ))}
             </div>
@@ -5334,9 +5339,21 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
               {pills.length > 0 && <div className="pills">{pills.map((p, i) => <span key={i} className={`pill ${p.cls}`}>{p.label}</span>)}</div>}
             </div>
           )}
-          {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose full />}
-          {show('loyer_signature') && d.loyer_signature && (
-            <Field label="Loyer à la signature — détail complet" value={d.loyer_signature} verbose />
+          {((show('indexation') && safeStr(d.indexation)) || (show('loyer_signature') && safeStr(d.loyer_signature))) && (
+            <div className="field verbose-field full">
+              {show('indexation') && safeStr(d.indexation) && (
+                <div>
+                  <div className="field-lbl">Indexation</div>
+                  <div className="field-val verbose"><ClampText text={safeStr(d.indexation)} /></div>
+                </div>
+              )}
+              {show('loyer_signature') && safeStr(d.loyer_signature) && (
+                <div style={{ marginTop: show('indexation') && safeStr(d.indexation) ? '10px' : 0 }}>
+                  <div className="field-lbl">Loyer à la signature — détail complet</div>
+                  <div className="field-val verbose"><ClampText text={safeStr(d.loyer_signature)} /></div>
+                </div>
+              )}
+            </div>
           )}
           {!isAv && d.surfaces_detail?.length > 0 && (() => {
             const enriched = computeUnitPrices(d.surfaces_detail, d.parking_nb_places, null)
@@ -5354,8 +5371,8 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
               <div className="loyer-sub">
                 <div className="field-lbl" style={{ marginBottom: '6px' }}>Franchises & abattements de loyer</div>
                 {d.franchise
-                  ? <Field label="Franchise — modalités complètes" value={d.franchise} verbose />
-                  : computedSummary && <Field label="Franchise — résumé (calculé à partir du tableau, pas une citation du bail)" value={computedSummary} verbose />}
+                  ? <Field label="Modalités complètes" value={d.franchise} verbose />
+                  : computedSummary && <Field label="Résumé calculé (d'après le tableau, pas une citation du bail)" value={computedSummary} verbose />}
                 {merged.length > 0 && (
                   <div style={{ marginTop: '10px' }}>
                     <FranchiseTable periodes={merged} item={item} />
