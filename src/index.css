@@ -256,6 +256,11 @@ button, input { font-family: inherit; cursor: pointer; }
 .result-file { font-family: var(--font-mono); font-size: 11px; color: var(--text3); margin-top: 3px; overflow-wrap: anywhere; }
 .result-actions { flex-wrap: wrap; margin-top: 12px; }
 
+/* Fond de page derrière la fiche : papier un cran plus soutenu que le fond
+   général (#F7F4F0, presque blanc), pour que les cartes blanches s'en
+   détachent au lieu de faire « blanc sur blanc ». */
+.content:has(> .result-body), .content:has(.result-body) { background: #EFEAE2; }
+
 /* Grille de la fiche — deux sections « demi-largeur » ne se placent côte à
    côte que si elles se suivent (Parties + Contrat, Garanties + Frais
    d'actes) ; seule, une section demi-largeur reprend toute la largeur. */
@@ -310,8 +315,8 @@ button, input { font-family: inherit; cursor: pointer; }
 
 /* Dates clés : cases fines, teinte réservée aux sorties */
 .result-body .date-strip { gap: 8px; }
-.result-body .date-card { background: transparent; border: 1px solid var(--border); border-radius: 4px; padding: 9px 12px; }
-.result-body .date-card-break { background: rgba(201,144,12,.05); border-color: rgba(201,144,12,.28); }
+.result-body .date-card { background: #F7F4EE; border: 0; border-radius: 4px; padding: 9px 12px; }
+.result-body .date-card-break { background: rgba(201,144,12,.09); }
 .result-body .date-val { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .result-body .date-val.break { color: var(--accent-dark); }
 .result-body .break-tag { font-size: 9.5px; padding: 0 5px; border-radius: 2px; }
@@ -322,11 +327,11 @@ button, input { font-family: inherit; cursor: pointer; }
 .result-body .loyer-amount { font-family: var(--font-serif); font-size: 22px; letter-spacing: 0; }
 
 /* Tableaux */
-.result-body .table-wrap { border: 1px solid var(--border); border-radius: 4px; }
+.result-body .table-wrap { border: 0; border-top: 1px solid var(--border2); border-bottom: 1px solid var(--border2); border-radius: 0; }
 .result-body .indemnites-table { font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.result-body .indemnites-table th { background: #FAF8F5; padding: 7px 12px; font-size: 10px; font-weight: 600; color: var(--text3); border-bottom: 1px solid var(--border2); }
+.result-body .indemnites-table th { background: #F4F0E9; padding: 7px 12px; font-size: 10px; font-weight: 600; color: var(--text3); border-bottom: 1px solid var(--border2); }
 .result-body .indemnites-table td { padding: 8px 12px; }
-.result-body .indemnites-table tfoot td { background: #FAF8F5; border-top: 1px solid var(--border2); font-size: 12.5px; }
+.result-body .indemnites-table tfoot td { background: #F7F4EE; border-top: 1px solid var(--border2); font-size: 12.5px; }
 
 /* Objet de l'avenant (ancien bandeau) */
 .result-body .av-banner { background: var(--surface); border: 1px solid var(--border2); border-radius: 6px; padding: 14px 18px 16px; margin: 0; color: var(--text); font-size: 13px; gap: 12px; }
@@ -382,3 +387,7 @@ button, input { font-family: inherit; cursor: pointer; }
 
 /* Focus clavier visible dans la fiche */
 .result-body button:focus-visible, .result-actions .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Bordure des cartes accordée au fond papier de la fiche (placée en fin de
+   fichier pour primer sur les règles de section ci-dessus). */
+.result-body .kpi-strip, .result-body .sec, .result-body .sec:first-of-type, .result-body .av-banner { border-color: #E2DACD; }
