@@ -237,3 +237,134 @@ button, input { font-family: inherit; cursor: pointer; }
 .dash-row-orphan { border-left: 3px solid var(--danger); }
 .dash-row-error { border-left: 3px solid var(--danger); background: var(--danger-bg) !important; opacity: 0.85; }
 .dash-row-error:hover { background: var(--danger-bg) !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Fiche bail / avenant — refonte « retouche » (oct. 2026)
+   Même charte (encre / papier / or, Libre Baskerville + IBM Plex), nouvelle
+   grammaire : en-tête d'identité, bande de chiffres clés, sections en cartes
+   sur une grille à deux colonnes (les petites sections se placent côte à
+   côte), valeurs en tuiles claires, renvois de page et crayons discrets.
+   Tout est restreint à la fiche (.result-topbar / .result-body) : le
+   tableau de bord et les fenêtres gardent leur style.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* En-tête */
+.result-topbar { padding: 22px 32px 18px; }
+.result-tag { margin-bottom: 8px; }
+.result-title { font-size: 28px; line-height: 1.2; letter-spacing: -0.015em; }
+.result-sub { font-size: 14px; color: var(--text2); margin-top: 5px; }
+.result-file { font-family: var(--font-mono); font-size: 11.5px; color: var(--text3); margin-top: 4px; overflow-wrap: anywhere; }
+.result-actions { flex-wrap: wrap; margin-top: 16px; }
+
+/* Grille de la fiche */
+.result-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; grid-auto-flow: row dense; margin: 0 auto; }
+.result-body > * { grid-column: 1 / -1; min-width: 0; }
+.result-body > .sec-half { grid-column: auto; }
+@media (max-width: 980px) { .result-body > .sec-half { grid-column: 1 / -1; } }
+
+/* Bande de chiffres clés */
+.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; overflow: hidden; }
+.kpi { padding: 16px 18px 17px; box-shadow: -1px 0 0 var(--border); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.kpi-lbl { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); }
+.kpi-val { font-family: var(--font-serif); font-size: 21px; font-weight: 700; line-height: 1.25; color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi-sub { font-size: 12px; line-height: 1.4; color: var(--text3); }
+.kpi-warn { background: var(--amber-bg); }
+.kpi-warn .kpi-val { color: var(--amber); font-size: 18px; }
+.kpi-muted .kpi-val { color: var(--text3); }
+.kpi-old { text-decoration: line-through; text-decoration-color: var(--border2); }
+.kpi-pos { color: var(--success); }
+.kpi-neg { color: var(--danger); }
+
+/* Sections en cartes */
+.result-body .sec,
+.result-body .sec:first-of-type { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; padding: 20px 22px 22px; margin: 0; }
+.result-body .sec-hd { margin-bottom: 14px; }
+.result-body .sec-label { font-family: var(--font-serif); font-size: 17px; font-weight: 700; text-transform: none; letter-spacing: -0.005em; color: var(--text); }
+
+/* Valeurs en tuiles claires (champs, parties, dates) */
+.result-body .gx { gap: 10px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.result-body .gx:has(> .verbose-field) { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.result-body .field,
+.result-body .party-card,
+.result-body .pair-key { background: var(--bg); border: 0; border-radius: 8px; padding: 12px 14px; }
+.result-body .field.verbose-field,
+.result-body .pair-verbose { background: var(--bg); border: 0; border-radius: 8px; padding: 12px 14px; }
+.result-body .field-lbl,
+.result-body .party-role,
+.result-body .date-lbl,
+.result-body .loyer-lbl { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; color: var(--text3); }
+.result-body .field-val { font-size: 14px; }
+.result-body .field-val.mono { font-family: var(--font-serif); font-size: 18px; color: var(--accent-dark); letter-spacing: -0.01em; }
+.result-body .field-val.verbose { font-size: 13px; line-height: 1.6; color: var(--text2); }
+.result-body .party-name { font-size: 14px; font-weight: 600; }
+.result-body .date-strip { gap: 10px; }
+.result-body .date-card { background: var(--bg); border: 0; border-radius: 8px; padding: 12px 14px; }
+.result-body .date-card-break { background: rgba(201,144,12,.12); }
+.result-body .date-val { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.result-body .date-val.break { color: var(--accent-dark); }
+
+/* Loyer */
+.result-body .loyer-hero { background: transparent; border: 0; border-radius: 0; padding: 0 0 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.result-body .loyer-amount { font-family: var(--font-serif); font-size: 28px; letter-spacing: -0.01em; }
+
+/* Tableaux */
+.result-body .table-wrap { border: 1px solid var(--border); border-radius: 8px; }
+.result-body .indemnites-table { font-size: 13px; font-variant-numeric: tabular-nums; }
+.result-body .indemnites-table th { background: #FAF7F2; padding: 10px 14px; font-size: 10.5px; font-weight: 600; color: var(--text3); border-bottom: 1px solid var(--border2); }
+.result-body .indemnites-table td { padding: 11px 14px; }
+.result-body .indemnites-table tfoot td { background: #FAF7F2; border-top: 1px solid var(--border2); }
+
+/* Objet de l'avenant (ancien bandeau) */
+.result-body .av-banner { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; padding: 20px 22px; margin: 0; color: var(--text); font-size: 14px; gap: 12px; }
+.result-body .av-banner > svg { display: none; }
+.av-banner-body { flex: 1; min-width: 0; }
+.av-banner-title { font-family: var(--font-serif); font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+.av-banner-text { font-size: 14.5px; line-height: 1.65; color: var(--text2); max-width: 920px; }
+.result-body .av-banner-date { color: var(--accent-dark); }
+
+/* Ce que modifie l'avenant */
+.av-changes { display: flex; flex-direction: column; }
+.av-change { display: grid; grid-template-columns: minmax(150px, 230px) minmax(0, 1fr); gap: 16px; align-items: baseline; padding: 11px 0; border-top: 1px solid var(--border); font-size: 14px; }
+.av-change:first-child { border-top: 0; padding-top: 2px; }
+.av-change-lbl { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); }
+.av-change-vals { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.av-change-old { color: var(--text3); text-decoration: line-through; text-decoration-color: var(--border2); }
+.av-change-arrow { color: var(--text3); }
+.av-change-new { font-weight: 600; }
+.av-change-complex { font-size: 13px; color: var(--text2); font-style: italic; }
+.av-empty { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 8px; background: var(--bg); font-size: 13px; color: var(--text2); }
+.av-empty strong { font-size: 14px; color: var(--text); }
+@media (max-width: 640px) { .av-change { grid-template-columns: 1fr; gap: 4px; } }
+
+/* Rappel du bail */
+.recall-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.recall-tile { padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border); }
+.recall-val { font-size: 14px; color: var(--text2); font-variant-numeric: tabular-nums; }
+
+/* Avenants du bail */
+.av-list { display: flex; flex-direction: column; }
+.av-list-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 16px; align-items: baseline; width: 100%; min-height: 44px; padding: 12px 8px; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; text-align: left; font: inherit; font-size: 13.5px; color: var(--text); cursor: pointer; }
+.av-list-row:first-child { border-top: 0; }
+.av-list-row:hover { background: var(--accent-bg); }
+.av-list-row.current { cursor: default; background: transparent; }
+.av-list-row strong { font-weight: 600; }
+.av-list-date { font-weight: 600; font-variant-numeric: tabular-nums; }
+.av-list-go { font-size: 12px; color: var(--accent-dark); white-space: nowrap; }
+.av-list-row.current .av-list-go { color: #fff; background: var(--text); padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+
+/* Renvois de page vers le PDF */
+.page-ref { cursor: pointer; display: inline-block; font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; line-height: 1.3; color: var(--accent-dark); border-bottom: 1px dotted var(--accent); white-space: nowrap; }
+.page-ref:hover { color: var(--text); border-bottom-style: solid; }
+
+/* Crayons de correction manuelle : discrets, nets au survol */
+.edit-pen { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0 !important; border-radius: 5px; background: transparent; color: var(--text3); opacity: .45; font-size: 11px; line-height: 1; cursor: pointer; transition: opacity .15s, background .15s; }
+.edit-pen:hover, .edit-pen:focus-visible { opacity: 1; background: var(--surface2); color: var(--text); }
+.result-body .sec:hover .edit-pen, .result-body .av-banner:hover .edit-pen { opacity: .8; }
+
+/* Textes longs repliables */
+.clamp-lines { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.clamp-toggle { margin-top: 6px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 500; color: var(--accent-dark); cursor: pointer; }
+.clamp-toggle:hover { text-decoration: underline; }
+
+/* Focus clavier visible dans la fiche */
+.result-body button:focus-visible, .result-actions .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
