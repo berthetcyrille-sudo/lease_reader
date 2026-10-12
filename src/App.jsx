@@ -4598,10 +4598,14 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
         const lib = safeStr(d.date_effet_condition.libelle) || ''
         out.push({ label: "Prise d'effet", value: 'Conditionnelle', tone: 'warn', sub: lib.length > 70 ? lib.slice(0, 67).replace(/\s+\S*$/, '') + '…' : (lib || null) })
       }
-      const dated = exitEvents.filter(e => e.date && parseFR(e.date)).sort((a, b) => parseFR(a.date) - parseFR(b.date))
+      // Baux extraits avant la refonte des échéances : pas d'echeances_sortie
+      // (getExitEvents → null), les sorties sont alors les break_options.
+      const exitList = Array.isArray(exitEvents) ? exitEvents
+        : (Array.isArray(d.break_options) ? d.break_options : []).map(b => ({ date: normalizeDate(safeStr(b)), type: 'break' }))
+      const dated = exitList.filter(e => e.date && parseFR(e.date)).sort((a, b) => parseFR(a.date) - parseFR(b.date))
       const next = dated.find(e => parseFR(e.date) >= today0)
       if (next) out.push({ label: 'Prochaine sortie', value: next.date, sub: (safeStr(next.preavis) || safeStr(d.notice)) ? `préavis ${safeStr(next.preavis) || safeStr(d.notice)}` : null })
-      else if (exitEvents.some(e => e.type === 'a_tout_moment')) out.push({ label: 'Sortie anticipée', value: 'À tout moment', sub: safeStr(d.notice) ? `préavis ${safeStr(d.notice)}` : null })
+      else if (exitList.some(e => e.type === 'a_tout_moment')) out.push({ label: 'Sortie anticipée', value: 'À tout moment', sub: safeStr(d.notice) ? `préavis ${safeStr(d.notice)}` : null })
       else if (dated.length) out.push({ label: 'Prochaine sortie', value: 'Aucune à venir', muted: true })
       const exp = dateLimiteAbsolue || normalizeDate(d.date_fin)
       if (exp) {
@@ -5653,7 +5657,7 @@ function ResultsView({ item, parentBailData, parentItem, siblings, onOpen, onSav
       {isAv && parentBailData && (() => {
         const mods = item.data?.champs_modifies || {}
         const p = parentBailData
-        const pExits = getExitEvents(p).filter(e => e.date).map(e => e.date.slice(-4))
+        const pExits = (getExitEvents(p) || (Array.isArray(p.break_options) ? p.break_options : []).map(b => ({ date: normalizeDate(safeStr(b)) }))).filter(e => e.date && /\d{4}$/.test(e.date)).map(e => e.date.slice(-4))
         const tiles = [
           ['date_effet', "Prise d'effet", normalizeDate(p.date_effet)],
           ['loyer_signature_montant', 'Loyer annuel HT/HC', fmtEur(p.loyer_signature_montant)],
