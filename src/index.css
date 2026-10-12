@@ -306,6 +306,11 @@ button, input { font-family: inherit; cursor: pointer; }
 .result-body .field.verbose-field,
 .result-body .pair-verbose { background: #F8F4EC; border: 0; border-radius: 6px; padding: 10px 14px 11px; }
 .result-body .gx > .field.verbose-field { margin: 6px 0; }
+/* Plusieurs textes côte à côte (clauses de refacturation et jouissance,
+   conditions de restitution…) : colonnes à filets, sans teinte — une
+   mosaïque d'encarts teintés referait l'effet « boîtes ». L'encart teinté
+   est réservé aux textes isolés. */
+.result-body .gx:has(> .verbose-field + .verbose-field) > .verbose-field { background: transparent; border-radius: 0; border-top: 1px solid var(--border); padding: 8px 0 9px; margin: 0; }
 .result-body .field-lbl,
 .result-body .party-role,
 .result-body .date-lbl,
@@ -318,7 +323,14 @@ button, input { font-family: inherit; cursor: pointer; }
 .result-body .due-par { font-size: 10.5px; padding: 1px 7px; }
 
 /* Dates clés : cases fines, teinte réservée aux sorties */
-.result-body .date-strip { gap: 8px; align-items: start; }
+.result-body .date-strip { gap: 8px; align-items: stretch; }
+/* Rangée secondaire (signature, préavis, dates limites) : mêmes colonnes que
+   la rangée principale, cases claires bordées, en second plan. */
+.result-body .date-strip-sec { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .result-body .date-strip-sec { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .result-body .date-strip-sec { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.result-body .date-card-sec { background: transparent; border: 1px solid var(--border); }
+.result-body .date-card-sec .date-val { font-weight: 500; font-size: 13.5px; }
 .result-body .date-card { background: #F7F4EE; border: 0; border-radius: 4px; padding: 9px 12px; }
 .result-body .date-card-break { background: #F5ECD4; }
 .result-body .date-card-break .date-lbl { color: #6E4E00; }
