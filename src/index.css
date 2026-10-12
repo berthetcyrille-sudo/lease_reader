@@ -316,7 +316,16 @@ button, input { font-family: inherit; cursor: pointer; }
 /* Dates clés : cases fines, teinte réservée aux sorties */
 .result-body .date-strip { gap: 8px; }
 .result-body .date-card { background: #F7F4EE; border: 0; border-radius: 4px; padding: 9px 12px; }
-.result-body .date-card-break { background: rgba(201,144,12,.09); }
+.result-body .date-card-break { background: #F5ECD4; }
+.result-body .date-card-break .date-lbl { color: #6E4E00; }
+/* Expiration : case encre, comme dans la maquette */
+.result-body .date-card-end { background: #1C1A17; color: #D9D2C5; }
+.result-body .date-card-end .date-lbl { color: #CFC6B6; }
+.result-body .date-card-end .date-val { color: #F6F2EA; }
+.result-body .date-card-end .page-ref { color: #E2C17A; border-bottom-color: #8A6100; }
+.result-body .date-card-end .page-ref:hover { color: #FFFFFF; }
+.result-body .date-card-end [style*="var(--text3)"], .result-body .date-card-end [style*="var(--text2)"] { color: #B8B0A2 !important; }
+.result-body .date-card-end .edit-pen { color: #CFC6B6; }
 .result-body .date-val { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .result-body .date-val.break { color: var(--accent-dark); }
 .result-body .break-tag { font-size: 9.5px; padding: 0 5px; border-radius: 2px; }
