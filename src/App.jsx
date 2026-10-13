@@ -3631,7 +3631,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                   <div key={t.row.id} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', height: `${ROW_H}px` }}>
                     <div style={{ display: 'flex', alignItems: 'center', position: 'sticky', left: 0, zIndex: 1, background: 'var(--surface)', height: '100%' }}>
                       <div
-                        onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                        onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: { row: t.row, building } }))}
                         style={{ width: `${COL_W[0]}px`, flexShrink: 0, paddingLeft: '10px', paddingRight: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text)', cursor: t.row ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', lineHeight: 1.3 }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
                         {status === 'risk' && <span title="Échéance de sortie dans moins de 18 mois" style={{
@@ -3662,7 +3662,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                             <div
                               onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                               onMouseLeave={() => setTooltip(null)}
-                              onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                              onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: { row: t.row, building } }))}
                               style={{
                                 position: 'absolute', left: '6px', width: '220px', top: '14px', height: '24px', borderRadius: '5px',
                                 display: 'flex', alignItems: 'center', padding: '0 10px', fontSize: '11px', fontWeight: 600,
@@ -3684,7 +3684,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                           <div
                             onMouseMove={e => setTooltip({ x: e.clientX, y: e.clientY, tenant: t })}
                             onMouseLeave={() => setTooltip(null)}
-                            onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: t.row }))}
+                            onClick={() => t.row && window.dispatchEvent(new CustomEvent('etatlocatif-select', { detail: { row: t.row, building } }))}
                             style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: '15px', height: '22px', cursor: t.row ? 'pointer' : 'default' }}>
                             <div style={{ position: 'relative', height: '100%', borderRadius: '5px', overflow: 'hidden', display: 'flex', border: t.estimated ? '1.5px dashed var(--text3)' : 'none' }}>
                               <div style={{ position: 'absolute', left: 0, width: `${fixedPortionPct}%`, top: 0, bottom: 0, display: 'flex' }}>
@@ -8382,6 +8382,9 @@ export default function App() {
   const [showEtatLocatifMenu, setShowEtatLocatifMenu] = useState(false)
   const [etatLocatifSearch, setEtatLocatifSearch] = useState('')
   const [etatLocatifBuilding, setEtatLocatifBuilding] = useState(null)
+  // Immeuble de l'État locatif d'où la fiche a été ouverte — permet d'y revenir
+  // en un clic depuis la fiche du bail.
+  const [returnToBuilding, setReturnToBuilding] = useState(null)
   const [showQualityCheck, setShowQualityCheck] = useState(false)
   const [showPortfolioChat, setShowPortfolioChat] = useState(false)
   // Pastille du bouton Contrôle qualité : même calcul que la fenêtre (hors
@@ -8583,9 +8586,11 @@ export default function App() {
   // Clic sur un lot dans l'état locatif → ouvre le détail du bail, ferme la modale
   useEffect(() => {
     function handler(e) {
+      const row = e.detail?.row || e.detail
+      setReturnToBuilding(e.detail?.building || null)
       setEtatLocatifBuilding(null)
-      setActiveItem(e.detail)
-      navigate(`/bail/${e.detail.id}`)
+      setActiveItem(row)
+      navigate(`/bail/${row.id}`)
     }
     window.addEventListener('etatlocatif-select', handler)
     return () => window.removeEventListener('etatlocatif-select', handler)
@@ -9451,7 +9456,14 @@ export default function App() {
                 </div>
               )}
               <div className="result-actions">
-                <button className="btn back" onClick={() => { setActiveItem(null); navigate('/') }}>← Retour au dashboard</button>
+                <button className="btn back" onClick={() => { setActiveItem(null); setReturnToBuilding(null); navigate('/') }}>← Retour au dashboard</button>
+                {returnToBuilding && (
+                  <button className="btn back"
+                    onClick={() => { const b = returnToBuilding; setActiveItem(null); setEtatLocatifBuilding(b); navigate(`/etat-locatif/${encodeURIComponent(b)}`) }}
+                    title={`Revenir à l'état locatif de ${returnToBuilding}`}>
+                    ← État locatif · {returnToBuilding}
+                  </button>
+                )}
                 {activeItem.storage_path && (
                   <button className="btn" onClick={() => openSourceAtPage(activeItem, 1)} title="Ouvrir le document source (PDF/DOCX) à la première page">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -9506,7 +9518,7 @@ export default function App() {
                 <Dashboard
                   tree={history}
                   totalCounts={totalCounts}
-                  onSelect={item => { setActiveItem(item); navigate(`/bail/${item.id}`) }}
+                  onSelect={item => { setReturnToBuilding(null); setActiveItem(item); navigate(`/bail/${item.id}`) }}
                   onDelete={handleDeleteItem}
                   onArchive={handleToggleArchive}
                   onClear={handleClearHistory}
