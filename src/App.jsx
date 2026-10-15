@@ -8,6 +8,11 @@ import { PDFDocument } from 'pdf-lib'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 
+// Version affichée dans la barre du haut — à changer à chaque livraison pour
+// pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
+// compte (cache navigateur, build Vercel en échec...).
+const APP_VERSION = '15.10 · annexes CP'
+
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -9566,6 +9571,10 @@ export default function App() {
 
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>{session.user.email}</span>
+            <span title="Version de l'application actuellement chargée — permet de vérifier qu'un déploiement a bien été pris en compte"
+              style={{ fontSize: '10.5px', color: 'rgba(255,255,255,0.45)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '4px', padding: '1px 6px', whiteSpace: 'nowrap' }}>
+              v {APP_VERSION}
+            </span>
             <button
               onClick={() => supabase.auth.signOut()}
               title="Se déconnecter"
