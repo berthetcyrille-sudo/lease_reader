@@ -414,8 +414,20 @@ async function stripAnnexPages(file, onProgress) {
     let prevText = ''
     // Page de signature du bail : "Fait à Paris, le ...", "en deux exemplaires"
     const SIGN_RE = /fait\s+(?:a|à)\s+[^,.;]{2,40}?,?\s+le\b|\ben\s+(?:deux|trois|quatre|cinq|six|\d+)\s+exemplaires/i
-    // Intitulé d'article/clause : "ARTICLE 12", "Article IV", "CP2 –", "CG 7 :"
-    const ARTICLE_RE = /\b(?:ARTICLE|Article)\s+(?:\d+|[IVXLC]+)\b|\b(?:CP|CG)\s?\d+\s*[-–—:]/
+    // Signes que le CORPS du bail continue : intitulé d'article ("ARTICLE 12",
+    // "Article IV", "CP2 –", "CG 7 :"), début des conditions particulières
+    // ("TITRE II", y compris "TITRE Il" mal reconnu par l'OCR, "CONDITIONS
+    // PARTICULIÈRES"), ou clauses numérotées ("1. DÉSIGNATION DES LOCAUX",
+    // "5.2 Franchise de loyer") — vécu : liste des annexes en dernier article
+    // des CG, suivie des conditions particulières numérotées.
+    const ARTICLE_RE = new RegExp([
+      '\\b(?:ARTICLE|Article)\\s+(?:\\d+|[IVXLC]+)\\b',
+      '\\b(?:CP|CG)\\s?\\d+\\s*[-–—:]',
+      '\\bTITRE\\s+(?:I{1,3}|Il|IV|V|\\d+)\\b',
+      'CONDITIONS\\s+PARTICULI[EÈ]RES',
+      '\\b\\d{1,2}(?:\\.\\d{1,2})*\\.\\s+[A-ZÉÈÀ][A-ZÉÈÀ\\s\'-]{4,}',
+      '\\b\\d{1,2}\\.\\d{1,2}\\.?\\s+[A-ZÉÈÀ][a-zéèàêç]{3,}',
+    ].join('|'))
     const pageText = async j => (await (await pdf.getPage(j + 1)).getTextContent()).items.map(it => it.str).join(' ')
     for (let i = 0; i < numPages; i++) {
       onProgress?.(i + 1, numPages)
