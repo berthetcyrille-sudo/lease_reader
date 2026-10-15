@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '16.10 · JSON réparé'
+const APP_VERSION = '16.10 · annexes scans'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -557,15 +557,24 @@ async function stripAnnexPages(file, onProgress) {
 // volontairement minimal — seul le numéro de page nous intéresse, pas le
 // contenu du bail — pour limiter le coût de ce repli.
 async function detectAnnexPageViaClaude(base64) {
-  const prompt = `Ce PDF est un bail commercial ou un avenant, scanné (photocopié). Il se termine typiquement, juste après la page de signature, par une page listant les documents annexés, au format "Annexe 1 : ...", "Annexe 2 : ...", etc. (parfois "Annexe n°1", numérotation possiblement différente).
+  // On demande la DERNIÈRE PAGE DU CONTRAT (ce qu'il faut garder), et non plus
+  // "la page qui liste les annexes" : sur certains modèles de bail, la liste des
+  // annexes est un article des conditions générales, SUIVI des conditions
+  // particulières et de la signature (vécu : bail scanné coupé à cette liste,
+  // conditions particulières perdues).
+  const prompt = `Ce PDF est un bail commercial ou un avenant, souvent scanné. Il peut être suivi de ses annexes (plans, K-bis, diagnostics, RIB, garanties, relevés, etc.).
 
-Attention à ne pas confondre cette page avec une simple RÉFÉRENCE à une annexe glissée en prose ailleurs dans le contrat (ex. "...dont les coordonnées sont jointes en Annexe 1 de l'Avenant" au milieu d'un article) : ce n'est PAS la page recherchée. La vraie page listant les annexes présente plusieurs entrées "Annexe N : Titre" à la suite les unes des autres, sans autre texte contractuel autour, et se trouve après la page de signature. Après cette page viennent les annexes elles-mêmes (K-bis, plans, diagnostics, RIB, devis, relevés de charges, etc.).
+Ta tâche : trouver la DERNIÈRE PAGE DU CONTRAT LUI-MÊME, c'est-à-dire la page où se termine le texte contractuel — en pratique la page de signature ("Fait à ..., le ...", "en deux exemplaires", signatures du Bailleur et du Preneur). Si une page listant les annexes ("Annexe 1 : ...", "Annexe 2 : ...") vient JUSTE APRÈS la page de signature, sans autre texte contractuel, c'est elle la dernière page du contrat.
 
-Indique UNIQUEMENT le numéro de la page (en comptant à partir de 1 pour la toute première page du fichier PDF, page de garde incluse) sur laquelle se trouve cette liste des annexes.
+PIÈGE À ÉVITER : la liste des annexes peut aussi figurer AU MILIEU du contrat, comme un article des conditions générales (ex. "ARTICLE 28 - RÉCAPITULATION DES PIÈCES CONTRACTUELLES : ... ANNEXE 1 ... ANNEXE 2 ..."), suivie d'autres clauses, d'un "TITRE II - CONDITIONS PARTICULIÈRES", puis de la signature. Dans ce cas, la liste n'est PAS la fin du contrat : la dernière page est celle de la signature, plus loin. De même, une simple référence à une annexe dans le texte ("tels que visualisés sur les plans ci-annexés") ne marque pas la fin du contrat.
 
-Réponds UNIQUEMENT avec un objet JSON strict, sans aucun texte autour ni balises markdown, au format exact : {"annex_list_page": <nombre entier, ou null si aucune liste de ce type n'existe dans le document>}`
+Les pages qui suivent la dernière page du contrat sont les annexes elles-mêmes (documents distincts, souvent d'une autre mise en page). Si le document ne contient aucune annexe, la dernière page du contrat est la dernière page du fichier.
+
+Indique le numéro de cette page en comptant à partir de 1 pour la toute première page du fichier PDF (page de garde incluse).
+
+Réponds UNIQUEMENT avec un objet JSON strict, sans aucun texte autour ni balises markdown, au format exact : {"last_contract_page": <nombre entier>}`
   const result = await callClaude(base64, 'application/pdf', prompt, 180000)
-  return result?.annex_list_page ?? null
+  return result?.last_contract_page ?? result?.annex_list_page ?? null
 }
 
 function normalizeDate(val) {
