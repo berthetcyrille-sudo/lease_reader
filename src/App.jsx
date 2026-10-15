@@ -6481,6 +6481,7 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
   const allRows = useMemo(() => tree.flatMap(b => [b, ...(b.avenants || [])]), [tree])
   const [scope, setScope] = useState('all') // 'all' | 'bail' | 'avenant'
   const [buildingFilter, setBuildingFilter] = useState('') // '' = tous les immeubles
+  const [extractedBefore, setExtractedBefore] = useState('') // 'aaaa-mm-jj' — '' = pas de filtre de date
   const [excludeArchived, setExcludeArchived] = useState(true)
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState(null) // { current, total, fileName, state }
@@ -6500,9 +6501,19 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
     if (scope === 'avenant' && r.document_type !== 'avenant') return false
     if (buildingFilter && r.actif_group !== buildingFilter) return false
     if (excludeArchived && r.data?._archived) return false
+    if (extractedBefore) {
+      // Dernière extraction antérieure à la date choisie. Un document sans
+      // date d'extraction connue (extrait avant que l'appli ne l'enregistre)
+      // est par construction parmi les plus anciens : il est retenu.
+      const at = r.data?._extracted_at ? new Date(r.data._extracted_at) : null
+      if (at && at >= new Date(extractedBefore + 'T00:00:00')) return false
+    }
     return true
   }
+  // Les plus anciennement extraits d'abord : si la réextraction est
+  // interrompue, ce sont eux qui auront été traités.
   const targetRows = allRows.filter(r => r.storage_path && matchesScope(r))
+    .sort((a, b) => (a.data?._extracted_at || '').localeCompare(b.data?._extracted_at || ''))
   const noSourceCount = allRows.filter(r => !r.storage_path && matchesScope(r)).length
 
   async function runBulkReextract() {
@@ -6604,6 +6615,29 @@ function BulkReextractModal({ tree, onClose, onRefresh }) {
               <option value="">Tous les immeubles</option>
               {buildingOptions.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
+            <div className="field-lbl" style={{ marginBottom: '8px' }}>Dernière extraction</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text2)' }}>Extraits avant le</span>
+              <input
+                type="date"
+                value={extractedBefore}
+                onChange={e => setExtractedBefore(e.target.value)}
+                style={{ padding: '6px 8px', fontSize: '13px', border: '1px solid var(--border2)', borderRadius: '6px', background: 'var(--surface)', color: 'var(--text)' }}
+              />
+              {[7, 30, 90].map(n => (
+                <button key={n} type="button"
+                  onClick={() => { const d0 = new Date(); d0.setDate(d0.getDate() - n); setExtractedBefore(d0.toISOString().slice(0, 10)) }}
+                  style={{ padding: '5px 10px', fontSize: '12px', borderRadius: '999px', border: '1px solid var(--border2)', background: 'var(--surface)', color: 'var(--text2)', cursor: 'pointer' }}>
+                  il y a plus de {n} jours
+                </button>
+              ))}
+              {extractedBefore && (
+                <button type="button" onClick={() => setExtractedBefore('')}
+                  style={{ padding: '5px 10px', fontSize: '12px', border: 'none', background: 'none', color: 'var(--text3)', cursor: 'pointer', textDecoration: 'underline' }}>
+                  Toutes dates
+                </button>
+              )}
+            </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', marginBottom: '16px', cursor: 'pointer' }}>
               <input type="checkbox" checked={excludeArchived} onChange={e => setExcludeArchived(e.target.checked)} />
               Exclure les baux archivés
