@@ -262,9 +262,15 @@ function sanitizeStorageKey(name) {
     .replace(/[^a-zA-Z0-9._-]+/g, '_') // remplace espaces et caractères spéciaux
 }
 
-async function uploadSourceFile(recordId, file) {
+async function uploadSourceFile(recordId, file, { unique = false } = {}) {
   try {
-    const path = `${recordId}/${sanitizeStorageKey(file.name)}`
+    // unique : emplacement neuf à chaque remplacement de fichier — sinon un
+    // fichier de même nom réécrit le même chemin et le stockage peut encore
+    // servir l'ancienne version depuis son cache (ancien PDF affiché, et
+    // réextrait par une réextraction ultérieure).
+    const path = unique
+      ? `${recordId}/${Date.now()}-${sanitizeStorageKey(file.name)}`
+      : `${recordId}/${sanitizeStorageKey(file.name)}`
     const { error: uploadError } = await supabase.storage
       .from('lease-sources')
       .upload(path, file, { upsert: true, contentType: file.type || getMediaType(file) })
@@ -7213,15 +7219,20 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         }
       } catch (_) { /* non bloquant */ }
 
-      await uploadSourceFile(row.id, prepared) // attache le fichier + renseigne storage_path
-      // Si un fichier était déjà attaché sous un nom différent, l'ancien objet
-      // de stockage devient orphelin (chemin basé sur recordId + nom de
-      // fichier) — on le supprime en best-effort, sans bloquer le flux
-      // principal si ça échoue (droits, chemin déjà absent...).
-      if (previousStoragePath && previousStoragePath !== `${row.id}/${sanitizeStorageKey(prepared.name)}`) {
+      // Fichier enregistré à un emplacement neuf (voir uploadSourceFile) — un
+      // échec n'est plus ignoré : sinon les données seraient remplacées alors
+      // que l'ancien PDF resterait attaché (et serait relu à la prochaine
+      // réextraction).
+      const newPath = await uploadSourceFile(row.id, prepared, { unique: true })
+      if (!newPath) throw new Error("le nouveau fichier n'a pas pu être enregistré — aucune donnée n'a été modifiée")
+      if (previousStoragePath && previousStoragePath !== newPath) {
         try { await supabase.storage.from('lease-sources').remove([previousStoragePath]) } catch (_) {}
       }
-      const { error: updateErr } = await supabase.from('extractions').update({ data: stampExtractionDate(extracted) }).eq('id', row.id)
+      // Données ET nom du document mis à jour (le titre de la fiche reflète le
+      // nouveau fichier).
+      const { error: updateErr } = await supabase.from('extractions')
+        .update({ data: stampExtractionDate(extracted), file_name: file.name })
+        .eq('id', row.id)
       if (updateErr) throw updateErr
 
       setReextractProgress(null)
