@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '16.10 · tri extraction'
+const APP_VERSION = '16.10 · CQ durées'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3048,12 +3048,23 @@ function auditBail(row) {
       })
     }
   })
-  if (typeof d.duree_totale === 'string' && d.duree_totale.trim() && !/^\d+\s*ans?$/i.test(d.duree_totale.trim())) {
-    issues.push({
-      type: 'champ_duree_pollue',
-      severity: 'high',
-      detail: `duree_totale = "${d.duree_totale}" contient du texte en plus de la durée — devrait être une valeur simple (ex: "1 an", "9 ans"). Réextraction recommandée.`,
-    })
+  // Durée totale : texte libre ("9 ans", "36 mois", "9 ans et 2 mois", "douze
+  // (12) années…"), relu par parseDureeMonths pour tous les calculs. On ne
+  // signale que ce qui pose vraiment problème : une durée ILLISIBLE (aucun
+  // calcul possible), ou une valeur très longue, chargée d'autre chose qu'une
+  // durée — et non plus toute formulation autre que "N ans" (faux positifs).
+  if (typeof d.duree_totale === 'string' && d.duree_totale.trim()) {
+    const dureeTxt = d.duree_totale.trim()
+    const lisible = !!parseDureeMonths(dureeTxt)
+    if (!lisible || dureeTxt.length > 70) {
+      issues.push({
+        type: 'champ_duree_pollue',
+        severity: lisible ? 'low' : 'high',
+        detail: lisible
+          ? `duree_totale = "${dureeTxt}" contient beaucoup de texte en plus de la durée — lisible par les calculs, mais à vérifier.`
+          : `duree_totale = "${dureeTxt}" : aucune durée lisible (ni années ni mois) — expiration et échéances non calculables. Réextraction recommandée.`,
+      })
+    }
   }
 
   // 2bis. Break(s) tombant exactement au jour anniversaire de date_effet, sans
