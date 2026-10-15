@@ -3429,7 +3429,9 @@ function EtatLocatifModal({ building, bails, onClose }) {
       // le même calcul que la fiche du bail et le dashboard.
       const d = mergedBailData(row)
 
-      let start = parseFrDate(d.date_effet)
+      // Début de la barre : date d'effet du bail d'origine si elle existe (un
+      // renouvellement prolonge l'occupation, il ne la fait pas recommencer).
+      let start = parseFrDate(row.data?.date_effet || d.date_effet)
       let end = parseFrDate(d.date_fin)
       let estimated = false
       let estimatedField = null // 'end' | 'start' — précise quelle date a été calculée
@@ -3949,6 +3951,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // dashboard (mergedBailData → recalcDatesAfterAvenant). dateChanges garde
   // la valeur d'origine du bail pour l'afficher en note.
   const dateChanges = {}
+  let renouvellement = null // { av, date } quand un avenant fixe une nouvelle période sur un bail déjà daté
   if (!isAv && Array.isArray(item.avenants) && item.avenants.length > 0) {
     const merged = mergedBailData(item)
     const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
@@ -3956,6 +3959,18 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
       toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
         .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
       .forEach(av => { if (av.data?.champs_modifies?.date_effet) effetConfirmePar = av })
+    // Date d'effet : un avenant ne REMPLIT la date d'effet du bail que si elle
+    // était inconnue (bail sous condition suspensive, BEFA). Si le bail avait
+    // déjà une date, un avenant qui en fixe une nouvelle (renouvellement) ouvre
+    // une nouvelle période : la date affichée reste celle du bail d'origine,
+    // mais les calculs de la période en cours (breaks, fin, durée ferme)
+    // partent bien de la date du renouvellement (d.date_effet).
+    const ownEffet = normalizeDate(safeStr(d.date_effet))
+    const mergedEffet = normalizeDate(safeStr(merged.date_effet))
+    if (ownEffet && mergedEffet && ownEffet !== mergedEffet) {
+      d._dateEffetAffichee = d.date_effet
+      renouvellement = { av: effetConfirmePar, date: merged.date_effet }
+    }
     ;['date_effet', 'date_fin', 'duree_totale', 'duree_ferme', 'break_options'].forEach(k => {
       const before = d[k], after = merged[k]
       if (JSON.stringify(after ?? null) !== JSON.stringify(before ?? null)) {
@@ -4070,7 +4085,9 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   let bNum = 0
   const primaryDates = [
     d.date_effet
-      ? { key: 'date_effet', label: "Prise d'effet", type: 'primary', confirmedByAvenant: effetConfirmePar }
+      ? { key: 'date_effet', label: "Prise d'effet", type: 'primary', val: d._dateEffetAffichee || undefined,
+          // "Confirmée par avenant" seulement quand la date était inconnue au bail
+          confirmedByAvenant: renouvellement ? null : effetConfirmePar, renouvellement }
       : (d.date_effet_condition ? { key: 'date_effet_condition', label: "Prise d'effet", type: 'effet_conditionnel', condition: d.date_effet_condition }
         : (!isAv ? { key: 'date_effet', label: "Prise d'effet", type: 'primary', val: 'Non renseignée' } : null)),
     ...(exitCards || []),
@@ -4384,7 +4401,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                         <PageJumpIcon item={item} pages={pages} page={resolvedPage} />
                         {isEffetField && !isAv && onSaveManualDateEffet && (
                           <button
-                            onClick={() => { setEffetInput(isEffetCond ? '' : (d.date_effet || '')); setEditingEffet(true) }}
+                            onClick={() => { setEffetInput(isEffetCond ? '' : (d._dateEffetAffichee || d.date_effet || '')); setEditingEffet(true) }}
                             title="Saisir ou corriger la date d'effet manuellement — recalcule date de fin et breaks"
                             style={{ background: 'none', border: `1px solid ${isEffetCond ? '#EF9F27' : 'var(--border2)'}`, color: isEffetCond ? '#B8860B' : 'var(--text3)', borderRadius: '5px', width: '20px', height: '20px', cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: 0 }}>
                             ✎
@@ -4413,6 +4430,11 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                   {f.confirmedByAvenant && (
                     <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '4px' }}>
                       Confirmée par avenant{f.confirmedByAvenant.data?.date_signature_avenant ? ` du ${f.confirmedByAvenant.data.date_signature_avenant}` : ''} — échéance et fin de bail recalculées
+                    </div>
+                  )}
+                  {f.renouvellement && (
+                    <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '4px' }}>
+                      Renouvelé par avenant{f.renouvellement.av?.data?.date_signature_avenant ? ` du ${f.renouvellement.av.data.date_signature_avenant}` : ''} — nouvelle période à compter du {normalizeDate(safeStr(f.renouvellement.date))}
                     </div>
                   )}
                   {f.key === 'date_effet' && isAv && avDateEffetRappel && (
@@ -7850,11 +7872,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             // l'État locatif : mergedBailData → recalcDatesAfterAvenant). Pour
             // un avenant, d est déjà construit sur l'état juste avant lui.
             const eff = (!isAv && Array.isArray(row.avenants) && row.avenants.length > 0) ? mergedBailData(row) : d
-            const effectiveDateEffet = eff.date_effet
+            // Affichage : la date d'effet du bail si elle existe (un renouvellement
+            // ne la réécrit pas) ; sinon celle confirmée par avenant (CS, BEFA).
+            const effectiveDateEffet = (!isAv && d.date_effet) ? d.date_effet : eff.date_effet
             const normalizedDateFin = normalizeDate(safeStr(eff.date_fin))
             const cleanDateFin = (normalizedDateFin && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizedDateFin))
               ? normalizedDateFin
-              : (computeDateFinFromDuree(effectiveDateEffet, eff.duree_totale) || normalizedDateFin)
+              : (computeDateFinFromDuree(eff.date_effet, eff.duree_totale) || normalizedDateFin)
             // Expiration recalculée par un avenant (durée/date d'effet modifiée)
             // sans qu'il n'ait écrit de date de fin : valeur d'origine en note.
             const origDateFin = normalizeDate(safeStr(d.date_fin))
