@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '16.10 · dépliage'
+const APP_VERSION = '16.10 · assiettes'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4624,7 +4624,12 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
       )}
 
 
-      {(show('surface_totale_m2') || show('parking_nb_places') || show('rie') || show('classification_batiment')) && (
+      {(show('surface_totale_m2') || show('parking_nb_places') || show('rie') || show('classification_batiment')
+        // Avenant qui modifie les surfaces (ajout, retrait, substitution) sans
+        // réécrire la surface totale : la section doit quand même s'afficher,
+        // elle contient les tableaux assiette initiale / extension-réduction /
+        // assiette post-avenant.
+        || (isAv && item.data?.surface_change_type && item.data.surface_change_type !== 'inchangee')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Surfaces</div></div>
           <div className="gx">
