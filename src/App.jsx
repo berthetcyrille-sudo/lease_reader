@@ -3191,7 +3191,12 @@ function findDuplicateBails(bails) {
 // données du bail — sans ça, un bail dont la date d'effet n'était pas fixée à
 // la signature (condition suspensive, VEFA...) et fixée ensuite par avenant
 // afficherait des dates vides ou erronées dans l'état locatif.
-function mergedBailData(row) {
+// État du bail après ses avenants, dans l'ordre chronologique. Avec
+// beforeAvenantId : état juste AVANT cet avenant (les avenants qui le
+// précèdent sont appliqués, lui et les suivants non) — c'est sur cet état
+// qu'un avenant se lit : ce qu'il ne modifie pas est ce qui était en vigueur
+// à sa date, avenants précédents compris, pas le bail d'origine.
+function mergedBailData(row, { beforeAvenantId = null } = {}) {
   const base = { ...(row.data || {}) }
   const toSortable = s => {
     const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
@@ -3202,7 +3207,8 @@ function mergedBailData(row) {
     const kb = toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)
     return ka.localeCompare(kb)
   })
-  avs.forEach(av => {
+  for (const av of avs) {
+    if (beforeAvenantId && av.id === beforeAvenantId) break
     const mods = av.data?.champs_modifies || {}
     Object.entries(mods).forEach(([k, v]) => {
       if (v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0) && k !== '_sources') {
@@ -3221,7 +3227,7 @@ function mergedBailData(row) {
     if (Array.isArray(av.data?.surfaces_apres) && av.data.surfaces_apres.length > 0) {
       base.surfaces_detail = av.data.surfaces_apres
     }
-  })
+  }
   return base
 }
 
@@ -4038,7 +4044,11 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
               </button>
             </span>
           ) : (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <span className="av-banner-date" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                Signé le {meta.date_signature_avenant ? normalizeDate(meta.date_signature_avenant) : <em style={{ fontWeight: 400 }}>non trouvée</em>}
+                {meta.date_signature_avenant && <PageJumpIcon item={item} pages={pages} field="date_signature_avenant" />}
+              </span>
               {meta.date_effet_avenant && <span className="av-banner-date">Effet : {normalizeDate(meta.date_effet_avenant)}</span>}
               {onSaveManualDateEffetAvenant && (
                 <button
@@ -6034,8 +6044,13 @@ async function reextractOne(row, onProgress) {
     if (isAv) {
       let parentBailData = null
       if (row.parent_id) {
-        const { data: parentRow } = await supabase.from('extractions').select('data').eq('id', row.parent_id).maybeSingle()
-        parentBailData = parentRow?.data || null
+        // Contexte = état du bail juste avant cet avenant (avenants précédents
+        // compris), pas le bail d'origine seul.
+        const [{ data: parentRow }, { data: siblings }] = await Promise.all([
+          supabase.from('extractions').select('data').eq('id', row.parent_id).maybeSingle(),
+          supabase.from('extractions').select('id, data, created_at').eq('parent_id', row.parent_id),
+        ])
+        parentBailData = parentRow ? mergedBailData({ data: parentRow.data, avenants: siblings || [] }, { beforeAvenantId: row.id }) : null
       }
       promptToUse = buildAvenantPrompt(parentBailData)
     }
@@ -6161,7 +6176,12 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
         const base64 = await toBase64(prepared)
         const mediaType = getMediaType(prepared)
         const promptToUse = isAv
-          ? buildAvenantPrompt((allRows.find(b => b.id === row.parent_id) || {}).data || null)
+          ? (() => {
+              const pb = allRows.find(b => b.id === row.parent_id)
+              if (!pb) return buildAvenantPrompt(null)
+              const sibs = allRows.filter(a => a.document_type === 'avenant' && a.parent_id === row.parent_id)
+              return buildAvenantPrompt(mergedBailData({ data: pb.data, avenants: sibs }, { beforeAvenantId: row.id }))
+            })()
           : EXTRACTION_PROMPT
         const extracted = await callClaude(base64, mediaType, promptToUse)
 
@@ -6764,7 +6784,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         setAvenantBatchProgress(prev => ({ ...prev, state: 'loading' }))
         const base64 = await toBase64(prepared)
         const mediaType = getMediaType(prepared)
-        const extracted = await callClaude(base64, mediaType, buildAvenantPrompt(bailRow.data))
+        const extracted = await callClaude(base64, mediaType, buildAvenantPrompt(mergedBailData(bailRow)))
 
         const { data: saved, error } = await supabase.from('extractions').insert({
           file_name: file.name,
@@ -6982,7 +7002,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       const base64 = await toBase64(prepared)
       const mediaType = getMediaType(prepared)
       const promptToUse = isAv
-        ? buildAvenantPrompt((tree.find(b => b.id === row.parent_id) || {}).data || null)
+        ? (() => { const pb = tree.find(b => b.id === row.parent_id); return buildAvenantPrompt(pb ? mergedBailData(pb, { beforeAvenantId: row.id }) : null) })()
         : EXTRACTION_PROMPT
       const extracted = await callClaude(base64, mediaType, promptToUse)
 
@@ -7098,7 +7118,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     const avRows = sortedAv.map((av, idx) => ({
       ...av, _level: 1,
       _parentName: bail.data?.immeuble || bail.data?.adresse || bail.file_name,
-      _bailData: bail.data,
+      // Ce que l'avenant ne modifie pas = ce qui était en vigueur juste avant
+      // lui (bail + avenants précédents), pas le bail d'origine.
+      _bailData: mergedBailData(bail, { beforeAvenantId: av.id }),
       _avNum: idx + 1
     }))
     if (filter === 'avenant') {
@@ -7656,7 +7678,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             const mods = row.data?.champs_modifies || {}
             const d = row.document_type === 'avenant'
               ? {
-                  // Hériter les valeurs du bail parent
+                  // Ce que l'avenant ne modifie pas : état en vigueur juste avant
+                  // lui (bail + avenants précédents — voir _bailData)
                   immeuble: bailBase.immeuble,
                   adresse: bailBase.adresse,
                   ville: bailBase.ville,
@@ -7665,7 +7688,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   loyer_signature_montant: mods.loyer_signature_montant ?? null,
                   date_effet: mods.date_effet || bailBase.date_effet || null,
                   date_fin: mods.date_fin || bailBase.date_fin,
-                  break_options: mods.break_options || bailBase.break_options,
+                  break_options: (Array.isArray(mods.break_options) && mods.break_options.length > 0) ? mods.break_options : bailBase.break_options,
                   echeances_sortie: (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0) ? mods.echeances_sortie : bailBase.echeances_sortie,
                   surface_totale_m2: mods.surface_totale_m2 ?? bailBase.surface_totale_m2,
                   objet_avenant: row.data?.objet_avenant,
@@ -8925,7 +8948,7 @@ export default function App() {
         const parentBailForPrompt = parentId ? availableBails.find(b => b.id === parentId) : null
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
-        const extracted = await callClaude(base64, mediaType, buildAvenantPrompt(parentBailForPrompt?.data || null))
+        const extracted = await callClaude(base64, mediaType, buildAvenantPrompt(parentBailForPrompt ? mergedBailData(parentBailForPrompt) : null))
         // Appel dédié financier pour les avenants
         try {
           const financialResult = await callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null)
@@ -9505,7 +9528,7 @@ export default function App() {
             {activeItem ? (
               <ResultsView
                 item={activeItem}
-                parentBailData={activeItem?.document_type === 'avenant' ? history.find(b => b.id === activeItem.parent_id)?.data : null}
+                parentBailData={activeItem?.document_type === 'avenant' ? (() => { const pb = history.find(b => b.id === activeItem.parent_id); return pb ? mergedBailData(pb, { beforeAvenantId: activeItem.id }) : null })() : null}
                 onSaveManualDateEffet={handleManualDateEffet}
                 onSaveManualDateEffetAvenant={handleManualDateEffetAvenant}
                 onSaveManualSurface={handleManualSurface}
