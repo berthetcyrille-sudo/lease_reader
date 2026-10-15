@@ -1159,16 +1159,37 @@ function detectsFullTriennialWaiver(clauseTextLower) {
 // inconnue/conditionnelle a ce moment-la, avant d'etre confirmee par un
 // avenant). Reutilise la meme regex tolerante aux chiffres entre parentheses
 // que le reste de l'appli.
+// Durée d'un bail en MOIS, quelle que soit sa rédaction : "9 ans", "neuf (9)
+// années", "12 années entières et consécutives", "9 ans et 2 mois",
+// "douze ans". null si aucune durée n'est lisible.
+const DUREE_NUM_WORDS = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, onze: 11, douze: 12, treize: 13, quatorze: 14, quinze: 15, seize: 16, vingt: 20 }
+function parseDureeMonths(text) {
+  const t = stripAccents(String(text || '')).toLowerCase()
+  if (!t) return null
+  const num = `\\b(\\d+|${Object.keys(DUREE_NUM_WORDS).join('|')})`
+  const toN = x => /^\d+$/.test(x) ? parseInt(x) : DUREE_NUM_WORDS[x]
+  const y = t.match(new RegExp(`${num}\\s*(?:\\(\\s*\\d+\\s*\\)\\s*)?(?:ans?|annees?)\\b`))
+  const mo = t.match(new RegExp(`${num}\\s*(?:\\(\\s*\\d+\\s*\\)\\s*)?mois\\b`))
+  const months = (y ? toN(y[1]) * 12 : 0) + (mo ? toN(mo[1]) : 0)
+  return months > 0 ? months : null
+}
+// Première date écrite dans un texte : "07/01/2019" ou "7 janvier 2019".
+const FR_MONTHS_TXT = { janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6, juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11, decembre: 12 }
+function findDateInText(text) {
+  const t = stripAccents(String(text || '')).toLowerCase()
+  const pad = n => String(n).padStart(2, '0')
+  const m1 = t.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/)
+  if (m1) return `${pad(m1[1])}/${pad(m1[2])}/${m1[3]}`
+  const m2 = t.match(new RegExp(`\\b(\\d{1,2})(?:er)?\\s+(${Object.keys(FR_MONTHS_TXT).join('|')})\\s+(\\d{4})\\b`))
+  if (m2) return `${pad(m2[1])}/${pad(FR_MONTHS_TXT[m2[2]])}/${m2[3]}`
+  return null
+}
 function computeDateFinFromDuree(date_effet_str, duree_totale_str) {
   const effet = parseFR(date_effet_str)
   if (!effet) return null
-  const ymatch = String(duree_totale_str || '').match(/\(?(\d+)\)?\s*ans?\b/i)
-  const mmatch = String(duree_totale_str || '').match(/\(?(\d+)\)?\s*mois\b/i)
-  const years = ymatch ? parseInt(ymatch[1]) : 0
-  const months = mmatch ? parseInt(mmatch[1]) : 0
-  if (years === 0 && months === 0) return null
-  const end = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
-  return fmtFR(end)
+  const months = parseDureeMonths(duree_totale_str)
+  if (!months) return null
+  return fmtFR(new Date(effet.getFullYear(), effet.getMonth() + months, effet.getDate() - 1))
 }
 
 function filterBreaksByDureeFerme(breaks, date_effet_str, duree_ferme_str) {
@@ -2792,8 +2813,8 @@ function bailTypeLabel(typeBailStr) {
 }
 
 function parseYearsFromDureeText(s) {
-  const m = String(s || '').match(/\(?(\d+)\)?\s*ans?\b/i)
-  return m ? parseInt(m[1]) : null
+  const m = parseDureeMonths(s)
+  return m ? Math.floor(m / 12) : null
 }
 
 // Une date de break tombant EXACTEMENT au jour anniversaire (sans le -1 jour
@@ -3208,11 +3229,17 @@ function recalcDatesAfterAvenant(base, prev, mods) {
   const has = k => mods[k] !== null && mods[k] !== undefined && !(Array.isArray(mods[k]) && mods[k].length === 0)
   const nd = v => normalizeDate(safeStr(v)) || null
   const day = 86400000
-  const oldY = parseYearsFromDureeText(prev.duree_totale), newY = parseYearsFromDureeText(base.duree_totale)
+  const oldM = parseDureeMonths(prev.duree_totale), newM = parseDureeMonths(base.duree_totale)
   const effetChanged = has('date_effet') && nd(mods.date_effet) !== nd(prev.date_effet)
-  const dureeChanged = has('duree_totale') && !!newY && oldY !== newY
+  const dureeChanged = has('duree_totale') && !!newM && oldM !== newM
   const finChanged = has('date_fin') && nd(mods.date_fin) !== nd(prev.date_fin)
-  if (!effetChanged && !dureeChanged && !finChanged) return
+  // Avenant qui réécrit l'article Durée en rappelant la date de départ
+  // ("12 années ... à compter du 7 janvier 2019") : cette date fait foi pour
+  // recalculer l'expiration et les échéances.
+  const restatedStart = has('duree_totale') ? findDateInText(mods.duree_totale) : null
+  const restated = restatedStart ? parseFR(restatedStart) : null
+  if (!effetChanged && !dureeChanged && !finChanged && !restated) return
+  const addMonths = (d0, m) => new Date(d0.getFullYear(), d0.getMonth() + m, d0.getDate())
 
   // 1) Expiration — sauf si l'avenant la donne lui-même. Un changement de
   // durée seul décale la fin EN VIGUEUR de l'écart de durée (préserve un
@@ -3220,14 +3247,25 @@ function recalcDatesAfterAvenant(base, prev, mods) {
   if (!has('date_fin')) {
     let fin = null
     const prevFinD = parseFR(nd(prev.date_fin))
-    if (dureeChanged && !effetChanged && prevFinD && oldY) {
-      fin = fmtFR(new Date(prevFinD.getFullYear() + (newY - oldY), prevFinD.getMonth(), prevFinD.getDate()))
+    if (restated && newM) {
+      // Départ rappelé + nouvelle durée : expiration = départ + durée − 1 jour
+      const e = addMonths(restated, newM); e.setDate(e.getDate() - 1); fin = fmtFR(e)
+    } else if (dureeChanged && !effetChanged && prevFinD && oldM) {
+      // Durée seule : la fin en vigueur est décalée de l'écart de durée
+      fin = fmtFR(addMonths(prevFinD, newM - oldM))
     }
     if (!fin) fin = computeDateFinFromDuree(base.date_effet, base.duree_totale)
     if (fin) base.date_fin = fin
   }
-  // L'avenant redonne ses échéances : elles font foi, rien à recalculer.
-  if (has('break_options') || has('echeances_sortie')) return
+  // L'avenant redonne ses échéances : elles font foi, rien à recalculer —
+  // SAUF s'il réécrit l'article Durée avec son départ ET stipule le rythme
+  // triennal simple ("à l'expiration de chaque période triennale", sans
+  // renonciation) : le calendrier découle alors du texte sans ambiguïté, et le
+  // calcul exact prime sur des dates extraites (souvent recopiées de l'état
+  // antérieur).
+  const clauseTxt = stripAccents(String(mods.conditions_break || base.conditions_break || '')).toLowerCase()
+  const rythmeTriennalSimple = !!restated && /chaque\s+periode\s+triennale/.test(clauseTxt) && !detectsFullTriennialWaiver(clauseTxt) && !/renonc/.test(clauseTxt)
+  if ((has('break_options') || has('echeances_sortie')) && !rythmeTriennalSimple) return
 
   const newFin = parseFR(nd(base.date_fin))
   const prevEffet = parseFR(nd(prev.date_effet)), newEffet = parseFR(nd(base.date_effet))
@@ -3236,13 +3274,20 @@ function recalcDatesAfterAvenant(base, prev, mods) {
   // la fin en vigueur (si un avenant a décalé la fin sans toucher à l'effet).
   const anchors = []
   if (prevEffet) anchors.push(prevEffet)
-  if (prevFin && oldY) anchors.push(new Date(prevFin.getFullYear() - oldY, prevFin.getMonth(), prevFin.getDate() + 1))
+  if (prevFin && oldM) { const a = addMonths(prevFin, -oldM); a.setDate(a.getDate() + 1); anchors.push(a) }
   const triDate = (a, k) => new Date(a.getFullYear() + 3 * k, a.getMonth(), a.getDate() - 1)
 
   // 2) break_options
   const bs = (Array.isArray(prev.break_options) ? prev.break_options : []).map(b => parseFR(nd(b))).filter(Boolean)
   let regenerated = null
-  if (bs.length) {
+  if (restated && base.date_fin) {
+    // Article Durée réécrit avec son départ : échéances recalculées depuis ce
+    // départ, selon la clause de résiliation en vigueur (celle de l'avenant
+    // s'il en redonne une).
+    const c = computeBreaks(restatedStart, nd(base.date_fin), base.conditions_break, [], base.duree_ferme)
+    if (c.length) regenerated = c
+  }
+  if (!regenerated && bs.length) {
     for (const a of anchors) {
       const ks = bs.map(b => { for (let k = 1; k <= 16; k++) { if (Math.abs(triDate(a, k) - b) <= 3 * day) return k } return null })
       if (ks.some(k => k === null)) continue
@@ -3266,17 +3311,17 @@ function recalcDatesAfterAvenant(base, prev, mods) {
   // 3) Échéances lues dans le texte (avec leurs conditions)
   if (Array.isArray(base.echeances_sortie) && base.echeances_sortie.length) {
     let list = base.echeances_sortie
-    if (effetChanged) {
+    if (effetChanged || restated) {
       list = list.map(e => {
         if (!e || e.type !== 'triennale') return e
-        const d2 = resolveEcheanceDateFromText(e.libelle, base.date_effet)
+        const d2 = resolveEcheanceDateFromText(e.libelle, restated ? restatedStart : base.date_effet)
         return d2 ? { ...e, date: d2 } : null
       })
       if (list.some(e => e === null)) { delete base.echeances_sortie; return } // non recalculable → ancien calcul
     }
     list = list.filter(e => { const t = e?.date ? parseFR(nd(e.date)) : null; return !t || !newFin || t < newFin })
     // Allongement : ajout des échéances triennales suivantes jusqu'à la nouvelle fin
-    if (newFin && (dureeChanged || finChanged)) {
+    if (newFin && (dureeChanged || finChanged || restated)) {
       const tri = list.filter(e => e?.type === 'triennale' && e.date && triennialOrdinalFromText(e.libelle))
         .map(e => ({ e, n: triennialOrdinalFromText(e.libelle), t: parseFR(nd(e.date)) })).filter(x => x.t)
       if (tri.length) {
@@ -3826,10 +3871,18 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // nouvelle expiration / les breaks : on affiche ceux qui en résultent
   // (parentBailData = état du bail après cet avenant, dates recalculées).
   let avDatesRecalculees = false
+  let avDateEffetRappel = false
   if (isAv && parentBailData) {
     if (d.duree_ferme == null) d.duree_ferme = parentBailData.duree_ferme
     if (d.conditions_break == null) d.conditions_break = parentBailData.conditions_break
     const changeDates = !!(d.duree_totale || d.date_effet)
+    // Date d'effet : celle que l'avenant rappelle dans sa clause de durée
+    // ("à compter du 7 janvier 2019"), sinon celle du bail en vigueur — pour
+    // que la fiche montre sur quelle base l'expiration est recalculée.
+    if (changeDates && !d.date_effet) {
+      const rappel = findDateInText(d.duree_totale) || parentBailData.date_effet
+      if (rappel) { d.date_effet = rappel; avDateEffetRappel = true }
+    }
     if (changeDates && !d.date_fin && parentBailData.date_fin) { d.date_fin = parentBailData.date_fin; avDatesRecalculees = true }
     const hasOwnBreaks = (Array.isArray(d.break_options) && d.break_options.length > 0) || (Array.isArray(d.echeances_sortie) && d.echeances_sortie.length > 0)
     if (changeDates && !hasOwnBreaks) {
@@ -4360,6 +4413,11 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                   {f.confirmedByAvenant && (
                     <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '4px' }}>
                       Confirmée par avenant{f.confirmedByAvenant.data?.date_signature_avenant ? ` du ${f.confirmedByAvenant.data.date_signature_avenant}` : ''} — échéance et fin de bail recalculées
+                    </div>
+                  )}
+                  {f.key === 'date_effet' && isAv && avDateEffetRappel && (
+                    <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>
+                      Date d'effet du bail, base du calcul de l'expiration
                     </div>
                   )}
                   {f.key === 'date_fin' && isAv && avDatesRecalculees && (
