@@ -289,11 +289,20 @@ async function uploadSourceFile(recordId, file, { unique = false } = {}) {
 // Beaucoup de navigateurs (Chrome, Firefox, Edge) honorent le fragment
 // #page=N sur une URL PDF ouverte directement — pas besoin de lecteur maison.
 async function openSourceAtPage(item, page) {
-  if (!item?.storage_path) return
+  if (!item?.id && !item?.storage_path) return
   try {
+    // Emplacement relu en base à chaque ouverture : la page peut garder en
+    // mémoire un ancien storage_path (ex. fiche ouverte avant un remplacement
+    // du fichier source) — on ouvre toujours le fichier ACTUELLEMENT attaché.
+    let path = item.storage_path
+    if (item.id) {
+      const { data: fresh } = await supabase.from('extractions').select('storage_path').eq('id', item.id).maybeSingle()
+      if (fresh?.storage_path) path = fresh.storage_path
+    }
+    if (!path) return
     const { data, error } = await supabase.storage
       .from('lease-sources')
-      .createSignedUrl(item.storage_path, 60)
+      .createSignedUrl(path, 60)
     if (error) throw error
     window.open(`${data.signedUrl}#page=${page || 1}`, '_blank')
   } catch (e) {
@@ -400,7 +409,14 @@ async function stripAnnexPages(file, onProgress) {
     const numPages = pdf.numPages
     if (numPages < 3) { await pdf.destroy(); return { file, removedCount: 0, originalPages: numPages, keptPages: numPages, detectedPage: null } }
 
-    let annexListPage = null // index 0-based de la page qui liste les annexes
+    let annexListPage = null // index 0-based de la DERNIÈRE page conservée
+    let skipFallback = false
+    let prevText = ''
+    // Page de signature du bail : "Fait à Paris, le ...", "en deux exemplaires"
+    const SIGN_RE = /fait\s+(?:a|à)\s+[^,.;]{2,40}?,?\s+le\b|\ben\s+(?:deux|trois|quatre|cinq|six|\d+)\s+exemplaires/i
+    // Intitulé d'article/clause : "ARTICLE 12", "Article IV", "CP2 –", "CG 7 :"
+    const ARTICLE_RE = /\b(?:ARTICLE|Article)\s+(?:\d+|[IVXLC]+)\b|\b(?:CP|CG)\s?\d+\s*[-–—:]/
+    const pageText = async j => (await (await pdf.getPage(j + 1)).getTextContent()).items.map(it => it.str).join(' ')
     for (let i = 0; i < numPages; i++) {
       onProgress?.(i + 1, numPages)
       const page = await pdf.getPage(i + 1)
@@ -425,8 +441,40 @@ async function stripAnnexPages(file, onProgress) {
       const secondMatch = text.match(/ANNEXE\s*(N\s*°?\s*)?2\b/i)
       if (firstMatch && secondMatch) {
         const gap = Math.abs(secondMatch.index - (firstMatch.index + firstMatch[0].length))
-        if (gap <= 120) { annexListPage = i; break }
+        if (gap <= 120) {
+          annexListPage = i
+          // La liste des annexes peut figurer DANS une clause du bail, avant
+          // d'autres articles et la signature (vécu : bail coupé au milieu, et
+          // recoupé au même endroit à chaque nouveau dépôt). Si la signature
+          // n'est pas déjà passée et que des articles suivent la liste, on va
+          // jusqu'à la page de signature ; si elle reste introuvable, on ne
+          // coupe pas (mieux vaut trop de pages qu'un bail tronqué).
+          const signatureAvant = SIGN_RE.test(text.slice(0, firstMatch.index)) || SIGN_RE.test(prevText)
+          if (!signatureAvant) {
+            let lastEntry = secondMatch.index
+            const reEntry = /ANNEXE\s*(?:N\s*°?\s*)?\d+/gi
+            let m
+            while ((m = reEntry.exec(text))) lastEntry = m.index
+            const apresListe = text.slice(lastEntry + 120)
+            let continues = ARTICLE_RE.test(apresListe)
+            let sigPage = (continues && SIGN_RE.test(apresListe)) ? i : null
+            if (sigPage === null) {
+              for (let j = i + 1; j < Math.min(numPages, i + 60); j++) {
+                const t = await pageText(j)
+                if (j === i + 1 && ARTICLE_RE.test(t)) continues = true
+                if (!continues) break // rien après la liste : c'est bien la fin du bail
+                if (SIGN_RE.test(t)) { sigPage = j; break }
+              }
+            }
+            if (continues) {
+              if (sigPage !== null) annexListPage = sigPage
+              else { annexListPage = null; skipFallback = true }
+            }
+          }
+          break
+        }
       }
+      prevText = text
     }
     await pdf.destroy() // libère le worker pdf.js avant l'étape pdf-lib / compression / repli Claude qui suit
 
@@ -440,7 +488,7 @@ async function stripAnnexPages(file, onProgress) {
     // laissant le repli ne jamais se déclencher pour eux. Seule condition
     // restante : un document assez long pour que le découpage vaille la
     // peine (un document court n'a de toute façon pas besoin d'être allégé).
-    if (annexListPage === null && numPages > 15) {
+    if (annexListPage === null && numPages > 15 && !skipFallback) {
       try {
         onProgress?.(-1, numPages) // -1 = signal spécial : repli IA en cours (pas un numéro de page)
         // On envoie le document ENTIER (pas seulement la fin) : la liste des
