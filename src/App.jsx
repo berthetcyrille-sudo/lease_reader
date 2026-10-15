@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '16.10 · assiettes'
+const APP_VERSION = '16.10 · tri extraction'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -6890,7 +6890,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // Flatten all items for table
   const [expanded, setExpanded] = useState({})
   const [sortDir, setSortDir] = useState('asc')
-  const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur' | 'loyer'
+  const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur' | 'loyer' | 'extraction'
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [publicSectorOnly, setPublicSectorOnly] = useState(false)
   const [errorOnly, setErrorOnly] = useState(false)
@@ -7471,6 +7471,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // exactement les montants visibles. Les baux sans loyer restent en fin de
   // liste quel que soit le sens du tri.
   const getLoyer = row => { const v = parseAmount(row.data?.loyer_signature_montant); return v && v > 0 ? v : null }
+  // Date de dernière extraction (horodatage enregistré à chaque extraction),
+  // à défaut date de création de la ligne.
+  const getExtractedAt = row => row.data?._extracted_at || row.created_at || ''
   const sortedFiltered = (() => {
     const bails = filtered.filter(r => r._level === 0)
     const avMap = {}
@@ -7480,6 +7483,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       avMap[pid].push(r)
     })
     bails.sort((a, b) => {
+      if (sortBy === 'extraction') {
+        const cmp = getExtractedAt(a).localeCompare(getExtractedAt(b))
+        return sortDir === 'asc' ? cmp : -cmp
+      }
       if (sortBy === 'loyer') {
         const la = getLoyer(a), lb = getLoyer(b)
         if (la === null && lb === null) return 0
@@ -7496,7 +7503,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     // (pas de regroupement par immeuble, sinon un gros loyer d'un immeuble
     // "suivant" apparaît sous un petit loyer). L'immeuble reste visible sur
     // chaque ligne via son étiquette d'actif ; les avenants suivent leur bail.
-    if (sortBy === 'loyer') {
+    if (sortBy === 'loyer' || sortBy === 'extraction') {
       const flat = []
       bails.forEach(bail => { flat.push(bail, ...(avMap[bail.id] || [])) })
       return flat
@@ -7842,10 +7849,19 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       </div>
       {!!filtered.length && (
         <div className="dash-thead">
-          <div className="dash-th" style={{ gridColumn: '1', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
-            onClick={() => { if (sortBy === 'actif') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('actif'); setSortDir('asc') } }}>
-            Actif / Document
-            <SortIndicator active={sortBy === 'actif'} dir={sortDir} />
+          <div className="dash-th" style={{ gridColumn: '1', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              onClick={() => { if (sortBy === 'actif') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('actif'); setSortDir('asc') } }}>
+              Actif / Document
+              <SortIndicator active={sortBy === 'actif'} dir={sortDir} />
+            </span>
+            <span style={{ color: 'var(--border2)' }}>·</span>
+            <span title="Trier les baux par date de dernière extraction (tous immeubles confondus)"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              onClick={() => { if (sortBy === 'extraction') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('extraction'); setSortDir('desc') } }}>
+              Extraction
+              <SortIndicator active={sortBy === 'extraction'} dir={sortDir} />
+            </span>
           </div>
           <div className="dash-th" style={{ gridColumn: '2', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
             onClick={() => { if (sortBy === 'preneur') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('preneur'); setSortDir('asc') } }}>
