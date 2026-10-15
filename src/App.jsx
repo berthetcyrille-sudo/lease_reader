@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '15.10 · annexes CP'
+const APP_VERSION = '16.10 · JSON réparé'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1829,14 +1829,26 @@ function sanitizeExtracted(data) {
   return d
 }
 
-function cleanJson(str) {
+function cleanJson(str, { fixEscapedStructure = false } = {}) {
   let out = ''
   let inStr = false
   let esc = false
+  // Après un guillemet, prochain caractère significatif = ponctuation JSON ?
+  const structuralAfter = j => {
+    while (j < str.length && /\s/.test(str[j])) j++
+    return j >= str.length || ':,}]'.includes(str[j])
+  }
   for (let i = 0; i < str.length; i++) {
     const code = str.charCodeAt(i)
     const c = str[i]
     if (esc) { out += c; esc = false; continue }
+    // fixEscapedStructure : l'IA a parfois "échappé" des guillemets de
+    // STRUCTURE (\"gapd_duree_mois\":) — hors chaîne, le \ est retiré ; dans
+    // une chaîne, un \" suivi d'une ponctuation JSON ferme la chaîne.
+    if (fixEscapedStructure && code === 92 && str.charCodeAt(i + 1) === 34) {
+      if (!inStr) continue
+      if (structuralAfter(i + 2)) { out += '"'; inStr = false; i++; continue }
+    }
     if (inStr && code === 92) { out += c; esc = true; continue } // backslash
     if (code === 34) { // guillemet
       if (!inStr) { inStr = true; out += c; continue }
@@ -1911,9 +1923,16 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
   const jsonStr = raw.slice(s, e + 1)
   try { return sanitizeExtracted(JSON.parse(jsonStr)) } catch (_) {}
   const cleaned = cleanJson(jsonStr)
-  try { return sanitizeExtracted(JSON.parse(cleaned)) } catch (e2) {
+  try { return sanitizeExtracted(JSON.parse(cleaned)) } catch (_) {}
+  // Réparations supplémentaires, tentées seulement si les précédentes ont
+  // échoué (aucun effet sur une réponse déjà lisible) : guillemets de
+  // structure échappés par l'IA, puis en dernier recours tous les \" ramenés à ".
+  const repaired = cleanJson(jsonStr, { fixEscapedStructure: true })
+  try { return sanitizeExtracted(JSON.parse(repaired)) } catch (_) {}
+  const unescaped = cleanJson(jsonStr.replace(/\\"/g, '"'))
+  try { return sanitizeExtracted(JSON.parse(unescaped)) } catch (e2) {
     const pos = parseInt(e2.message.match(/position (\d+)/)?.[1] || '0')
-    throw new Error('JSON pos ' + pos + ' : ' + cleaned.slice(Math.max(0, pos - 250), pos + 100))
+    throw new Error('Réponse illisible (réessayez la réextraction) — JSON pos ' + pos + ' : ' + repaired.slice(Math.max(0, pos - 250), pos + 100))
   }
   } catch (e) {
     clearTimeout(timer)
