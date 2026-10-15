@@ -3191,12 +3191,116 @@ function findDuplicateBails(bails) {
 // données du bail — sans ça, un bail dont la date d'effet n'était pas fixée à
 // la signature (condition suspensive, VEFA...) et fixée ensuite par avenant
 // afficherait des dates vides ou erronées dans l'état locatif.
+// Rang d'une échéance triennale dans son libellé ("3ème période triennale" → 3)
+function triennialOrdinalFromText(text) {
+  const t = stripAccents(String(text || '')).toLowerCase()
+  const alt = Object.keys(ECHEANCE_ORDINALS).sort((a, b) => b.length - a.length).join('|')
+  const m = t.match(new RegExp(`\\b(${alt})\\s+(?:echeance|periode)\\s+triennale`))
+  return m ? ECHEANCE_ORDINALS[m[1]] : null
+}
+
+// Recalcul SYSTÉMATIQUE des dates dérivées après application d'un avenant
+// (appelé par mergedBailData, avenant par avenant, dans l'ordre chronologique).
+// Déclenché dès que l'avenant modifie la date d'effet, la durée totale ou la
+// date de fin. prev = état avant l'avenant, base = état après (déjà fusionné),
+// mods = ce que l'avenant modifie lui-même (qui fait toujours foi).
+function recalcDatesAfterAvenant(base, prev, mods) {
+  const has = k => mods[k] !== null && mods[k] !== undefined && !(Array.isArray(mods[k]) && mods[k].length === 0)
+  const nd = v => normalizeDate(safeStr(v)) || null
+  const day = 86400000
+  const oldY = parseYearsFromDureeText(prev.duree_totale), newY = parseYearsFromDureeText(base.duree_totale)
+  const effetChanged = has('date_effet') && nd(mods.date_effet) !== nd(prev.date_effet)
+  const dureeChanged = has('duree_totale') && !!newY && oldY !== newY
+  const finChanged = has('date_fin') && nd(mods.date_fin) !== nd(prev.date_fin)
+  if (!effetChanged && !dureeChanged && !finChanged) return
+
+  // 1) Expiration — sauf si l'avenant la donne lui-même. Un changement de
+  // durée seul décale la fin EN VIGUEUR de l'écart de durée (préserve un
+  // décalage introduit par un avenant précédent) ; sinon date d'effet + durée.
+  if (!has('date_fin')) {
+    let fin = null
+    const prevFinD = parseFR(nd(prev.date_fin))
+    if (dureeChanged && !effetChanged && prevFinD && oldY) {
+      fin = fmtFR(new Date(prevFinD.getFullYear() + (newY - oldY), prevFinD.getMonth(), prevFinD.getDate()))
+    }
+    if (!fin) fin = computeDateFinFromDuree(base.date_effet, base.duree_totale)
+    if (fin) base.date_fin = fin
+  }
+  // L'avenant redonne ses échéances : elles font foi, rien à recalculer.
+  if (has('break_options') || has('echeances_sortie')) return
+
+  const newFin = parseFR(nd(base.date_fin))
+  const prevEffet = parseFR(nd(prev.date_effet)), newEffet = parseFR(nd(base.date_effet))
+  const prevFin = parseFR(nd(prev.date_fin))
+  // Ancres possibles du rythme triennal : la date d'effet, ou celle déduite de
+  // la fin en vigueur (si un avenant a décalé la fin sans toucher à l'effet).
+  const anchors = []
+  if (prevEffet) anchors.push(prevEffet)
+  if (prevFin && oldY) anchors.push(new Date(prevFin.getFullYear() - oldY, prevFin.getMonth(), prevFin.getDate() + 1))
+  const triDate = (a, k) => new Date(a.getFullYear() + 3 * k, a.getMonth(), a.getDate() - 1)
+
+  // 2) break_options
+  const bs = (Array.isArray(prev.break_options) ? prev.break_options : []).map(b => parseFR(nd(b))).filter(Boolean)
+  let regenerated = null
+  if (bs.length) {
+    for (const a of anchors) {
+      const ks = bs.map(b => { for (let k = 1; k <= 16; k++) { if (Math.abs(triDate(a, k) - b) <= 3 * day) return k } return null })
+      if (ks.some(k => k === null)) continue
+      const newAnchor = (effetChanged && newEffet) ? newEffet : a
+      const sorted = [...new Set(ks)].sort((x, y) => x - y)
+      const consecutive = sorted.every((k, i) => i === 0 || k === sorted[i - 1] + 1)
+      // Rythme triennal continu : prolongé jusqu'à la nouvelle fin. Sinon
+      // (échéances renoncées entre deux) : mêmes rangs, recalés sur l'ancre.
+      const kList = (consecutive && newFin) ? Array.from({ length: 17 - sorted[0] }, (_, i) => sorted[0] + i) : sorted
+      regenerated = kList.map(k => triDate(newAnchor, k)).filter(t => !newFin || t < newFin).map(fmtFR)
+      break
+    }
+    // Calendrier non triennal : conservé tel quel, borné à la nouvelle fin.
+    if (!regenerated) regenerated = bs.filter(t => !newFin || t < newFin).map(fmtFR)
+  } else if (effetChanged) {
+    const c = computeBreaks(base.date_effet, base.date_fin, base.conditions_break, [], base.duree_ferme)
+    if (c.length) regenerated = c
+  }
+  if (regenerated) { base.break_options = regenerated; base._breakOptionsFromAvenant = true }
+
+  // 3) Échéances lues dans le texte (avec leurs conditions)
+  if (Array.isArray(base.echeances_sortie) && base.echeances_sortie.length) {
+    let list = base.echeances_sortie
+    if (effetChanged) {
+      list = list.map(e => {
+        if (!e || e.type !== 'triennale') return e
+        const d2 = resolveEcheanceDateFromText(e.libelle, base.date_effet)
+        return d2 ? { ...e, date: d2 } : null
+      })
+      if (list.some(e => e === null)) { delete base.echeances_sortie; return } // non recalculable → ancien calcul
+    }
+    list = list.filter(e => { const t = e?.date ? parseFR(nd(e.date)) : null; return !t || !newFin || t < newFin })
+    // Allongement : ajout des échéances triennales suivantes jusqu'à la nouvelle fin
+    if (newFin && (dureeChanged || finChanged)) {
+      const tri = list.filter(e => e?.type === 'triennale' && e.date && triennialOrdinalFromText(e.libelle))
+        .map(e => ({ e, n: triennialOrdinalFromText(e.libelle), t: parseFR(nd(e.date)) })).filter(x => x.t)
+      if (tri.length) {
+        const last = tri.sort((x, y) => x.n - y.n)[tri.length - 1]
+        const a = new Date(last.t.getFullYear() - 3 * last.n, last.t.getMonth(), last.t.getDate() + 1)
+        for (let n = last.n + 1; n <= 16; n++) {
+          const t = triDate(a, n)
+          if (t >= newFin) break
+          list.push({ ...last.e, date: fmtFR(t), libelle: `Expiration de la ${n}ème période triennale`, indemnite_sortie: null, montant_indemnite: null, compensation_maintien: null, page: null })
+        }
+      }
+    }
+    base.echeances_sortie = list
+    base.break_options = list.map(e => e?.date).filter(Boolean)
+    base._breakOptionsFromAvenant = true
+  }
+}
+
 // État du bail après ses avenants, dans l'ordre chronologique. Avec
 // beforeAvenantId : état juste AVANT cet avenant (les avenants qui le
 // précèdent sont appliqués, lui et les suivants non) — c'est sur cet état
 // qu'un avenant se lit : ce qu'il ne modifie pas est ce qui était en vigueur
 // à sa date, avenants précédents compris, pas le bail d'origine.
-function mergedBailData(row, { beforeAvenantId = null } = {}) {
+function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null } = {}) {
   const base = { ...(row.data || {}) }
   const toSortable = s => {
     const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
@@ -3209,7 +3313,9 @@ function mergedBailData(row, { beforeAvenantId = null } = {}) {
   })
   for (const av of avs) {
     if (beforeAvenantId && av.id === beforeAvenantId) break
+    const isLast = throughAvenantId && av.id === throughAvenantId
     const mods = av.data?.champs_modifies || {}
+    const prev = { ...base }
     Object.entries(mods).forEach(([k, v]) => {
       if (v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0) && k !== '_sources') {
         base[k] = v
@@ -3227,6 +3333,14 @@ function mergedBailData(row, { beforeAvenantId = null } = {}) {
     if (Array.isArray(av.data?.surfaces_apres) && av.data.surfaces_apres.length > 0) {
       base.surfaces_detail = av.data.surfaces_apres
     }
+    // Avenant ancien format qui redéfinit les breaks sans echeances_sortie :
+    // la liste lue dans le bail ne reflète plus la réalité.
+    const modsHasBreaks = Array.isArray(mods.break_options) && mods.break_options.length > 0
+    const modsHasExits = Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0
+    if (modsHasBreaks && !modsHasExits) delete base.echeances_sortie
+    // Recalcul des dates dérivées (expiration, breaks, échéances)
+    recalcDatesAfterAvenant(base, prev, mods)
+    if (isLast) break
   }
   return base
 }
@@ -3265,61 +3379,10 @@ function EtatLocatifModal({ building, bails, onClose }) {
   // autant de lignes que de baux (jamais fusionné).
   const bailRows = useMemo(() => {
     const rows = bails.map(row => {
+      // État en vigueur après les avenants — dates d'effet, expiration, breaks
+      // et échéances déjà recalculées (mergedBailData → recalcDatesAfterAvenant),
+      // le même calcul que la fiche du bail et le dashboard.
       const d = mergedBailData(row)
-
-      // Si un avenant confirme la date d'effet (levée de condition suspensive),
-      // on recalcule date_fin et break_options à partir d'elle AVANT la
-      // détection "estimée" ci-dessous — une fois la date de départ certaine,
-      // ce n'est plus une estimation incertaine (contrairement au cas VEFA
-      // sans confirmation), donc pas de pointillés à afficher pour ce bail.
-      if (Array.isArray(row.avenants) && row.avenants.length > 0) {
-        const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
-        const sortedAvs = [...row.avenants].sort((a, b) =>
-          toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
-            .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
-        let confirmedByAvenant = false
-        let explicitDateFin = null
-        let explicitBreaks = null
-        let avenantExitsEL = null
-        sortedAvs.forEach(av => {
-          const mods = av.data?.champs_modifies || {}
-          if (mods.date_effet) confirmedByAvenant = true
-          if (mods.date_fin) explicitDateFin = mods.date_fin
-          if (Array.isArray(mods.break_options) && mods.break_options.length > 0) explicitBreaks = mods.break_options
-          if (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0) avenantExitsEL = mods.echeances_sortie
-        })
-        if (avenantExitsEL) d.echeances_sortie = avenantExitsEL
-        else if (explicitBreaks) delete d.echeances_sortie
-        else if (confirmedByAvenant && Array.isArray(d.echeances_sortie)) {
-          const recalcEL = d.echeances_sortie.map(e => {
-            if (!e || e.type !== 'triennale') return e
-            const nd = resolveEcheanceDateFromText(e.libelle, d.date_effet)
-            return nd ? { ...e, date: nd } : null
-          })
-          if (recalcEL.some(e => e === null)) delete d.echeances_sortie
-          else d.echeances_sortie = recalcEL
-        }
-        if (confirmedByAvenant) {
-          const startConfirmed = parseFrDate(d.date_effet)
-          if (startConfirmed) {
-            if (explicitDateFin) {
-              d.date_fin = explicitDateFin
-            } else {
-              const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
-              if (m) {
-                const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
-                d.date_fin = fmtFR(end)
-              }
-            }
-            if (explicitBreaks) {
-              d.break_options = explicitBreaks
-            } else {
-              const recalc = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
-              if (recalc.length > 0) d.break_options = recalc
-            }
-          }
-        }
-      }
 
       let start = parseFrDate(d.date_effet)
       let end = parseFrDate(d.date_fin)
@@ -3759,9 +3822,21 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // (computeBreaks, qui tourne systématiquement) génère un rythme triennal
   // générique que rien ne filtre plus ensuite (filterBreaksByDureeFerme ne
   // peut rien retirer sans connaître la vraie durée ferme).
+  // Avenant qui change la durée ou la date d'effet sans écrire lui-même la
+  // nouvelle expiration / les breaks : on affiche ceux qui en résultent
+  // (parentBailData = état du bail après cet avenant, dates recalculées).
+  let avDatesRecalculees = false
   if (isAv && parentBailData) {
     if (d.duree_ferme == null) d.duree_ferme = parentBailData.duree_ferme
     if (d.conditions_break == null) d.conditions_break = parentBailData.conditions_break
+    const changeDates = !!(d.duree_totale || d.date_effet)
+    if (changeDates && !d.date_fin && parentBailData.date_fin) { d.date_fin = parentBailData.date_fin; avDatesRecalculees = true }
+    const hasOwnBreaks = (Array.isArray(d.break_options) && d.break_options.length > 0) || (Array.isArray(d.echeances_sortie) && d.echeances_sortie.length > 0)
+    if (changeDates && !hasOwnBreaks) {
+      if (Array.isArray(parentBailData.echeances_sortie)) d.echeances_sortie = parentBailData.echeances_sortie
+      else if (Array.isArray(parentBailData.break_options)) d.break_options = parentBailData.break_options
+      avDatesRecalculees = true
+    }
   }
   if (!Array.isArray(d.break_options)) d.break_options = d.break_options ? [String(d.break_options)] : []
   if (!Array.isArray(d.franchise_periodes)) d.franchise_periodes = []
@@ -3816,66 +3891,29 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   let effetConfirmePar = null
   let breaksFromAvenantSansFerme = false // voir commentaire au filtre par durée ferme
   let breaksFromAvenant = false
+  // Dates en vigueur après les avenants (date d'effet, expiration, durée,
+  // breaks, échéances) : un seul calcul, le même que l'État locatif et le
+  // dashboard (mergedBailData → recalcDatesAfterAvenant). dateChanges garde
+  // la valeur d'origine du bail pour l'afficher en note.
+  const dateChanges = {}
   if (!isAv && Array.isArray(item.avenants) && item.avenants.length > 0) {
+    const merged = mergedBailData(item)
     const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
-    const sortedAvs = [...item.avenants].sort((a, b) =>
+    ;[...item.avenants].sort((a, b) =>
       toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
         .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
-    let explicitDateFin = null
-    let explicitBreaks = null
-    let avenantExits = null
-    let avenantDureeFerme = false
-    sortedAvs.forEach(av => {
-      const mods = av.data?.champs_modifies || {}
-      if (mods.date_effet) { d.date_effet = mods.date_effet; effetConfirmePar = av }
-      if (mods.date_fin) explicitDateFin = mods.date_fin
-      if (Array.isArray(mods.break_options) && mods.break_options.length > 0) explicitBreaks = mods.break_options
-      if (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0) avenantExits = mods.echeances_sortie
-      if (mods.duree_ferme) avenantDureeFerme = true
-    })
-    breaksFromAvenant = !!explicitBreaks
-    breaksFromAvenantSansFerme = !!explicitBreaks && !avenantDureeFerme
-    // Échéances de sortie : un avenant qui les redéfinit fait foi. S'il ne fait
-    // que confirmer la date d'effet sans les redonner, celles du bail peuvent
-    // avoir été calculées sur l'ancienne date (prévisionnelle) → on retombe sur
-    // l'ancien recalcul plutôt que d'afficher des dates périmées.
-    if (avenantExits) d.echeances_sortie = avenantExits
-    // Avenant ancien format qui a redéfini les breaks (break_options sans
-    // echeances_sortie) : la liste du bail ne reflète plus la réalité → ancien
-    // calcul, qui tient compte de l'avenant.
-    else if (explicitBreaks) delete d.echeances_sortie
-    else if (effetConfirmePar && Array.isArray(d.echeances_sortie)) {
-      // Date d'effet confirmée par avenant : les échéances triennales sont
-      // recalculées depuis la date confirmée (via leur libellé) ; si l'une
-      // d'elles ne peut pas l'être, retour à l'ancien calcul.
-      const recalc = d.echeances_sortie.map(e => {
-        if (!e || e.type !== 'triennale') return e
-        const nd = resolveEcheanceDateFromText(e.libelle, d.date_effet)
-        return nd ? { ...e, date: nd } : null
-      })
-      if (recalc.some(e => e === null)) delete d.echeances_sortie
-      else d.echeances_sortie = recalc
-    }
-    if (effetConfirmePar) {
-      const startConfirmed = parseFrDate(d.date_effet)
-      if (startConfirmed) {
-        if (explicitDateFin) {
-          d.date_fin = explicitDateFin
-        } else {
-          const m = String(d.duree_totale || '').match(/\(?(\d+)\)?\s*ans?\b/i)
-          if (m) {
-            const end = new Date(startConfirmed.getFullYear() + parseInt(m[1]), startConfirmed.getMonth(), startConfirmed.getDate() - 1)
-            d.date_fin = fmtFR(end)
-          }
-        }
-        if (explicitBreaks) {
-          d.break_options = explicitBreaks
-        } else {
-          const recalculed = computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
-          if (recalculed.length > 0) d.break_options = recalculed
-        }
+      .forEach(av => { if (av.data?.champs_modifies?.date_effet) effetConfirmePar = av })
+    ;['date_effet', 'date_fin', 'duree_totale', 'duree_ferme', 'break_options'].forEach(k => {
+      const before = d[k], after = merged[k]
+      if (JSON.stringify(after ?? null) !== JSON.stringify(before ?? null)) {
+        if (before != null && !(Array.isArray(before) && before.length === 0)) dateChanges[k] = before
+        d[k] = after
       }
-    }
+    })
+    if (Array.isArray(merged.echeances_sortie)) d.echeances_sortie = merged.echeances_sortie
+    else delete d.echeances_sortie
+    breaksFromAvenant = !!merged._breakOptionsFromAvenant
+    breaksFromAvenantSansFerme = breaksFromAvenant && !merged._dureeFermeFromAvenant
   }
 
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
@@ -4139,7 +4177,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
           <div className="sec-hd"><div className="sec-label">Contrat et durée</div></div>
           <div className="gx">
             <Field label="Type de contrat" value={simplifyTypeBail(d.type_bail)} />
-            <Field label="Durée totale" value={d.duree_totale} item={item} pages={pages} pageField="duree_totale" />
+            <Field label="Durée totale" value={dateChanges.duree_totale ? `${d.duree_totale} (modifiée par avenant — initialement ${dateChanges.duree_totale})` : d.duree_totale} item={item} pages={pages} pageField="duree_totale" />
             {(() => {
               const hasFullWaiver = detectsFullTriennialWaiver((d.conditions_break || '').toLowerCase())
               const legalDefault = (!isAv && d.duree_totale && !hasFullWaiver) ? '3 ans (défaut légal — art. L.145-4)' : null
@@ -4322,6 +4360,16 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                   {f.confirmedByAvenant && (
                     <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '4px' }}>
                       Confirmée par avenant{f.confirmedByAvenant.data?.date_signature_avenant ? ` du ${f.confirmedByAvenant.data.date_signature_avenant}` : ''} — échéance et fin de bail recalculées
+                    </div>
+                  )}
+                  {f.key === 'date_fin' && isAv && avDatesRecalculees && (
+                    <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '4px' }}>
+                      Recalculée à partir de la durée / date d'effet modifiée par cet avenant
+                    </div>
+                  )}
+                  {f.key === 'date_fin' && dateChanges.date_fin && (
+                    <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '4px' }}>
+                      Modifiée par avenant — initialement {normalizeDate(safeStr(dateChanges.date_fin)) || safeStr(dateChanges.date_fin)}
                     </div>
                   )}
                 </div>
@@ -7118,9 +7166,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     const avRows = sortedAv.map((av, idx) => ({
       ...av, _level: 1,
       _parentName: bail.data?.immeuble || bail.data?.adresse || bail.file_name,
-      // Ce que l'avenant ne modifie pas = ce qui était en vigueur juste avant
-      // lui (bail + avenants précédents), pas le bail d'origine.
-      _bailData: mergedBailData(bail, { beforeAvenantId: av.id }),
+      // État du bail APRÈS cet avenant (bail + avenants précédents + lui-même,
+      // dates recalculées) : ce qu'il ne modifie pas reste ce qui était en
+      // vigueur, et ce qu'il change (ex: durée) se répercute sur l'expiration.
+      _bailData: mergedBailData(bail, { throughAvenantId: av.id }),
       _avNum: idx + 1
     }))
     if (filter === 'avenant') {
@@ -7705,29 +7754,26 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             const confirmingAvenant = !isAv ? (row.avenants || []).find(av => av.data?.champs_modifies?.date_effet) : null
             const resolvedByAvenant = !!confirmingAvenant
             const effetCond = (!isAv && !d.date_effet && !resolvedByAvenant) ? d.date_effet_condition : null
-            // Date d'effet "effective" pour un bail : la sienne propre si connue,
-            // sinon celle confirmee par un avenant — sert a calculer une vraie
-            // date_fin ci-dessous quand seul un texte/formule a ete extrait.
-            const effectiveDateEffet = isAv ? d.date_effet : (d.date_effet || confirmingAvenant?.data?.champs_modifies?.date_effet)
-            // Si un avenant a confirme la date d'effet, sa propre date_fin (si
-            // fournie) prime — sinon on recalcule TOUJOURS a partir de cette
-            // date confirmee, sans se fier a l'ancienne date_fin du bail
-            // d'origine (qui peut ressembler a une date valide tout en etant
-            // perimee/fausse, calculee avant que l'avenant ne confirme quoi
-            // que ce soit — un simple test de format ne suffit pas a la
-            // distinguer d'une vraie date a jour).
-            const avenantExplicitDateFin = confirmingAvenant?.data?.champs_modifies?.date_fin || null
-            const normalizedDateFin = normalizeDate(d.date_fin)
-            const cleanDateFin = confirmingAvenant
-              ? (normalizeDate(avenantExplicitDateFin) || computeDateFinFromDuree(effectiveDateEffet, d.duree_totale) || normalizedDateFin)
-              : ((normalizedDateFin && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizedDateFin))
-                  ? normalizedDateFin
-                  : (computeDateFinFromDuree(effectiveDateEffet, d.duree_totale) || normalizedDateFin))
+            // Dates EN VIGUEUR après les avenants (même calcul que la fiche et
+            // l'État locatif : mergedBailData → recalcDatesAfterAvenant). Pour
+            // un avenant, d est déjà construit sur l'état juste avant lui.
+            const eff = (!isAv && Array.isArray(row.avenants) && row.avenants.length > 0) ? mergedBailData(row) : d
+            const effectiveDateEffet = eff.date_effet
+            const normalizedDateFin = normalizeDate(safeStr(eff.date_fin))
+            const cleanDateFin = (normalizedDateFin && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizedDateFin))
+              ? normalizedDateFin
+              : (computeDateFinFromDuree(effectiveDateEffet, eff.duree_totale) || normalizedDateFin)
+            // Expiration recalculée par un avenant (durée/date d'effet modifiée)
+            // sans qu'il n'ait écrit de date de fin : valeur d'origine en note.
+            const origDateFin = normalizeDate(safeStr(d.date_fin))
+            const dateFinRecalculee = !isAv && eff !== d && cleanDateFin && origDateFin && cleanDateFin !== origDateFin
             const effetCondOverdue = !!(effetCond && isDatePast(effetCond.date_limite))
-            const dashExits = getExitEvents(d)
+            const dashExits = getExitEvents(eff)
             const breaks = dashExits
               ? dashExits.map(e => e.date).filter(Boolean)
-              : filterBreaksByDureeFerme(Array.isArray(d.break_options) ? d.break_options : [], d.date_effet, d.duree_ferme)
+              : (eff._breakOptionsFromAvenant
+                  ? sanitizeBreakDates(Array.isArray(eff.break_options) ? eff.break_options : [])
+                  : filterBreaksByDureeFerme(Array.isArray(eff.break_options) ? eff.break_options : [], eff.date_effet, eff.duree_ferme))
             // Un bail replié affiche ses PROPRES données extraites — mais si un
             // avenant a modifié un champ depuis (loyer, date de fin, break,
             // surface), c'est cette donnée-là qui prévaut réellement, pas
@@ -7967,6 +8013,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4, overflowWrap: 'anywhere', display: 'inline-block' }}>
                     {cleanDateFin || '—'}
                     <OverrideMark field="date_fin" formatValue={v => normalizeDate(v) || v} />
+                    {dateFinRecalculee && !overrides.date_fin && (
+                      <span title={`Recalculée suite à un avenant (durée ou date d'effet modifiée) — initialement ${origDateFin}`}
+                        style={{ marginLeft: '4px', fontSize: '10px', color: 'var(--accent)', verticalAlign: 'super', fontWeight: 700, cursor: 'help' }}>↻</span>
+                    )}
                   </span>
                 </div>
 
@@ -9528,7 +9578,7 @@ export default function App() {
             {activeItem ? (
               <ResultsView
                 item={activeItem}
-                parentBailData={activeItem?.document_type === 'avenant' ? (() => { const pb = history.find(b => b.id === activeItem.parent_id); return pb ? mergedBailData(pb, { beforeAvenantId: activeItem.id }) : null })() : null}
+                parentBailData={activeItem?.document_type === 'avenant' ? (() => { const pb = history.find(b => b.id === activeItem.parent_id); return pb ? mergedBailData(pb, { throughAvenantId: activeItem.id }) : null })() : null}
                 onSaveManualDateEffet={handleManualDateEffet}
                 onSaveManualDateEffetAvenant={handleManualDateEffetAvenant}
                 onSaveManualSurface={handleManualSurface}
