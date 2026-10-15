@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '16.10 · annexes scans'
+const APP_VERSION = '16.10 · dépliage'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -7430,7 +7430,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     ].filter(Boolean).join(' ').toLowerCase()
     return searchIn.includes(q)
   }
-  const filtered = (q ? displayRows.filter(row => rowMatchesSearch(row, q)) : displayRows)
+  // Recherche : un avenant reste affiché si LUI correspond, ou si SON BAIL
+  // correspond — sinon un bail trouvé par la recherche se déplie "à vide"
+  // (compteur d'avenants et flèche présents, mais avenants masqués car ils ne
+  // contiennent pas eux-mêmes le terme recherché).
+  const matchedBailIds = q ? new Set(displayRows.filter(r => r.document_type === 'bail' && rowMatchesSearch(r, q)).map(r => r.id)) : null
+  const filtered = (q ? displayRows.filter(row =>
+      rowMatchesSearch(row, q) || (row._level > 0 && matchedBailIds.has(row.parent_id || row._parentId))
+    ) : displayRows)
     .filter(row => {
       if (!publicSectorOnly) return true
       const raw = row.data || {}
