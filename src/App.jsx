@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '17.10 · loyer parking'
+const APP_VERSION = '17.10 · pages avenant'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3350,7 +3350,7 @@ function triennialOrdinalFromText(text) {
 // Déclenché dès que l'avenant modifie la date d'effet, la durée totale ou la
 // date de fin. prev = état avant l'avenant, base = état après (déjà fusionné),
 // mods = ce que l'avenant modifie lui-même (qui fait toujours foi).
-function recalcDatesAfterAvenant(base, prev, mods) {
+function recalcDatesAfterAvenant(base, prev, mods, av = null) {
   const has = k => mods[k] !== null && mods[k] !== undefined && !(Array.isArray(mods[k]) && mods[k].length === 0)
   const nd = v => normalizeDate(safeStr(v)) || null
   const day = 86400000
@@ -3380,7 +3380,7 @@ function recalcDatesAfterAvenant(base, prev, mods) {
       fin = fmtFR(addMonths(prevFinD, newM - oldM))
     }
     if (!fin) fin = computeDateFinFromDuree(base.date_effet, base.duree_totale)
-    if (fin) base.date_fin = fin
+    if (fin) { base.date_fin = fin; if (av && base._src) base._src.date_fin = av }
   }
   // L'avenant redonne ses échéances : elles font foi, rien à recalculer —
   // SAUF s'il réécrit l'article Durée avec son départ ET stipule le rythme
@@ -3431,7 +3431,7 @@ function recalcDatesAfterAvenant(base, prev, mods) {
     const c = computeBreaks(base.date_effet, base.date_fin, base.conditions_break, [], base.duree_ferme)
     if (c.length) regenerated = c
   }
-  if (regenerated) { base.break_options = regenerated; base._breakOptionsFromAvenant = true }
+  if (regenerated) { base.break_options = regenerated; base._breakOptionsFromAvenant = true; if (av && base._src) base._src.break_options = av }
 
   // 3) Échéances lues dans le texte (avec leurs conditions)
   if (Array.isArray(base.echeances_sortie) && base.echeances_sortie.length) {
@@ -3472,6 +3472,11 @@ function recalcDatesAfterAvenant(base, prev, mods) {
 // à sa date, avenants précédents compris, pas le bail d'origine.
 function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null } = {}) {
   const base = { ...(row.data || {}) }
+  // Provenance des champs modifiés par avenant : base._src[champ] = l'avenant
+  // qui l'a fixé ou fait recalculer — sert à ouvrir le BON document (l'avenant,
+  // pas le bail) depuis l'icône de page d'une carte. Non énumérable : ni copiée
+  // par {...}, ni sérialisée.
+  Object.defineProperty(base, '_src', { value: {}, enumerable: false, writable: true })
   const toSortable = s => {
     const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
     return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '')
@@ -3488,6 +3493,7 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
     const prev = { ...base }
     Object.entries(mods).forEach(([k, v]) => {
       if (v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0) && k !== '_sources') {
+        base._src[k] = av
         base[k] = v
         // Un avenant qui redéfinit explicitement break_options rend cette
         // valeur définitive — le calcul de secours (computeBreaks), basé sur
@@ -3509,7 +3515,7 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
     const modsHasExits = Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length > 0
     if (modsHasBreaks && !modsHasExits) delete base.echeances_sortie
     // Recalcul des dates dérivées (expiration, breaks, échéances)
-    recalcDatesAfterAvenant(base, prev, mods)
+    recalcDatesAfterAvenant(base, prev, mods, av)
     if (isLast) break
   }
   return base
@@ -4077,8 +4083,10 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // la valeur d'origine du bail pour l'afficher en note.
   const dateChanges = {}
   let renouvellement = null // { av, date } quand un avenant fixe une nouvelle période sur un bail déjà daté
+  let dateSrc = {} // champ → avenant d'où vient la valeur affichée (voir mergedBailData)
   if (!isAv && Array.isArray(item.avenants) && item.avenants.length > 0) {
     const merged = mergedBailData(item)
+    dateSrc = merged._src || {}
     const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
     ;[...item.avenants].sort((a, b) =>
       toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
@@ -4471,13 +4479,22 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                 // littéralement : à défaut d'une date explicite (pages.break_options), on
                 // renvoie vers la clause générale qui fonde le droit (durée ferme /
                 // clause de résiliation), plutôt que de laisser la carte sans référence.
+                // Document d'où vient la valeur : un avenant (date confirmée,
+                // échéances redonnées, expiration recalculée…) ou le bail.
+                const srcAv = f.key === 'date_effet' ? (d._dateEffetAffichee ? null : dateSrc.date_effet)
+                  : f.key === 'date_fin' ? dateSrc.date_fin
+                  : isExit ? dateSrc.echeances_sortie
+                  : f.type === 'break' ? dateSrc.break_options
+                  : null
+                const srcItem = srcAv || item
+                const sp = srcAv ? (srcAv.data?._pages || {}) : pages
                 const resolvedPage = isExit
-                  ? (f.exit.page || pages.conditions_break || pages.break_options || pages.duree_ferme || null)
+                  ? (f.exit.page || sp.conditions_break || sp.break_options || sp.duree_ferme || sp.duree_totale || null)
                   : f.type === 'break'
-                  ? (pages.break_options || pages.conditions_break || pages.duree_ferme || null)
+                  ? (sp.break_options || sp.conditions_break || sp.duree_ferme || sp.duree_totale || null)
                   : isCondBreak
-                  ? (pages.indemnites_break || pages.conditions_break || null)
-                  : pages[f.key]
+                  ? (sp.indemnites_break || sp.conditions_break || null)
+                  : (sp[f.key] || (srcAv && f.key === 'date_fin' ? sp.duree_totale : null))
                 return (
                 <div key={f.key} className={`date-card${(f.type === 'break' || isExit) ? ' date-card-break' : ''}`}
                   style={(isCondBreak || isEffetCond || (isExit && f.hasIndem)) ? { background: '#FAEEDA', border: '1px solid #EF9F27' }
@@ -4523,7 +4540,8 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                         {isEffetCond ? 'Non connue'
                           : isExit ? (f.val || (f.exit.type === 'a_tout_moment' ? 'À tout moment' : (safeStr(f.exit.libelle) || 'Date non déterminée')))
                           : (f.val || d[f.key])}
-                        <PageJumpIcon item={item} pages={pages} page={resolvedPage} />
+                        <PageJumpIcon item={srcItem} pages={sp} page={resolvedPage}
+                          title={srcAv ? `Voir la page ${resolvedPage} de l'avenant (${srcAv.file_name || 'document source'})` : undefined} />
                         {isEffetField && !isAv && onSaveManualDateEffet && (
                           <button
                             onClick={() => { setEffetInput(isEffetCond ? '' : (d._dateEffetAffichee || d.date_effet || '')); setEditingEffet(true) }}
