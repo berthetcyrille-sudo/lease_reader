@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · surfaces RIE'
+const APP_VERSION = '19.10 · sous-totaux franchises'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -834,8 +834,11 @@ function computeValeursEnVigueur(item, parentRow = null) {
       montant: parseAmount(r.montant), duree_extraite: safeStr(r.duree) || null,
       duree_affichee: q?.incoherent ? `≈ ${fmtMoisFranchise(q.eq)} (sur ${safeStr(r.duree)}, période d'application)` : (safeStr(r.duree) || null),
       mois_de_loyer: q ? Math.round(q.eq * 10) / 10 : null,
+      conditionnelle: isConditionalFranchise(r),
+      condition: cleanTxt(r.condition) || null,
     }
   })
+  const fTot = franchiseTotals(mergeLoyerReductions(d.franchise_periodes, d.abattements), loyerAnnuel)
   return {
     date_effet: isAv ? (safeStr(raw.date_effet_avenant) || null) : (raw.date_effet || eff.date_effet || null),
     date_fin: dateFin,
@@ -847,6 +850,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
     franchises,
+    franchise_totale_acquise: { mois: fTot.acquise.mois, montant: Math.round(fTot.acquise.montant) },
+    franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: Math.round(fTot.conditionnelle.montant) },
   }
 }
 
@@ -897,7 +902,8 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
   const fracVals  = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
     v(franchise[i]?.date_debut), v(franchise[i]?.date_fin),
     (VV.franchises || [])[i]?.duree_affichee || '',
-    v(franchise[i]?.surface_assiette), amt(franchise[i]?.montant), v(franchise[i]?.indexation_incluse), v(franchise[i]?.condition),
+    v(franchise[i]?.surface_assiette), amt(franchise[i]?.montant), v(franchise[i]?.indexation_incluse),
+    (() => { const f = (VV.franchises || [])[i]; if (!f) return ''; return f.conditionnelle ? `Conditionnelle — ${f.condition || ''}` : (f.condition || '') })(),
   ]).flat()
   const indemVals = Array.from({ length: MAX_INDEM },     (_, i) => [
     v(indem[i]?.motif), v(indem[i]?.due_par), amt(indem[i]?.montant), v(indem[i]?.date_limite),
@@ -2831,6 +2837,41 @@ function franchiseEquivalence(row, loyerAnnuel) {
   return { eq, incoherent: !!(dm && !/recalcul/i.test(String(row.duree)) && Math.abs(dm - eq) / eq > 0.25) }
 }
 const fmtMoisFranchise = n => `${(Math.round(n * 10) / 10).toLocaleString('fr-FR')} mois`
+// Texte "vide" renvoyé en toutes lettres par l'IA ("null", "néant", "—"…)
+const NULLISH_TXT = /^\s*(null|none|undefined|n\/?a|n[ée]ant|aucune?|-|—)\s*$/i
+function cleanTxt(v) { const t = safeStr(v); return t && !NULLISH_TXT.test(t) ? t : '' }
+// Franchise CONDITIONNELLE : accordée sous condition (ex: "si le preneur ne
+// délivre pas congé au terme de la première période triennale") — à ne pas
+// confondre avec une simple indication de calendrier ("à compter de la
+// première date anniversaire"), qui reste une franchise acquise.
+function isConditionalFranchise(row) {
+  const c = stripAccents(cleanTxt(row?.condition)).toLowerCase()
+  return !!c && /\b(si|sous reserve|a condition|en cas de|sauf|renonc\w*|ne delivre pas|ne delivrerait pas|faute de conge)\b/.test(c)
+}
+// Mois de loyer exonérés d'une franchise : l'équivalent calculé quand la durée
+// extraite ne colle pas au montant, sinon la durée extraite.
+function franchiseMonthsEffective(row, loyerAnnuel) {
+  const q = franchiseEquivalence(row, loyerAnnuel)
+  return q?.incoherent ? q.eq : (parseMonthsCount(row?.duree) || (q ? q.eq : 0))
+}
+// Totaux des franchises, séparés acquis / conditionnel — LE calcul commun à la
+// pastille de l'en-tête, au tableau, aux valeurs en base et à l'export.
+function franchiseTotals(periodes, loyerAnnuel) {
+  const out = { acquise: { mois: 0, montant: 0 }, conditionnelle: { mois: 0, montant: 0 }, approx: false }
+  for (const r of (Array.isArray(periodes) ? periodes : [])) {
+    if (!r) continue
+    const k = isConditionalFranchise(r) ? 'conditionnelle' : 'acquise'
+    // Abattement : compte dans le montant de son groupe, pas dans les mois
+    // (sa durée est une période d'application, pas des mois exonérés)
+    if (r._type === 'abattement') { out[k].montant += parseAmount(r.montant) || 0; continue }
+    if (franchiseEquivalence(r, loyerAnnuel)?.incoherent) out.approx = true
+    out[k].mois += franchiseMonthsEffective(r, loyerAnnuel)
+    out[k].montant += parseAmount(r.montant) || 0
+  }
+  out.acquise.mois = Math.round(out.acquise.mois * 10) / 10
+  out.conditionnelle.mois = Math.round(out.conditionnelle.mois * 10) / 10
+  return out
+}
 
 function FranchiseTable({ periodes, item, loyerAnnuel }) {
   const safe = Array.isArray(periodes) ? periodes : []
@@ -2857,6 +2898,24 @@ function FranchiseTable({ periodes, item, loyerAnnuel }) {
   const totalMonths = safe.filter(r => r._type !== 'abattement')
     .reduce((sum, row) => sum + ((incoherentDuree(row) ? equivMonths(row) : parseMonthsCount(row.duree)) || 0), 0)
   const totalApprox = safe.some(incoherentDuree)
+  // Groupes : d'abord ce qui est CERTAIN (franchises et abattements sans
+  // condition), puis ce qui est CONDITIONNEL, chacun avec son sous-total.
+  const rowsCertain = safe.filter(r => !isConditionalFranchise(r))
+  const rowsCond = safe.filter(r => isConditionalFranchise(r))
+  const orderedRows = [...rowsCertain, ...rowsCond]
+  const T = franchiseTotals(safe, loyerAnnuel)
+  const hasCond = rowsCond.length > 0
+  const subtotalRow = (label, g, cond = false) => (
+    <tr style={{ background: cond ? '#FDF6EA' : 'var(--surface2)' }}>
+      <td colSpan={3} style={{ fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', color: cond ? '#9A6B00' : undefined }}>{label}</td>
+      <td style={{ fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', whiteSpace: 'nowrap', color: cond ? '#9A6B00' : undefined }}>
+        {g.mois > 0 ? `${T.approx ? '≈ ' : ''}${fmtMoisFranchise(g.mois)}` : '—'}
+      </td>
+      <td />
+      <td style={{ textAlign: 'right', fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', color: cond ? '#9A6B00' : undefined }}>{g.montant > 0 ? fmtEur(g.montant) : '—'}</td>
+      <td colSpan={2} />
+    </tr>
+  )
   const hasAbattement = safe.some(r => r._type === 'abattement')
   const totalMontant = safe.reduce((sum, row) => sum + (parseAmount(row.montant) || 0), 0)
   return (
@@ -2872,12 +2931,15 @@ function FranchiseTable({ periodes, item, loyerAnnuel }) {
           </tr>
         </thead>
         <tbody>
-          {safe.map((row, i) => (
-            <tr key={i}>
+          {orderedRows.map((row, i) => (
+            <React.Fragment key={i}>
+            <tr>
               <td>
                 {row._type && (
-                  <span className={`pill ${row._type === 'franchise' ? 'pill-green' : 'pill-blue'}`} style={{ fontSize: '10.5px' }}>
-                    {row._type === 'franchise' ? 'Franchise' : 'Abattement'}
+                  <span className={`pill ${row._type === 'franchise' ? 'pill-green' : 'pill-blue'}`}
+                    style={{ fontSize: '10.5px', ...(row._type === 'franchise' && isConditionalFranchise(row) ? { background: '#FAEEDA', color: '#9A6B00', border: '1px solid rgba(184,134,11,.3)' } : {}) }}
+                    title={row._type === 'franchise' && isConditionalFranchise(row) ? 'Franchise accordée sous condition — non acquise' : undefined}>
+                    {row._type === 'franchise' ? (isConditionalFranchise(row) ? 'Franchise conditionnelle' : 'Franchise') : 'Abattement'}
                   </span>
                 )}
               </td>
@@ -2905,27 +2967,40 @@ function FranchiseTable({ periodes, item, loyerAnnuel }) {
                   </span>
                 )}
               </td>
-              <td style={{ color: 'var(--text2)', fontStyle: row.condition ? 'normal' : 'italic' }}>{safeStr(row.condition) || '—'}</td>
+              <td style={{ color: 'var(--text2)', fontStyle: cleanTxt(row.condition) ? 'normal' : 'italic' }}>{cleanTxt(row.condition) || '—'}</td>
             </tr>
+            {hasCond && i === rowsCertain.length - 1 && subtotalRow('Sous-total acquis', T.acquise)}
+            {hasCond && i === orderedRows.length - 1 && subtotalRow('Sous-total conditionnel', T.conditionnelle, true)}
+            </React.Fragment>
           ))}
         </tbody>
         <tfoot>
-          <tr style={{ borderTop: '1px solid var(--border2)' }}>
-            <td colSpan={3} style={{ fontWeight: 600, padding: '8px 10px' }}>Total</td>
-            <td style={{ fontWeight: 600, padding: '8px 10px', whiteSpace: 'nowrap' }}>
-              {totalMonths > 0 ? `${totalApprox ? '≈ ' : ''}${fmtMois(totalMonths)}` : '—'}
-              {loyerMensuel && totalMontant > 0 && hasAbattement && (
-                <div title="Montant total exonéré (franchises et abattements) rapporté au loyer mensuel" style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text3)' }}>
-                  ≈ {fmtMois(totalMontant / loyerMensuel)} de loyer
-                </div>
-              )}
-            </td>
-            <td />
-            <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>
-              {totalMontant > 0 ? fmtEur(totalMontant) : '—'}
-            </td>
-            <td colSpan={2} />
-          </tr>
+          {(() => {
+            // Totaux séparés acquis / conditionnel (franchiseTotals) ; les
+            // abattements comptent dans le montant acquis, pas dans les mois.
+            // T, hasCond : calculés plus haut (groupes certain / conditionnel)
+            const line = (label, mois, montant, sub, style) => (
+              <tr style={{ borderTop: '1px solid var(--border2)', ...style }}>
+                <td colSpan={3} style={{ fontWeight: 600, padding: '8px 10px' }}>{label}</td>
+                <td style={{ fontWeight: 600, padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                  {mois > 0 ? `${T.approx ? '≈ ' : ''}${fmtMois(mois)}` : '—'}
+                  {sub}
+                </td>
+                <td />
+                <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{montant > 0 ? fmtEur(montant) : '—'}</td>
+                <td colSpan={2} />
+              </tr>
+            )
+            const acquisMontant = T.acquise.montant
+            const subAcquis = (loyerMensuel && acquisMontant > 0 && hasAbattement) ? (
+              <div title="Montant acquis exonéré (franchises et abattements) rapporté au loyer mensuel" style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text3)' }}>
+                ≈ {fmtMois(acquisMontant / loyerMensuel)} de loyer
+              </div>
+            ) : null
+            return hasCond
+              ? line('Total si les conditions sont remplies', T.acquise.mois + T.conditionnelle.mois, T.acquise.montant + T.conditionnelle.montant, null)
+              : line('Total', T.acquise.mois, acquisMontant, subAcquis)
+          })()}
         </tfoot>
       </table>
     </div>
@@ -4447,8 +4522,10 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     else if (idx.includes('icc')) pills.push({ label: 'ICC', cls: 'pill-blue' })
   }
   if (d.franchise_periodes?.length > 0) {
-    const totalMois = d.franchise_periodes.reduce((acc, p) => acc + (parseInt(p.duree) || 0), 0)
-    pills.push({ label: totalMois > 0 ? `Franchise ${totalMois} mois` : 'Franchise', cls: 'pill-green' })
+    const T = franchiseTotals(d.franchise_periodes, parseAmount(d.loyer_signature_montant) || 0)
+    const fm = n => (Math.round(n * 10) / 10).toLocaleString('fr-FR')
+    pills.push({ label: T.acquise.mois > 0 ? `Franchise ${T.approx ? '≈ ' : ''}${fm(T.acquise.mois)} mois` : 'Franchise', cls: 'pill-green' })
+    if (T.conditionnelle.mois > 0) pills.push({ label: `+ ${fm(T.conditionnelle.mois)} mois conditionnels`, cls: 'pill-amber' })
   } else if (d.franchise) {
     pills.push({ label: 'Franchise', cls: 'pill-green' })
   }
