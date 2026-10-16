@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · valeurs en base'
+const APP_VERSION = '19.10 · surfaces RIE'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -817,6 +817,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
     return {
       categorie: safeStr(r.categorie) || null,
       categorie_a_verifier: V.isMiscatRie(r) || undefined,
+      redevance_rie: V.isRie(r) || undefined, // non comptée dans le total de surface
       batiment: safeStr(r.batiment) || null,
       niveau: safeStr(r.niveau) || null,
       surface: !isNaN(q) ? q : (c.nb || null),
@@ -843,6 +844,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
     break_options: breaks,
     echeances_sortie: exits ? exits.map(e => ({ date: e.date || null, type: e.type || null, libelle: safeStr(e.libelle) || null, indemnite_sortie: e.indemnite_sortie || null, compensation_maintien: e.compensation_maintien || null })) : null,
     ventilation_loyer: ventilation,
+    surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
     franchises,
   }
@@ -3376,9 +3378,10 @@ function auditBail(row) {
   // communes, distincte de la somme des composantes individuellement louées)
   // — on ne peut pas distinguer les deux depuis les données déjà extraites,
   // donc on signale à vérifier sans présumer d'une erreur.
-  const detailSum = (Array.isArray(d.surfaces_detail) ? d.surfaces_detail : [])
-    .filter(r => !(r.categorie || '').toLowerCase().includes('station'))
-    .reduce((a, r) => a + (parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0), 0)
+  // Même total que le tableau de la fiche (computeVentilation) : redevance
+  // RIE et stationnement exclus — sinon une RIE "à 1 223 m²" doublait la
+  // surface de bureaux (faux écart signalé).
+  const detailSum = computeVentilation(Array.isArray(d.surfaces_detail) ? d.surfaces_detail : [], d.parking_nb_places, d.loyer_signature_montant).total
   const totalM2 = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
   if (detailSum > 0 && totalM2 > 0) {
     const gap = Math.abs(detailSum - totalM2)
@@ -3897,8 +3900,9 @@ function EtatLocatifModal({ building, bails, onClose }) {
       // Localisation : liste des niveaux distincts occupés par ce bail (issus
       // de surfaces_detail), triés du plus bas au plus haut, sinon repli sur
       // l'adresse/l'immeuble.
+      const ventEL = computeVentilation(d.surfaces_detail || [], null, null)
       const detailRows = (d.surfaces_detail || []).filter(r =>
-        (r.niveau || r.localisation) && !(r.categorie || '').toLowerCase().includes('station')
+        (r.niveau || r.localisation) && !(r.categorie || '').toLowerCase().includes('station') && !ventEL.isRie(r)
       )
       let locationLabel, sortKey, surface
       if (detailRows.length > 0) {
@@ -4978,9 +4982,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
           <div className="gx">
             {show('classification_batiment') && d.classification_batiment && <Field label="Classification réglementaire" value={d.classification_batiment} />}
             {show('surface_totale_m2') && (() => {
-              const detailSumHero = (Array.isArray(d.surfaces_detail) ? d.surfaces_detail : [])
-                .filter(r => !(r.categorie || '').toLowerCase().includes('station'))
-                .reduce((a, r) => a + (parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0), 0)
+              const detailSumHero = computeVentilation(Array.isArray(d.surfaces_detail) ? d.surfaces_detail : [], d.parking_nb_places, d.loyer_signature_montant).total
               const totalHero = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.')) || 0
               const gapHero = totalHero > 0 && detailSumHero > 0 ? totalHero - detailSumHero : 0
               const showGapNote = gapHero > Math.max(1, totalHero * 0.01)
