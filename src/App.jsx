@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '18.10 · réductions de loyer'
+const APP_VERSION = '18.10 · échéances en ans'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1706,6 +1706,14 @@ function resolveEcheanceDateFromText(text, date_effet_str) {
     const an = t.match(new RegExp(`\\b(${alt})\\s+annee`))
     if (an) years = ECHEANCE_ORDINALS[an[1]]
   }
+  // "période ferme (6 ans)", "à l'issue de 6 ans", "au bout de six (6) années",
+  // "après 9 ans" : une durée en années COMPTÉE DEPUIS LA DATE D'EFFET — seulement
+  // quand le texte parle bien d'une échéance (évite "loyer de 2 ans" & co).
+  if (!years && /(periode ferme|duree ferme|expiration|issue|terme|au bout|apres|fin de)/.test(t)) {
+    const words = Object.keys(DUREE_NUM_WORDS).join('|')
+    const n = t.match(new RegExp(`\\b(\\d{1,2}|${words})\\s*(?:\\(\\s*\\d+\\s*\\)\\s*)?(?:ans?|annees?)\\b`))
+    if (n) years = /^\d+$/.test(n[1]) ? parseInt(n[1]) : DUREE_NUM_WORDS[n[1]]
+  }
   if (!years) return null
   return fmtFR(new Date(effet.getFullYear() + years, effet.getMonth(), effet.getDate() - 1))
 }
@@ -1768,7 +1776,7 @@ function getExitEvents(d) {
       // vécu : 2e triennale comptée à partir d'une échéance exceptionnelle à 4
       // ans (2032) au lieu de la date d'effet (2031).
       const triDate = (e.type === 'triennale' && triennialOrdinalFromText(e.libelle)) ? resolveEcheanceDateFromText(e.libelle, d.date_effet) : null
-      return { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+      return { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
     })
     .sort((a, b) => {
       const da = a.date ? parseFR(a.date) : null, db = b.date ? parseFR(b.date) : null
@@ -4076,7 +4084,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme, onSaveManualPreneurSub }) {
+function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme, onSaveManualPreneurSub, exitsRecalc }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
@@ -4546,6 +4554,17 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
       {(primaryDates.length > 0 || secondaryDates.length > 0 || show('conditions_break')) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Dates clés</div></div>
+          {exitsRecalc && (
+            <div style={{
+              fontSize: '12px', marginBottom: '10px', padding: '7px 11px', borderRadius: '8px',
+              background: exitsRecalc.status === 'error' ? 'var(--danger-bg)' : 'var(--accent-bg)',
+              color: exitsRecalc.status === 'error' ? 'var(--danger)' : 'var(--accent)',
+            }}>
+              {exitsRecalc.status === 'running' && 'Relecture de la clause de durée et de résiliation (CG + CP) avec la date d\'effet saisie… les échéances se mettront à jour d\'elles-mêmes.'}
+              {exitsRecalc.status === 'done' && 'Échéances recalculées à partir de la date d\'effet saisie (conditions générales et particulières).'}
+              {exitsRecalc.status === 'error' && `Le recalcul des échéances a échoué (${exitsRecalc.message || 'erreur'}) — la date saisie est bien enregistrée ; une réextraction du bail recalculera les échéances.`}
+            </div>
+          )}
           {/* Rangée principale : effet — breaks — expiration */}
           {primaryDates.length > 0 && (
             <div className="date-strip" style={{ gridTemplateColumns: `repeat(${Math.min(primaryDates.length, 5)}, 1fr)`, marginBottom: '12px' }}>
@@ -8874,6 +8893,8 @@ export default function App() {
   // Immeuble de l'État locatif d'où la fiche a été ouverte — permet d'y revenir
   // en un clic depuis la fiche du bail.
   const [returnToBuilding, setReturnToBuilding] = useState(null)
+  // Relecture des échéances après saisie manuelle de la date d'effet
+  const [exitsRecalc, setExitsRecalc] = useState(null) // { id, status: 'running'|'done'|'error', message? }
   const [showQualityCheck, setShowQualityCheck] = useState(false)
   const [showPortfolioChat, setShowPortfolioChat] = useState(false)
   // Pastille du bouton Contrôle qualité : même calcul que la fenêtre (hors
@@ -9544,7 +9565,43 @@ export default function App() {
       ? { ...b, data: newData }
       : { ...b, avenants: (b.avenants || []).map(a => a.id === row.id ? { ...a, data: newData } : a) }))
     if (activeItem?.id === row.id) setActiveItem(prev => ({ ...prev, data: newData }))
+    // Échéances : le calcul automatique ci-dessus ne part que du RÉSUMÉ de la
+    // clause de résiliation, souvent centré sur les conditions particulières
+    // (vécu : break triennale des CG à 9 ans absente). On relit donc la clause
+    // durée/résiliation dans le document (CG + CP), avec la date saisie — une
+    // seule lecture ciblée, en arrière-plan, sans bloquer la saisie.
+    if (row.storage_path && row.document_type === 'bail') recomputeExitsWithDate(row, newDateEffetStr, newData)
     return true
+  }
+
+  async function recomputeExitsWithDate(row, dateEffetStr, baseData) {
+    setExitsRecalc({ id: row.id, status: 'running' })
+    try {
+      const { data: blob, error: dlErr } = await supabase.storage.from('lease-sources').download(row.storage_path)
+      if (dlErr || !blob) throw new Error('document source introuvable')
+      const base64 = await toBase64(blob)
+      const prompt = BREAK_PROMPT + `
+
+DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document ne la fixe pas ou la subordonne à une condition). L'utiliser comme date_effet pour calculer date_fin, break_options et TOUTES les dates de echeances_sortie, en appliquant les facultés de congé prévues aux conditions générales ET aux conditions particulières (les CP priment, les CG s'appliquent tant que les CP ne les suppriment pas).`
+      const r = await callClaude(base64, blob.type || 'application/pdf', prompt, 180000)
+      const updated = { ...baseData }
+      if (Array.isArray(r?.echeances_sortie)) {
+        updated.echeances_sortie = r.echeances_sortie
+        updated.break_options = Array.isArray(r.break_options) ? r.break_options : updated.break_options
+      } else if (Array.isArray(r?.break_options) && r.break_options.length) {
+        updated.break_options = r.break_options
+      }
+      const fin = normalizeDate(safeStr(r?.date_fin))
+      if (fin && /^\d{2}\/\d{2}\/\d{4}$/.test(fin)) updated.date_fin = fin
+      const { error } = await supabase.from('extractions').update({ data: updated }).eq('id', row.id)
+      if (error) throw error
+      setHistory(prev => prev.map(b => b.id === row.id ? { ...b, data: updated } : b))
+      setActiveItem(prev => prev?.id === row.id ? { ...prev, data: updated } : prev)
+      setExitsRecalc({ id: row.id, status: 'done' })
+    } catch (e) {
+      console.error('Recalcul des échéances échoué', e)
+      setExitsRecalc({ id: row.id, status: 'error', message: e.message })
+    }
   }
 
   // Correction manuelle du nombre de places de parking — même logique que la
@@ -10026,6 +10083,7 @@ export default function App() {
                 onSaveManualParking={handleManualParking}
                 onSaveManualDureeFerme={handleManualDureeFerme}
                 onSaveManualPreneurSub={handleManualPreneurSub}
+                exitsRecalc={exitsRecalc?.id === activeItem?.id ? exitsRecalc : null}
               />
             ) : (
               <>
