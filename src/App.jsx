@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '18.10 · réextraire fiche'
+const APP_VERSION = '18.10 · réextraction bloquante'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -6263,6 +6263,41 @@ function PortfolioChatModal({ history, onClose, onSelect }) {
   )
 }
 
+// Fenêtre de progression d'une réextraction — plein écran et bloquante (rien
+// n'est cliquable dessous), partagée par le dashboard et la fiche.
+function ReextractProgressModal({ progress }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 5000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <div style={{
+        background: 'var(--surface)', borderRadius: '14px', padding: '32px 40px',
+        minWidth: '360px', maxWidth: '440px', textAlign: 'center', boxShadow: '0 16px 48px rgba(0,0,0,.35)',
+      }}>
+        <div style={{
+          width: '36px', height: '36px', margin: '0 auto 16px', borderRadius: '50%',
+          border: '3px solid var(--border2)', borderTopColor: 'var(--accent)',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+        <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          Réextraction de « {progress.label} »
+        </div>
+        <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
+          {progress.state === 'downloading' && 'Téléchargement du fichier source…'}
+          {progress.state === 'stripping' && (progress.progCurrent === -1
+            ? 'Pas de panique : la détection normale n\'a rien trouvé, on repère les annexes avec l\'IA — peut prendre plusieurs minutes sur un document long…'
+            : `Recherche des annexes${progress.progTotal ? ` (page ${progress.progCurrent}/${progress.progTotal})` : '…'}`)}
+          {progress.state === 'compressing' && `Compression${progress.progTotal ? ` (page ${progress.progCurrent}/${progress.progTotal})` : '…'}`}
+          {progress.state === 'loading' && 'Extraction en cours…'}
+        </div>
+        <div className="progress-track" style={{ margin: 0 }}><div className="progress-bar active" /></div>
+        <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '12px' }}>Merci de ne pas fermer cet onglet pendant l'opération.</div>
+      </div>
+    </div>
+  )
+}
+
 // Résultats du contrôle qualité — partagé entre la fenêtre et la pastille du
 // bouton de la barre du haut, pour que les deux chiffres soient identiques.
 function computeQcResults(bails) {
@@ -8653,35 +8688,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           </div>
         </div>
       )}
-      {reextractProgress && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 5000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <div style={{
-            background: 'var(--surface)', borderRadius: '14px', padding: '32px 40px',
-            minWidth: '360px', maxWidth: '440px', textAlign: 'center', boxShadow: '0 16px 48px rgba(0,0,0,.35)',
-          }}>
-            <div style={{
-              width: '36px', height: '36px', margin: '0 auto 16px', borderRadius: '50%',
-              border: '3px solid var(--border2)', borderTopColor: 'var(--accent)',
-              animation: 'spin 0.8s linear infinite',
-            }} />
-            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Réextraction de « {reextractProgress.label} »
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px' }}>
-              {reextractProgress.state === 'downloading' && 'Téléchargement du fichier source…'}
-              {reextractProgress.state === 'stripping' && (reextractProgress.progCurrent === -1
-                ? 'Pas de panique : la détection normale n\'a rien trouvé, on repère les annexes avec l\'IA — peut prendre plusieurs minutes sur un document long…'
-                : `Recherche des annexes${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`)}
-              {reextractProgress.state === 'compressing' && `Compression${reextractProgress.progTotal ? ` (page ${reextractProgress.progCurrent}/${reextractProgress.progTotal})` : '…'}`}
-              {reextractProgress.state === 'loading' && 'Extraction en cours…'}
-            </div>
-            <div className="progress-track" style={{ margin: 0 }}><div className="progress-bar active" /></div>
-          </div>
-        </div>
-      )}
+      {reextractProgress && <ReextractProgressModal progress={reextractProgress} />}
       {toast && (
         <div
           onClick={() => setToast(null)}
@@ -9594,12 +9601,20 @@ export default function App() {
   async function reextractFromFiche(row) {
     if (!window.confirm("Réextraire ce document à partir de son fichier source ?\n\nLes données actuelles seront remplacées, y compris les corrections manuelles (date d'effet saisie, surface, nom de substitution…).")) return
     setFicheReextractMsg(null)
-    const labels = { downloading: 'Téléchargement…', loading: 'Lecture du document…', stripping: 'Retrait des annexes…', compressing: 'Compression…', extracting: 'Extraction en cours…' }
-    setFicheReextract({ label: 'Réextraction…' })
-    const result = await reextractOne(row, (state, current, total) => {
-      setFicheReextract({ label: (labels[state] || 'Réextraction…') + (current && total ? ` ${current}/${total}` : '') })
-    })
-    setFicheReextract(null)
+    const label = row.data?.immeuble || row.data?.adresse || row.file_name
+    setFicheReextract({ label, state: 'downloading' })
+    // Fermeture d'onglet pendant l'opération : le navigateur demande confirmation
+    const warn = e => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    let result
+    try {
+      result = await reextractOne(row, (state, current, total) => {
+        setFicheReextract(prev => ({ ...prev, state, progCurrent: current ?? null, progTotal: total ?? null }))
+      })
+    } finally {
+      window.removeEventListener('beforeunload', warn)
+      setFicheReextract(null)
+    }
     if (result.success) {
       const annexNote = result.originalPages != null
         ? (result.removedCount > 0 ? ` — ${result.originalPages}→${result.keptPages} pages (annexes retirées p.${result.detectedPage})` : ` — ${result.originalPages} pages (annexes non détectées)`)
@@ -9974,6 +9989,8 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
           />
         )}
 
+        {ficheReextract && <ReextractProgressModal progress={ficheReextract} />}
+
         {showPortfolioChat && (
           <PortfolioChatModal
             history={history}
@@ -10088,7 +10105,7 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                     </svg>
-                    {ficheReextract ? (ficheReextract.label || 'Réextraction…') : 'Réextraire'}
+                    Réextraire
                   </button>
                 )}
                 {avNav?.prev && (
