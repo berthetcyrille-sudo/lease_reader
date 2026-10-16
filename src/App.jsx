@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '17.10 · ventilation'
+const APP_VERSION = '17.10 · types de bail'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2956,6 +2956,18 @@ function bailTypeLabel(typeBailStr) {
   if (/professionnel/.test(s)) return 'Professionnel'
   if (/commercial/.test(s)) return 'Commercial'
   return 'Bail'
+}
+
+// Couleur propre à chaque régime de bail, pour les distinguer d'un coup d'œil
+// (dashboard et en-tête de fiche). Commercial garde le vert habituel (null =
+// style par défaut de l'étiquette).
+const BAIL_TYPE_STYLES = {
+  Civil: { background: '#E6EEF8', color: '#2F5E91', border: '1px solid rgba(47,94,145,.25)' },
+  Dérogatoire: { background: '#FAEEDA', color: '#9A6B00', border: '1px solid rgba(184,134,11,.3)' },
+  Professionnel: { background: '#EFE8F6', color: '#6B4A93', border: '1px solid rgba(107,74,147,.25)' },
+}
+function bailTypeStyle(typeBailStr) {
+  return BAIL_TYPE_STYLES[bailTypeLabel(typeBailStr)] || null
 }
 
 function parseYearsFromDureeText(s) {
@@ -8266,7 +8278,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
                 {/* Type */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px', flexDirection: 'row', gap: '4px', flexWrap: 'wrap' }}>
-                  <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`}>
+                  <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`} style={!isAv ? (bailTypeStyle(d.type_bail) || undefined) : undefined}
+                    title={!isAv && d.type_bail ? d.type_bail : undefined}>
                     {isAv ? 'Avenant' : bailTypeLabel(d.type_bail)}
                   </span>
                   {!isAv && (() => {
@@ -9860,11 +9873,14 @@ export default function App() {
                   Extrait le {formatExtractionDate(activeItem.data._extracted_at)}
                 </div>
               )}
-              <div className="result-tag">
+              <div className="result-tag" style={activeItem.document_type !== 'avenant' ? (bailTypeStyle(activeItem.data?.type_bail) || undefined) : undefined}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
                 </svg>
-                {activeItem.document_type === 'avenant' ? 'Avenant' : 'Bail commercial'}
+                {activeItem.document_type === 'avenant' ? 'Avenant' : (() => {
+                  const l = bailTypeLabel(activeItem.data?.type_bail)
+                  return l === 'Bail' ? 'Bail' : `Bail ${l.toLowerCase()}`
+                })()}
               </div>
               <div className="result-title">{resultTitle}</div>
               {resultSub && <div className="result-sub">{resultSub}</div>}
