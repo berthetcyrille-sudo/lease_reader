@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '17.10 · fiche synchro'
+const APP_VERSION = '17.10 · pages breaks'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4510,15 +4510,21 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                   : isExit ? dateSrc.echeances_sortie
                   : f.type === 'break' ? dateSrc.break_options
                   : null
-                const srcItem = srcAv || item
-                const sp = srcAv ? (srcAv.data?._pages || {}) : pages
-                const resolvedPage = isExit
-                  ? (f.exit.page || sp.conditions_break || sp.break_options || sp.duree_ferme || sp.duree_totale || null)
+                const pageFrom = (pg, fromAvenant) => isExit
+                  ? (f.exit.page || pg.conditions_break || pg.break_options || pg.duree_ferme || pg.duree_totale || (fromAvenant ? (pg.date_fin || pg.date_effet) : null) || null)
                   : f.type === 'break'
-                  ? (sp.break_options || sp.conditions_break || sp.duree_ferme || sp.duree_totale || null)
+                  ? (pg.break_options || pg.conditions_break || pg.duree_ferme || pg.duree_totale || (fromAvenant ? (pg.date_fin || pg.date_effet) : null) || null)
                   : isCondBreak
-                  ? (sp.indemnites_break || sp.conditions_break || null)
-                  : (sp[f.key] || (srcAv && f.key === 'date_fin' ? sp.duree_totale : null))
+                  ? (pg.indemnites_break || pg.conditions_break || null)
+                  : (pg[f.key] || (fromAvenant && f.key === 'date_fin' ? (pg.duree_totale || pg.date_effet) : null))
+                // Page dans l'avenant d'origine ; à défaut (page non enregistrée,
+                // ex. breaks recalculées depuis sa clause de durée), page de la
+                // clause correspondante du bail — plutôt que pas d'icône du tout.
+                let srcItem = srcAv || item
+                let sp = srcAv ? (srcAv.data?._pages || {}) : pages
+                let resolvedPage = pageFrom(sp, !!srcAv)
+                let pageFromAvenant = !!srcAv && !!resolvedPage
+                if (!resolvedPage && srcAv) { srcItem = item; sp = pages; resolvedPage = pageFrom(pages, false) }
                 return (
                 <div key={f.key} className={`date-card${(f.type === 'break' || isExit) ? ' date-card-break' : ''}`}
                   style={(isCondBreak || isEffetCond || (isExit && f.hasIndem)) ? { background: '#FAEEDA', border: '1px solid #EF9F27' }
@@ -4565,7 +4571,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                           : isExit ? (f.val || (f.exit.type === 'a_tout_moment' ? 'À tout moment' : (safeStr(f.exit.libelle) || 'Date non déterminée')))
                           : (f.val || d[f.key])}
                         <PageJumpIcon item={srcItem} pages={sp} page={resolvedPage}
-                          title={srcAv ? `Voir la page ${resolvedPage} de l'avenant (${srcAv.file_name || 'document source'})` : undefined} />
+                          title={pageFromAvenant ? `Voir la page ${resolvedPage} de l'avenant (${srcAv.file_name || 'document source'})` : undefined} />
                         {isEffetField && !isAv && onSaveManualDateEffet && (
                           <button
                             onClick={() => { setEffetInput(isEffetCond ? '' : (d._dateEffetAffichee || d.date_effet || '')); setEditingEffet(true) }}
