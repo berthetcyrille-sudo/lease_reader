@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '17.10 · loyer déduit'
+const APP_VERSION = '17.10 · fiche synchro'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -8960,6 +8960,24 @@ export default function App() {
 
   // Lien direct/partagé ouvert à froid : appliquer l'URL au montage
   useEffect(() => { applyUrlState() }, [])
+
+  // Fiche ouverte par l'adresse (rechargement, lien direct) : elle est d'abord
+  // chargée SEULE, sans ses avenants (loadItemById). Dès que l'historique
+  // complet est là, on la remplace par sa version complète — sinon la date
+  // d'effet confirmée par avenant, les dates recalculées et les renvois de
+  // page vers l'avenant manquent, selon l'ordre d'arrivée des données (vécu :
+  // présent après F5, absent après Ctrl+Maj+R, ou l'inverse).
+  useEffect(() => {
+    if (!activeItem?.id || !history.length) return
+    let fresh = history.find(b => b.id === activeItem.id)
+    if (!fresh) {
+      for (const b of history) {
+        const a = (b.avenants || []).find(x => x.id === activeItem.id)
+        if (a) { fresh = a; break }
+      }
+    }
+    if (fresh && fresh !== activeItem) setActiveItem(fresh)
+  }, [history, activeItem?.id])
 
   // Boutons précédent/suivant du navigateur
   useEffect(() => {
