@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '18.10 · prix RIE'
+const APP_VERSION = '19.10 · valeurs en base'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -770,6 +770,84 @@ function buildExcelHeaders() {
   return buildExcelColumnGroups().flatMap(g => g.cols)
 }
 
+// VALEURS EN VIGUEUR d'un bail ou d'un avenant — LA source unique des valeurs
+// recalculées : utilisée par l'export Excel ET enregistrée en base
+// (data._valeurs_en_vigueur, voir la synchronisation dans App) pour que toute
+// lecture de la base retrouve ce qui est affiché à l'écran.
+// - bail : état après tous ses avenants ; avenant : état du bail après lui ;
+// - date d'effet : celle du bail si elle existe, sinon celle confirmée par
+//   avenant (condition suspensive) ;
+// - durées : modifiées seulement si elles changent en mois (forme courte) ;
+// - breaks : échéances lues dans le texte, sinon règle du dashboard ;
+// - ventilation du loyer : computeVentilation (même calcul que le tableau) ;
+// - franchises : équivalent en mois de loyer quand la durée ne colle pas.
+function computeValeursEnVigueur(item, parentRow = null) {
+  const isAv = item.document_type === 'avenant'
+  const raw = item.data || {}
+  const mods = isAv ? (raw.champs_modifies || {}) : {}
+  const parentData = parentRow?.data || {}
+  const d = isAv
+    ? Object.fromEntries([...new Set([...Object.keys(parentData), ...Object.keys(mods)])].map(k => [
+        k, (mods[k] !== null && mods[k] !== undefined && !(Array.isArray(mods[k]) && mods[k].length === 0)) ? mods[k] : parentData[k],
+      ]))
+    : raw
+  const eff = !isAv
+    ? ((Array.isArray(item.avenants) && item.avenants.length) ? mergedBailData(item) : raw)
+    : (parentRow ? mergedBailData(parentRow, { throughAvenantId: item.id }) : d)
+  const exits = getExitEvents(eff)
+  const breaks = exits
+    ? exits.map(e => e.date).filter(Boolean)
+    : (eff._breakOptionsFromAvenant
+        ? sanitizeBreakDates(Array.isArray(eff.break_options) ? eff.break_options : [])
+        : filterBreaksByDureeFerme(Array.isArray(eff.break_options) ? eff.break_options : [], eff.date_effet, eff.duree_ferme))
+  const finNorm = normalizeDate(safeStr(eff.date_fin))
+  const dateFin = (finNorm && /^\d{2}\/\d{2}\/\d{4}$/.test(finNorm)) ? finNorm : (computeDateFinFromDuree(eff.date_effet, eff.duree_totale) || finNorm || null)
+  const duree = k => {
+    if (isAv || eff === raw) return safeStr(d[k]) || null
+    const mb = parseDureeMonths(raw[k]), ma = parseDureeMonths(eff[k])
+    if (!ma || ma === mb) return safeStr(raw[k]) || null
+    return `${formatDureeMonths(ma)} (modifiée par avenant — initialement ${mb ? formatDureeMonths(mb) : safeStr(raw[k])})`
+  }
+  const surfaces = computeUnitPrices(Array.isArray(d.surfaces_detail) ? d.surfaces_detail : [], d.parking_nb_places, null)
+  const V = computeVentilation(surfaces, d.parking_nb_places, d.loyer_signature_montant)
+  const compByRow = new Map([...V.mainComputed, ...V.parkComputed].map(x => [x.row, x]))
+  const ventilation = surfaces.map(r => {
+    const c = compByRow.get(r) || {}
+    const q = parseFloat(String(r.surface_m2 || '').replace(/\s/g, '').replace(',', '.'))
+    return {
+      categorie: safeStr(r.categorie) || null,
+      categorie_a_verifier: V.isMiscatRie(r) || undefined,
+      batiment: safeStr(r.batiment) || null,
+      niveau: safeStr(r.niveau) || null,
+      surface: !isNaN(q) ? q : (c.nb || null),
+      prix_unitaire: c.unit != null ? Math.round(c.unit * 100) / 100 : null,
+      loyer_annuel: c.loyer != null ? Math.round(c.loyer) : null,
+      origine: c.loyerSrc || null, // extrait | calcule | reparti | ecart
+    }
+  })
+  const loyerAnnuel = parseAmount(d.loyer_signature_montant) || 0
+  const franchises = (Array.isArray(d.franchise_periodes) ? d.franchise_periodes : []).map(r => {
+    const q = franchiseEquivalence(r, loyerAnnuel)
+    return {
+      date_debut: safeStr(r.date_debut) || null, date_fin: safeStr(r.date_fin) || null,
+      montant: parseAmount(r.montant), duree_extraite: safeStr(r.duree) || null,
+      duree_affichee: q?.incoherent ? `≈ ${fmtMoisFranchise(q.eq)} (sur ${safeStr(r.duree)}, période d'application)` : (safeStr(r.duree) || null),
+      mois_de_loyer: q ? Math.round(q.eq * 10) / 10 : null,
+    }
+  })
+  return {
+    date_effet: isAv ? (safeStr(raw.date_effet_avenant) || null) : (raw.date_effet || eff.date_effet || null),
+    date_fin: dateFin,
+    duree_totale: duree('duree_totale'),
+    duree_ferme: duree('duree_ferme'),
+    break_options: breaks,
+    echeances_sortie: exits ? exits.map(e => ({ date: e.date || null, type: e.type || null, libelle: safeStr(e.libelle) || null, indemnite_sortie: e.indemnite_sortie || null, compensation_maintien: e.compensation_maintien || null })) : null,
+    ventilation_loyer: ventilation,
+    stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
+    franchises,
+  }
+}
+
 function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
   const isAv   = item.document_type === 'avenant'
   const raw    = item.data || {}
@@ -790,29 +868,12 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
   const amt  = (val) => { const n = parseAmount(val); return n !== null ? n : '' }
   const surf = (val) => { const n = parseFloat(String(val || '').replace(',', '.')); return isNaN(n) ? '' : n }
 
-  // Dates EN VIGUEUR, comme à l'écran (fiche et dashboard) : pour un bail,
-  // état après tous ses avenants ; pour un avenant, état du bail après lui.
-  const eff = !isAv
-    ? ((Array.isArray(item.avenants) && item.avenants.length) ? mergedBailData(item) : raw)
-    : (parentRow ? mergedBailData(parentRow, { throughAvenantId: item.id }) : d)
-  const effExits = getExitEvents(eff)
-  const breaks = effExits
-    ? effExits.map(e => e.date).filter(Boolean)
-    : (eff._breakOptionsFromAvenant
-        ? sanitizeBreakDates(Array.isArray(eff.break_options) ? eff.break_options : [])
-        : filterBreaksByDureeFerme(Array.isArray(eff.break_options) ? eff.break_options : [], eff.date_effet, eff.duree_ferme))
-  const finEff = (() => { const f = normalizeDate(safeStr(eff.date_fin)); return (f && /^\d{2}\/\d{2}\/\d{4}$/.test(f)) ? f : (computeDateFinFromDuree(eff.date_effet, eff.duree_totale) || f || '') })()
-  // Durées : comme sur la fiche du bail — modifiée par avenant seulement si la
-  // durée change en mois, affichée sous forme courte avec la valeur d'origine.
-  const dureeAff = k => {
-    if (isAv || eff === raw) return v(d[k])
-    const mb = parseDureeMonths(raw[k]), ma = parseDureeMonths(eff[k])
-    if (!ma || ma === mb) return v(raw[k])
-    return `${formatDureeMonths(ma)} (modifiée par avenant — initialement ${mb ? formatDureeMonths(mb) : v(raw[k])})`
-  }
-  // Date d'effet : celle du bail si elle existe (un renouvellement ne la
-  // réécrit pas), sinon celle confirmée par avenant (condition suspensive).
-  const effetBail = raw.date_effet || eff.date_effet
+  // Valeurs recalculées : LA fonction commune (aussi enregistrée en base)
+  const VV = computeValeursEnVigueur(item, parentRow)
+  const breaks = VV.break_options || []
+  const finEff = VV.date_fin || ''
+  const dureeAff = k => VV[k] || ''
+  const effetBail = VV.date_effet
   const franchise = Array.isArray(d.franchise_periodes)     ? d.franchise_periodes     : []
   const indem     = Array.isArray(d.indemnites)             ? d.indemnites             : []
   const surfaces  = Array.isArray(d.surfaces_detail)        ? d.surfaces_detail        : []
@@ -833,30 +894,23 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
   const breakVals = Array.from({ length: MAX_BREAKS },    (_, i) => v(breaks[i]) )
   const fracVals  = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
     v(franchise[i]?.date_debut), v(franchise[i]?.date_fin),
-    (() => { const r = franchise[i]; if (!r) return ''; const q = franchiseEquivalence(r, parseAmount(d.loyer_signature_montant) || 0); return q?.incoherent ? `≈ ${fmtMoisFranchise(q.eq)} (sur ${v(r.duree)}, période d'application)` : v(r.duree) })(),
+    (VV.franchises || [])[i]?.duree_affichee || '',
     v(franchise[i]?.surface_assiette), amt(franchise[i]?.montant), v(franchise[i]?.indexation_incluse), v(franchise[i]?.condition),
   ]).flat()
   const indemVals = Array.from({ length: MAX_INDEM },     (_, i) => [
     v(indem[i]?.motif), v(indem[i]?.due_par), amt(indem[i]?.montant), v(indem[i]?.date_limite),
   ]).flat()
   // Enrich surfaces with computed prix_unitaire
-  const surfEnriched = computeUnitPrices(surfaces, d.parking_nb_places, null)
-  // Même ventilation que le tableau de la fiche (computeVentilation)
-  const V = computeVentilation(surfEnriched, d.parking_nb_places, d.loyer_signature_montant)
-  const compByRow = new Map([...V.mainComputed, ...V.parkComputed].map(x => [x.row, x]))
   const surfVals  = Array.from({ length: MAX_SURF },      (_, i) => {
-    const r = surfEnriched[i]
+    const r = (VV.ventilation_loyer || [])[i]
     if (!r) return ['', '', '', '', '']
-    const c = compByRow.get(r) || {}
-    const qty = surf(r.surface_m2) !== '' ? surf(r.surface_m2) : (c.nb || '')
     return [
-      v(r.categorie) + (V.isMiscatRie(r) ? ' (catégorie à vérifier)' : ''),
-      [safeStr(r.batiment), safeStr(r.niveau)].filter(Boolean).join(' — '),
-      qty, c.unit != null ? Math.round(c.unit * 100) / 100 : '', c.loyer != null ? Math.round(c.loyer) : '',
+      (r.categorie || '') + (r.categorie_a_verifier ? ' (catégorie à vérifier)' : ''),
+      [r.batiment, r.niveau].filter(Boolean).join(' — '),
+      r.surface ?? '', r.prix_unitaire ?? '', r.loyer_annuel ?? '',
     ]
   }).flat()
-  // Parking unit price — celui du tableau quand il n'y a qu'une ligne de stationnement
-  const pkUnit = (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : computeParkingUnitPrice(d.parking_nb_places, surfaces)
+  const pkUnit = VV.stationnement_prix_unitaire
   const travVals  = Array.from({ length: MAX_TRAV },      (_, i) => [
     v(trav[i]?.libelle), amt(trav[i]?.montant), v(trav[i]?.date_limite),
   ]).flat()
@@ -2058,7 +2112,7 @@ async function callClaudeChat(messages, timeoutMs = 60000) {
 // pour ne plus dépendre d'une liste tenue à jour à la main à chaque nouveau
 // champ ajouté au prompt d'extraction (cause du manque sur
 // participations_travaux, repéré en test).
-const PORTFOLIO_CHAT_EXCLUDED_KEYS = new Set(['_sources', '_pages', 'preneur_substitution', '_qc_dismissed', '_archived', '_avant_saisie_effet'])
+const PORTFOLIO_CHAT_EXCLUDED_KEYS = new Set(['_sources', '_pages', 'preneur_substitution', '_qc_dismissed', '_archived', '_avant_saisie_effet', '_valeurs_en_vigueur'])
 function stripInternalFields(obj) {
   const out = {}
   Object.keys(obj || {}).forEach(k => {
@@ -2092,8 +2146,16 @@ function buildPortfolioSummaryForChat(history, { truncate = true } = {}) {
     .filter(row => row.document_type === 'bail' && !row.data?._archived)
     .map(b => {
       const d = b.data || {}
+      // Valeurs en vigueur (après avenants, recalculées) quand elles existent —
+      // l'Assistant répond ainsi sur les mêmes dates que la fiche.
+      const vv = d._valeurs_en_vigueur
+      const enVigueur = vv ? {
+        date_effet: vv.date_effet || d.date_effet, date_fin: vv.date_fin, duree_totale: vv.duree_totale, duree_ferme: vv.duree_ferme,
+        break_options: vv.break_options, echeances_sortie: vv.echeances_sortie || undefined,
+      } : {}
       const full = {
         ...stripInternalFields(d),
+        ...enVigueur,
         immeuble: d.immeuble || d.adresse || b.file_name,
         actif: b.actif_group,
         preneur: d.preneur_substitution || d.preneur,
@@ -9219,6 +9281,60 @@ export default function App() {
   useEffect(() => { applyUrlState() }, [])
 
   useEffect(() => { setFicheReextractMsg(null) }, [activeItem?.id])
+
+  // ── Synchronisation des VALEURS EN VIGUEUR en base ──────────────────────
+  // Les valeurs recalculées (dates après avenants, ventilation du loyer,
+  // mois de franchise…) sont enregistrées dans data._valeurs_en_vigueur de
+  // chaque bail et avenant, pour que toute lecture de la base (export, autre
+  // outil, requête directe) retrouve ce qui est affiché. Recalcul à chaque
+  // chargement et après chaque modification ; seuls les documents dont les
+  // valeurs ont changé sont réécrits. Aucun appel à l'API Claude.
+  const syncRunningRef = useRef(false)
+  useEffect(() => {
+    if (!history.length) return
+    const timer = setTimeout(async () => {
+      if (syncRunningRef.current) return
+      const stripVV = data => { const { _valeurs_en_vigueur, ...rest } = data || {}; return rest }
+      const todo = []
+      history.forEach(b => {
+        if (b.document_type !== 'bail') return
+        const check = (row, parent) => {
+          let snap
+          try { snap = computeValeursEnVigueur(row, parent) } catch (e) { console.warn('Valeurs en vigueur non calculables', row.id, e); return }
+          const { calcule_le, ...stored } = row.data?._valeurs_en_vigueur || {}
+          if (JSON.stringify(stored) !== JSON.stringify(snap)) todo.push({ row, snap })
+        }
+        check(b, null)
+        ;(b.avenants || []).forEach(av => check(av, b))
+      })
+      if (!todo.length) return
+      syncRunningRef.current = true
+      const updated = new Map()
+      try {
+        for (let i = 0; i < todo.length; i += 5) {
+          await Promise.all(todo.slice(i, i + 5).map(async ({ row, snap }) => {
+            // Relecture juste avant d'écrire : si le document a été modifié
+            // entre-temps (saisie manuelle, réextraction), on ne l'écrase pas —
+            // le prochain passage recalculera sur la version à jour.
+            const { data: fresh } = await supabase.from('extractions').select('data').eq('id', row.id).maybeSingle()
+            if (!fresh || JSON.stringify(stripVV(fresh.data)) !== JSON.stringify(stripVV(row.data))) return
+            const data = { ...fresh.data, _valeurs_en_vigueur: { ...snap, calcule_le: new Date().toISOString() } }
+            const { error } = await supabase.from('extractions').update({ data }).eq('id', row.id)
+            if (!error) updated.set(row.id, data)
+          }))
+        }
+      } finally {
+        syncRunningRef.current = false
+      }
+      if (updated.size) {
+        setHistory(prev => prev.map(b => ({
+          ...(updated.has(b.id) ? { ...b, data: updated.get(b.id) } : b),
+          avenants: (b.avenants || []).map(a => updated.has(a.id) ? { ...a, data: updated.get(a.id) } : a),
+        })))
+      }
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [history])
 
   // Fiche ouverte par l'adresse (rechargement, lien direct) : elle est d'abord
   // chargée SEULE, sans ses avenants (loadItemById). Dès que l'historique
