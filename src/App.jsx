@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · tag conditionnelle'
+const APP_VERSION = '19.10 · franchises recalées'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -827,10 +827,25 @@ function computeValeursEnVigueur(item, parentRow = null) {
     }
   })
   const loyerAnnuel = parseAmount(d.loyer_signature_montant) || 0
-  const franchises = (Array.isArray(d.franchise_periodes) ? d.franchise_periodes : []).map(r => {
+  // Franchises EN VIGUEUR (recalées si un avenant a décalé la prise d'effet)
+  // Même règle que la fiche : pour un bail, ses propres franchises, ou celles
+  // de l'état en vigueur si elles ont été RECALÉES ; pour un avenant, les
+  // siennes s'il en accorde, sinon celles en vigueur après lui.
+  const pickList = key => {
+    const own = Array.isArray(d[key]) ? d[key] : []
+    const vig = Array.isArray(eff[key]) ? eff[key] : []
+    if (!isAv) return vig.some(r => r?._recale) ? vig : own
+    const modsList = Array.isArray(mods[key]) ? mods[key] : []
+    return modsList.length ? modsList : (vig.length ? vig : own)
+  }
+  const frSrc = pickList('franchise_periodes')
+  const abSrc = pickList('abattements')
+  const franchises = frSrc.map(r => {
     const q = franchiseEquivalence(r, loyerAnnuel)
     return {
       date_debut: safeStr(r.date_debut) || null, date_fin: safeStr(r.date_fin) || null,
+      recalee: r._recale || undefined, dates_origine: r._dates_origine || undefined,
+      surface_assiette: safeStr(r.surface_assiette) || null, indexation_incluse: safeStr(r.indexation_incluse) || null,
       montant: parseAmount(r.montant), duree_extraite: safeStr(r.duree) || null,
       duree_affichee: q?.incoherent ? `≈ ${fmtMoisFranchise(q.eq)} (sur ${safeStr(r.duree)}, période d'application)` : (safeStr(r.duree) || null),
       mois_de_loyer: q ? Math.round(q.eq * 10) / 10 : null,
@@ -838,7 +853,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
       condition: cleanTxt(r.condition) || null,
     }
   })
-  const fTot = franchiseTotals(mergeLoyerReductions(d.franchise_periodes, d.abattements), loyerAnnuel)
+  const fTot = franchiseTotals(mergeLoyerReductions(frSrc, abSrc), loyerAnnuel)
   return {
     date_effet: isAv ? (safeStr(raw.date_effet_avenant) || null) : (raw.date_effet || eff.date_effet || null),
     date_fin: dateFin,
@@ -850,6 +865,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
     franchises,
+    abattements: abSrc.map(r => ({ date_debut: safeStr(r.date_debut) || null, date_fin: safeStr(r.date_fin) || null, montant_annuel: parseAmount(r.montant_annuel), description: safeStr(r.description) || null, recale: r._recale || undefined })),
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: Math.round(fTot.acquise.montant) },
     franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: Math.round(fTot.conditionnelle.montant) },
   }
@@ -899,12 +915,13 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
     : (Array.isArray(d.indemnites_break) ? d.indemnites_break : []).map(r => ({ ...r, break_date: resolveIndemnityBreakDate(r, d) || r.break_date }))
 
   const breakVals = Array.from({ length: MAX_BREAKS },    (_, i) => v(breaks[i]) )
-  const fracVals  = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
-    v(franchise[i]?.date_debut), v(franchise[i]?.date_fin),
-    (VV.franchises || [])[i]?.duree_affichee || '',
-    v(franchise[i]?.surface_assiette), amt(franchise[i]?.montant), v(franchise[i]?.indexation_incluse),
-    (() => { const f = (VV.franchises || [])[i]; if (!f) return ''; return f.conditionnelle ? `Conditionnelle — ${f.condition || ''}` : (f.condition || '') })(),
-  ]).flat()
+  // Franchises en vigueur (recalées le cas échéant) — les mêmes qu'à l'écran et en base
+  const fracVals  = Array.from({ length: MAX_FRANCHISE }, (_, i) => {
+    const f = (VV.franchises || [])[i]
+    if (!f) return ['', '', '', '', '', '', '']
+    return [f.date_debut || '', f.date_fin || '', f.duree_affichee || '', f.surface_assiette || '', f.montant ?? '', f.indexation_incluse || '',
+      (f.conditionnelle ? `Conditionnelle — ${f.condition || ''}` : (f.condition || '')) + (f.recalee ? ` [dates recalées, origine ${f.dates_origine?.date_debut || '?'}]` : '')]
+  }).flat()
   const indemVals = Array.from({ length: MAX_INDEM },     (_, i) => [
     v(indem[i]?.motif), v(indem[i]?.due_par), amt(indem[i]?.montant), v(indem[i]?.date_limite),
   ]).flat()
@@ -925,9 +942,11 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
   const palierVals = Array.from({ length: MAX_PALIERS },   (_, i) => [
     v(paliers[i]?.date_debut), v(paliers[i]?.date_fin), amt(paliers[i]?.montant), v(paliers[i]?.description),
   ]).flat()
-  const abatVals   = Array.from({ length: MAX_ABAT },      (_, i) => [
-    v(abats[i]?.date_debut), v(abats[i]?.date_fin), amt(abats[i]?.montant_annuel), v(abats[i]?.description),
-  ]).flat()
+  const abatVals   = Array.from({ length: MAX_ABAT },      (_, i) => {
+    const a = (VV.abattements || [])[i]
+    if (!a) return ['', '', '', '']
+    return [a.date_debut || '', a.date_fin || '', a.montant_annuel ?? '', (a.description || '') + (a.recale ? ' [dates recalées]' : '')]
+  }).flat()
   const ibVals     = Array.from({ length: MAX_IB },        (_, i) => [
     v(ibs[i]?.break_date), v(ibs[i]?.motif), amt(ibs[i]?.montant), v(ibs[i]?.calcul),
   ]).flat()
@@ -2798,6 +2817,8 @@ function mergeLoyerReductions(franchisePeriodes, abattements) {
       condition: r.description || null,
       page: r.page ?? null,
       _type: 'abattement',
+      _recale: r._recale || undefined,
+      _dates_origine: r._dates_origine || undefined,
     }
   })
   return [...frTagged, ...abAsFranchiseRows].sort((a, b) => {
@@ -2943,8 +2964,8 @@ function FranchiseTable({ periodes, item, loyerAnnuel }) {
                   </span>
                 )}
               </td>
-              <td>{row.date_debut || '—'}</td>
-              <td>{row.date_fin || '—'}</td>
+              <td title={row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_debut || '—'}` : undefined}>{row.date_debut || '—'}{row._recale && <span style={{ color: 'var(--accent)', marginLeft: '3px', fontSize: '11px' }}>↻</span>}</td>
+              <td title={row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_fin || '—'}` : undefined}>{row.date_fin || '—'}</td>
               <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>
                 {incoherentDuree(row) ? (
                   <span title="Le montant exonéré ne correspond pas à la durée extraite : celle-ci est la période d'application de la franchise. Valeur affichée = montant exonéré ÷ loyer mensuel.">
@@ -3730,6 +3751,51 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
     if (!fin) fin = computeDateFinFromDuree(base.date_effet, base.duree_totale)
     if (fin) { base.date_fin = fin; if (av && base._src) base._src.date_fin = av }
   }
+  // 1bis) Franchises et abattements calés sur la prise d'effet ou ses dates
+  // anniversaires : ils glissent avec elle — SEULEMENT quand la nouvelle date
+  // reste dans la période du bail d'origine (livraison décalée, condition
+  // suspensive levée plus tard), jamais pour un renouvellement (les franchises
+  // d'origine appartiennent à l'ancienne période). Une période fixée au
+  // calendrier ("4e trimestre 2025") ne bouge pas. Si l'avenant redéfinit ses
+  // propres franchises/abattements, ce sont les siens qui font foi.
+  if (effetChanged) {
+    const pE = parseFR(nd(prev.date_effet)), nE = parseFR(nd(base.date_effet)), pF = parseFR(nd(prev.date_fin))
+    const memeBail = pE && nE && (!pF || nE < pF) && Math.abs(nE - pE) < 3 * 365 * day
+    if (memeBail) {
+      const CALENDAIRE = /trimestre\s+(19|20)\d{2}|(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)\s+(19|20)\d{2}|annee\s+(19|20)\d{2}|exercice\s+(19|20)\d{2}/
+      const shiftList = key => {
+        if (has(key) || !Array.isArray(base[key]) || !base[key].length) return
+        let moved = false
+        const list = base[key].map(r => {
+          const dDeb = parseFR(nd(r?.date_debut)), dFin = parseFR(nd(r?.date_fin))
+          if (!dDeb) return r
+          const txt = stripAccents(`${safeStr(r.condition) || ''} ${safeStr(r.description) || ''}`).toLowerCase()
+          if (CALENDAIRE.test(txt)) return r
+          // Calée sur la prise d'effet ou l'une de ses dates anniversaires (± 3 j) ?
+          let calee = false
+          for (let y = 0; y <= 12 && !calee; y++) {
+            const ann = new Date(pE.getFullYear() + y, pE.getMonth(), pE.getDate())
+            if (Math.abs(Math.round((dDeb - ann) / day)) <= 3) calee = true
+          }
+          if (!calee) return r
+          // Même écart CALENDAIRE que la prise d'effet (ex. +6 mois), appliqué au
+          // début et à la fin — un écart en jours décalerait selon la longueur
+          // des mois.
+          const md = (nE.getFullYear() - pE.getFullYear()) * 12 + (nE.getMonth() - pE.getMonth())
+          const dd = nE.getDate() - pE.getDate()
+          const shiftCal = x => new Date(x.getFullYear(), x.getMonth() + md, x.getDate() + dd)
+          const newDeb = shiftCal(dDeb)
+          const newFin = dFin ? shiftCal(dFin) : null
+          moved = true
+          return { ...r, date_debut: fmtFR(newDeb), date_fin: newFin ? fmtFR(newFin) : r.date_fin, _recale: true, _dates_origine: { date_debut: r.date_debut, date_fin: r.date_fin } }
+        })
+        if (moved) { base[key] = list; if (av && base._src) base._src[key] = av }
+      }
+      shiftList('franchise_periodes')
+      shiftList('abattements')
+    }
+  }
+
   // L'avenant redonne ses échéances : elles font foi, rien à recalculer —
   // SAUF s'il réécrit l'article Durée avec son départ ET stipule le rythme
   // triennal simple ("à l'expiration de chaque période triennale", sans
@@ -4354,7 +4420,15 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   // (parentBailData = état du bail après cet avenant, dates recalculées).
   let avDatesRecalculees = false
   let avDateEffetRappel = false
+  let avFranchisesRecalees = false
   if (isAv && parentBailData) {
+    const ownFr = (Array.isArray(d.franchise_periodes) && d.franchise_periodes.length) || (Array.isArray(d.abattements) && d.abattements.length)
+    const parentRecale = [...(parentBailData.franchise_periodes || []), ...(parentBailData.abattements || [])].some(r => r?._recale)
+    if (!ownFr && parentRecale) {
+      d.franchise_periodes = parentBailData.franchise_periodes || []
+      d.abattements = parentBailData.abattements || []
+      avFranchisesRecalees = true
+    }
     if (d.duree_ferme == null) d.duree_ferme = parentBailData.duree_ferme
     if (d.conditions_break == null) d.conditions_break = parentBailData.conditions_break
     const changeDates = !!(d.duree_totale || d.date_effet)
@@ -4433,6 +4507,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   const dateChanges = {}
   let renouvellement = null // { av, date } quand un avenant fixe une nouvelle période sur un bail déjà daté
   let dateSrc = {} // champ → avenant d'où vient la valeur affichée (voir mergedBailData)
+  let franchisesRecalees = null // avenant ayant décalé la prise d'effet (franchises recalées)
   if (!isAv && Array.isArray(item.avenants) && item.avenants.length > 0) {
     const merged = mergedBailData(item)
     dateSrc = merged._src || {}
@@ -4474,6 +4549,11 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     })
     if (Array.isArray(merged.echeances_sortie)) d.echeances_sortie = merged.echeances_sortie
     else delete d.echeances_sortie
+    // Franchises / abattements recalés suite à un décalage de la prise d'effet
+    // (seulement des lignes RECALÉES — des franchises accordées par un avenant
+    // restent présentées sur la fiche de cet avenant, comme aujourd'hui)
+    if (Array.isArray(merged.franchise_periodes) && merged.franchise_periodes.some(r => r?._recale)) { d.franchise_periodes = merged.franchise_periodes; franchisesRecalees = dateSrc.franchise_periodes || null }
+    if (Array.isArray(merged.abattements) && merged.abattements.some(r => r?._recale)) { d.abattements = merged.abattements; franchisesRecalees = franchisesRecalees || dateSrc.abattements || null }
     breaksFromAvenant = !!merged._breakOptionsFromAvenant
     breaksFromAvenantSansFerme = breaksFromAvenant && !merged._dureeFermeFromAvenant
   }
@@ -5344,7 +5424,13 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
               <div style={{ marginTop: '8px' }}>
                 {merged.length > 0 && (
                   <div style={{ marginBottom: '4px' }}>
-                    <div className="field-lbl" style={{ marginBottom: '6px', marginTop: '24px' }}>Franchises & abattements de loyer</div>
+                    <div className="field-lbl" style={{ marginBottom: '6px', marginTop: '24px' }}>{avFranchisesRecalees ? 'Franchises & abattements en vigueur après cet avenant' : 'Franchises & abattements de loyer'}</div>
+                    {(franchisesRecalees || avFranchisesRecalees) && merged.some(r => r._recale) && (
+                      <div style={{ fontSize: '12px', color: 'var(--accent)', marginBottom: '8px' }}>
+                        Dates recalées suite au décalage de la prise d'effet{franchisesRecalees?.data?.date_signature_avenant ? ` (avenant du ${franchisesRecalees.data.date_signature_avenant})` : ''} — les franchises calées sur la prise d'effet ou ses dates anniversaires ont glissé d'autant ; celles fixées au calendrier sont inchangées.
+                        {merged.some(r => r._recale && /\d{2}\/\d{2}\/\d{4}/.test(String(r.condition || ''))) && ' Attention : une condition cite encore la date d\'origine.'}
+                      </div>
+                    )}
                     <FranchiseTable periodes={merged} item={item} loyerAnnuel={parseAmount(d.loyer_signature_montant) || 0} />
                   </div>
                 )}
