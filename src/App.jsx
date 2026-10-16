@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '18.10 · ancien RIE'
+const APP_VERSION = '18.10 · durée concise'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1274,6 +1274,13 @@ function fmtSurface(v, { round = false } = {}) {
   if (isNaN(n)) return `${v} m²`
   const dec = round || Number.isInteger(n) ? 0 : 2
   return `${n.toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec })} m²`
+}
+// Durée en mois → forme courte : "9 ans", "1 an", "9 ans et 2 mois", "18 mois"
+function formatDureeMonths(m) {
+  if (!m) return null
+  const y = Math.floor(m / 12), mo = Math.round(m % 12)
+  if (!y) return `${mo} mois`
+  return `${y} an${y > 1 ? 's' : ''}${mo ? ` et ${mo} mois` : ''}`
 }
 function computeDateFinFromDuree(date_effet_str, duree_totale_str) {
   const effet = parseFR(date_effet_str)
@@ -4212,6 +4219,18 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     }
     ;['date_effet', 'date_fin', 'duree_totale', 'duree_ferme', 'break_options'].forEach(k => {
       const before = d[k], after = merged[k]
+      if (k === 'duree_totale' || k === 'duree_ferme') {
+        // Durées : comparées en MOIS, pas en texte — un avenant qui reformule
+        // la même durée ("9 années entières et consécutives, dont 6 fermes, du
+        // 1er mars 2021 au 28 février 2030") ne la modifie pas. Si elle change,
+        // affichage court ("12 ans") ; le texte complet reste en base (il sert
+        // au recalcul : date de départ rappelée).
+        const mb = parseDureeMonths(before), ma = parseDureeMonths(after)
+        if (!ma || ma === mb) return
+        if (before != null) dateChanges[k] = mb ? formatDureeMonths(mb) : before
+        d[k] = formatDureeMonths(ma)
+        return
+      }
       if (JSON.stringify(after ?? null) !== JSON.stringify(before ?? null)) {
         if (before != null && !(Array.isArray(before) && before.length === 0)) dateChanges[k] = before
         d[k] = after
