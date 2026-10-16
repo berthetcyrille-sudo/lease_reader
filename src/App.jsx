@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · total franchise exact'
+const APP_VERSION = '19.10 · ordre avenants'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -175,7 +175,7 @@ surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet ave
 BATIMENT (surfaces_delta, surfaces_avant, surfaces_apres, et surfaces_detail le cas echeant): chaque ligne porte un champ "batiment" = nom ou identifiant du batiment auquel appartient la surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes (ex: "Pascal", "Batiment A") — null sinon, ne jamais inventer. Independant de "niveau" (l'etage au sein du batiment).
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie DANS LE MEME BATIMENT (ex: 2 lignes Bureaux du meme batiment → une seule ligne avec la surface totale) — ne jamais fusionner des surfaces de batiments differents, elles restent sur des lignes distinctes. NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"numero_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
 REGLES POUR date_effet_avenant / date_signature_avenant (champs top-level, PAS dans champs_modifies) :
 - date_signature_avenant: chercher SYSTEMATIQUEMENT cette date dans TOUT le document, meme quand l'avenant ne modifie pas date_effet — c'est elle qui sert a classer chronologiquement les avenants d'un meme bail entre eux quand aucune date d'effet propre n'est disponible (voir date_effet_avenant ci-dessous). Se trouve generalement en toute fin d'acte (bloc de signature "Fait a ..., le [date]", juste avant les annexes), mais peut aussi figurer sur un certificat de signature electronique separe (DocuSign, Yousign ou equivalent) si le PDF en contient un. Si les parties signent a des dates differentes, retenir la DERNIERE date de signature. null UNIQUEMENT si aucune date n'est identifiable nulle part dans le document (ligne "Fait le" laissee vierge, page de signature absente du PDF fourni).
@@ -195,6 +195,7 @@ REGLES PAR CHAMP (champs_modifies):
 - conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","date_limite_levee":"jj/mm/aaaa ou null","statut":"levee/en cours/non precise","page":2}]. date_limite_levee: meme regle que dans le prompt d'extraction du bail — chercher systematiquement cette date (ou la calculer si exprimee en delai relatif depuis la date de l'avenant). Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
+- numero_avenant: numero de l'avenant tel qu'ecrit dans son titre ou en tete (ex: \"Avenant n°3 au bail\" → 3), en chiffre. null si l'avenant n'est pas numerote. Ne pas le deduire de l'ordre des autres avenants.
 - _pages: objet AU MEME NIVEAU que champs_modifies (pas dedans) avec le numero de PAGE du PDF ou se trouve chaque champ RENSEIGNE (non-null) de champs_modifies, plus objet_avenant, date_effet_avenant et date_signature_avenant si applicable. Format: {"loyer_signature_montant":2,"date_effet_avenant":1,"objet_avenant":1}. Ne pas inclure les champs restes null.`
 
 // Injecte dans le prompt avenant ce qui est DEJA connu du bail d'origine
@@ -1107,8 +1108,7 @@ function exportAllToExcel(tree, onErrors, selectedCols = null) {
     rows.push({ item: bail, parentName: '', parentData: null, statut: 'OK' })
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
       const toS = d => { const m = String(d||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d||'') }
-      return toS(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
-            .localeCompare(toS(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at))
+      return compareAvenants(a, b)
     })
     sortedAv.forEach(av => rows.push({ item: av, parentName, parentData, parentRow: bail, statut: 'OK' }))
   })
@@ -3552,6 +3552,29 @@ function auditBail(row) {
     }
   }
 
+  // 2quater. Avenants : numéro déclaré (titre, nom de fichier) contraire à
+  // l'ordre des dates de signature — date de signature mal extraite, erreur
+  // de numérotation, ou avenant manquant entre deux autres.
+  {
+    const avs = (Array.isArray(row.avenants) ? row.avenants : []).filter(a => !a.data?._archived)
+    if (avs.length > 0) {
+      const sorted = [...avs].sort(compareAvenants)
+      const ecarts = sorted.map((a, i) => ({ a, rang: i + 1, num: avenantNumeroDeclare(a) })).filter(x => x.num && x.num !== x.rang)
+      if (ecarts.length) issues.push({
+        type: 'avenants_ordre',
+        severity: 'medium',
+        detail: ecarts.map(x => `l'avenant n°${x.num} (signé le ${normalizeDate(safeStr(x.a.data?.date_signature_avenant)) || 'date non trouvée'}) arrive en position ${x.rang} par date de signature`).join(' ; ')
+          + ' — vérifier les dates de signature extraites, la numérotation, ou s\'il manque un avenant.',
+      })
+      const sansDate = avs.filter(a => !normalizeDate(safeStr(a.data?.date_signature_avenant)))
+      if (sansDate.length) issues.push({
+        type: 'avenant_sans_signature',
+        severity: 'low',
+        detail: `${sansDate.length} avenant(s) sans date de signature extraite (${sansDate.map(a => a.data?.objet_avenant ? safeStr(a.data.objet_avenant).slice(0, 40) : a.file_name).join(' ; ')}) — classé(s) par date d'effet à défaut.`,
+      })
+    }
+  }
+
   // 2ter. Franchise : total annoncé par la clause ≠ somme du tableau
   {
     const ec = franchiseEcartAnnonce(d)
@@ -3991,6 +4014,26 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
   }
 }
 
+// ORDRE DES AVENANTS — règle unique (numérotation, calcul de l'état en
+// vigueur, export, navigation) : date de SIGNATURE, à défaut date d'effet, à
+// défaut date de dépôt dans l'appli.
+const toSortableDateAv = v => { const m = String(v || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(v || '') }
+function avenantSortKey(av) {
+  return toSortableDateAv(normalizeDate(safeStr(av?.data?.date_signature_avenant)) || normalizeDate(safeStr(av?.data?.date_effet_avenant)) || av?.created_at || '')
+}
+function compareAvenants(a, b) { return avenantSortKey(a).localeCompare(avenantSortKey(b)) }
+// Numéro d'avenant déclaré dans le document : champ extrait, sinon titre
+// (objet) ou nom du fichier ("Avenant n°3", "Avenant 2"…). null si absent.
+function avenantNumeroDeclare(av) {
+  const n = parseInt(av?.data?.numero_avenant)
+  if (n > 0) return n
+  for (const src of [av?.data?.objet_avenant, av?.file_name]) {
+    const m = stripAccents(String(src || '')).match(/avenant\s*(?:n\s*[°o]?\s*\.?\s*|numero\s*)?(\d{1,2})\b/i)
+    if (m) return parseInt(m[1])
+  }
+  return null
+}
+
 // État du bail après ses avenants, dans l'ordre chronologique. Avec
 // beforeAvenantId : état juste AVANT cet avenant (les avenants qui le
 // précèdent sont appliqués, lui et les suivants non) — c'est sur cet état
@@ -4008,8 +4051,8 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
     return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '')
   }
   const avs = [...(row.avenants || [])].sort((a, b) => {
-    const ka = toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
-    const kb = toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)
+    const ka = avenantSortKey(a)
+    const kb = avenantSortKey(b)
     return ka.localeCompare(kb)
   })
   for (const av of avs) {
@@ -4627,8 +4670,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     dateSrc = merged._src || {}
     const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
     ;[...item.avenants].sort((a, b) =>
-      toSortableAv(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
-        .localeCompare(toSortableAv(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at)))
+      compareAvenants(a, b))
       .forEach(av => { if (av.data?.champs_modifies?.date_effet) effetConfirmePar = av })
     // Date d'effet : un avenant ne REMPLIT la date d'effet du bail que si elle
     // était inconnue (bail sous condition suspensive, BEFA). Si le bail avait
@@ -5465,7 +5507,11 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         </div>
       )}
       {/* Loyer */}
-      {(show('loyer_signature_montant') || (!isAv && d.surfaces_detail?.length > 0)) && (
+      {(show('loyer_signature_montant') || (!isAv && d.surfaces_detail?.length > 0)
+        // Avenant qui accorde des franchises/abattements, ou dont les franchises
+        // du bail ont été recalées (prise d'effet décalée), sans modifier le
+        // loyer : la section doit s'afficher pour montrer le tableau.
+        || (isAv && (avFranchisesRecalees || (Array.isArray(d.franchise_periodes) && d.franchise_periodes.length > 0) || (Array.isArray(d.abattements) && d.abattements.length > 0)))) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Loyer</div></div>
           {d.loyer_signature_montant && (
@@ -5554,7 +5600,14 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                         {merged.some(r => r._recale && /\d{2}\/\d{2}\/\d{4}/.test(String(r.condition || ''))) && ' Attention : une condition cite encore la date d\'origine.'}
                       </div>
                     )}
-                    <FranchiseTable periodes={merged} item={item} loyerAnnuel={parseAmount(d.loyer_signature_montant) || 0} rieLoyer={rieLoyerAnnuel(d.surfaces_detail, d.parking_nb_places, d.loyer_signature_montant)} />
+                    {(() => {
+                      // Avenant qui ne modifie pas le loyer : loyer et surfaces EN
+                      // VIGUEUR du bail pour calculer les mois de loyer exonérés.
+                      const loyerRef = d.loyer_signature_montant || (isAv ? parentBailData?.loyer_signature_montant : null)
+                      const surfRef = (Array.isArray(d.surfaces_detail) && d.surfaces_detail.length) ? d.surfaces_detail : (isAv ? parentBailData?.surfaces_detail : null)
+                      const parkRef = d.parking_nb_places || (isAv ? parentBailData?.parking_nb_places : null)
+                      return <FranchiseTable periodes={merged} item={item} loyerAnnuel={parseAmount(loyerRef) || 0} rieLoyer={rieLoyerAnnuel(surfRef, parkRef, loyerRef)} />
+                    })()}
                   </div>
                 )}
                 {d.franchise
@@ -8079,8 +8132,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       return s
     }
     const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
-      const da = toSortable(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at || '')
-      const db = toSortable(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at || '')
+      const da = avenantSortKey(a)
+      const db = avenantSortKey(b)
       return da.localeCompare(db)
     })
     const avRows = sortedAv.map((av, idx) => ({
@@ -8728,7 +8781,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             // champ, le DERNIER avenant (par ordre chronologique) qui l'a
             // effectivement modifié, pour afficher un petit repère dessus.
             const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
-            const avKeyLocal = av => toSortableAv(av.data?.date_effet_avenant || av.data?.date_signature_avenant || av.created_at)
+            const avKeyLocal = av => avenantSortKey(av)
             const sortedAvenantsForOverride = !isAv ? (row.avenants || []).slice().sort((a, b) => avKeyLocal(a).localeCompare(avKeyLocal(b))) : []
             const lastOverride = field => {
               for (let k = sortedAvenantsForOverride.length - 1; k >= 0; k--) {
@@ -10546,7 +10599,7 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
               const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
               return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '')
             }
-            const avKey = av => toSortable(av.data?.date_effet_avenant || av.data?.date_signature_avenant || av.created_at)
+            const avKey = av => avenantSortKey(av)
             let avNav = null
             if (activeItem.document_type === 'bail' && activeItem.avenants?.length > 0) {
               const sorted = [...activeItem.avenants].sort((a, b) => avKey(a).localeCompare(avKey(b)))
