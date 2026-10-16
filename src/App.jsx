@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '18.10 · loyer réparti'
+const APP_VERSION = '18.10 · écart réparti'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -770,7 +770,7 @@ function buildExcelHeaders() {
   return buildExcelColumnGroups().flatMap(g => g.cols)
 }
 
-function buildExcelRow(item, bailParentName, bailParentData) {
+function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
   const isAv   = item.document_type === 'avenant'
   const raw    = item.data || {}
   const mods   = isAv ? (raw.champs_modifies || {}) : {}
@@ -790,7 +790,29 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   const amt  = (val) => { const n = parseAmount(val); return n !== null ? n : '' }
   const surf = (val) => { const n = parseFloat(String(val || '').replace(',', '.')); return isNaN(n) ? '' : n }
 
-  const breaks    = Array.isArray(d.break_options)          ? d.break_options          : []
+  // Dates EN VIGUEUR, comme à l'écran (fiche et dashboard) : pour un bail,
+  // état après tous ses avenants ; pour un avenant, état du bail après lui.
+  const eff = !isAv
+    ? ((Array.isArray(item.avenants) && item.avenants.length) ? mergedBailData(item) : raw)
+    : (parentRow ? mergedBailData(parentRow, { throughAvenantId: item.id }) : d)
+  const effExits = getExitEvents(eff)
+  const breaks = effExits
+    ? effExits.map(e => e.date).filter(Boolean)
+    : (eff._breakOptionsFromAvenant
+        ? sanitizeBreakDates(Array.isArray(eff.break_options) ? eff.break_options : [])
+        : filterBreaksByDureeFerme(Array.isArray(eff.break_options) ? eff.break_options : [], eff.date_effet, eff.duree_ferme))
+  const finEff = (() => { const f = normalizeDate(safeStr(eff.date_fin)); return (f && /^\d{2}\/\d{2}\/\d{4}$/.test(f)) ? f : (computeDateFinFromDuree(eff.date_effet, eff.duree_totale) || f || '') })()
+  // Durées : comme sur la fiche du bail — modifiée par avenant seulement si la
+  // durée change en mois, affichée sous forme courte avec la valeur d'origine.
+  const dureeAff = k => {
+    if (isAv || eff === raw) return v(d[k])
+    const mb = parseDureeMonths(raw[k]), ma = parseDureeMonths(eff[k])
+    if (!ma || ma === mb) return v(raw[k])
+    return `${formatDureeMonths(ma)} (modifiée par avenant — initialement ${mb ? formatDureeMonths(mb) : v(raw[k])})`
+  }
+  // Date d'effet : celle du bail si elle existe (un renouvellement ne la
+  // réécrit pas), sinon celle confirmée par avenant (condition suspensive).
+  const effetBail = raw.date_effet || eff.date_effet
   const franchise = Array.isArray(d.franchise_periodes)     ? d.franchise_periodes     : []
   const indem     = Array.isArray(d.indemnites)             ? d.indemnites             : []
   const surfaces  = Array.isArray(d.surfaces_detail)        ? d.surfaces_detail        : []
@@ -810,7 +832,8 @@ function buildExcelRow(item, bailParentName, bailParentData) {
 
   const breakVals = Array.from({ length: MAX_BREAKS },    (_, i) => v(breaks[i]) )
   const fracVals  = Array.from({ length: MAX_FRANCHISE }, (_, i) => [
-    v(franchise[i]?.date_debut), v(franchise[i]?.date_fin), v(franchise[i]?.duree),
+    v(franchise[i]?.date_debut), v(franchise[i]?.date_fin),
+    (() => { const r = franchise[i]; if (!r) return ''; const q = franchiseEquivalence(r, parseAmount(d.loyer_signature_montant) || 0); return q?.incoherent ? `≈ ${fmtMoisFranchise(q.eq)} (sur ${v(r.duree)}, période d'application)` : v(r.duree) })(),
     v(franchise[i]?.surface_assiette), amt(franchise[i]?.montant), v(franchise[i]?.indexation_incluse), v(franchise[i]?.condition),
   ]).flat()
   const indemVals = Array.from({ length: MAX_INDEM },     (_, i) => [
@@ -818,15 +841,22 @@ function buildExcelRow(item, bailParentName, bailParentData) {
   ]).flat()
   // Enrich surfaces with computed prix_unitaire
   const surfEnriched = computeUnitPrices(surfaces, d.parking_nb_places, null)
+  // Même ventilation que le tableau de la fiche (computeVentilation)
+  const V = computeVentilation(surfEnriched, d.parking_nb_places, d.loyer_signature_montant)
+  const compByRow = new Map([...V.mainComputed, ...V.parkComputed].map(x => [x.row, x]))
   const surfVals  = Array.from({ length: MAX_SURF },      (_, i) => {
     const r = surfEnriched[i]
     if (!r) return ['', '', '', '', '']
-    const up = r.prix_unitaire ? amt(r.prix_unitaire) :
-               (() => { const l = parseAmount(r.loyer_annuel); const s = parseFloat(String(r.surface_m2||'').replace(',','.'))||0; return (l!==null&&s>0) ? Math.round(l/s) : '' })()
-    return [v(r.categorie), v(r.niveau), surf(r.surface_m2), up, amt(r.loyer_annuel)]
+    const c = compByRow.get(r) || {}
+    const qty = surf(r.surface_m2) !== '' ? surf(r.surface_m2) : (c.nb || '')
+    return [
+      v(r.categorie) + (V.isMiscatRie(r) ? ' (catégorie à vérifier)' : ''),
+      [safeStr(r.batiment), safeStr(r.niveau)].filter(Boolean).join(' — '),
+      qty, c.unit != null ? Math.round(c.unit * 100) / 100 : '', c.loyer != null ? Math.round(c.loyer) : '',
+    ]
   }).flat()
-  // Parking unit price
-  const pkUnit = computeParkingUnitPrice(d.parking_nb_places, surfaces)
+  // Parking unit price — celui du tableau quand il n'y a qu'une ligne de stationnement
+  const pkUnit = (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : computeParkingUnitPrice(d.parking_nb_places, surfaces)
   const travVals  = Array.from({ length: MAX_TRAV },      (_, i) => [
     v(trav[i]?.libelle), amt(trav[i]?.montant), v(trav[i]?.date_limite),
   ]).flat()
@@ -849,20 +879,22 @@ function buildExcelRow(item, bailParentName, bailParentData) {
     v(d.ville),
     v(raw.preneur_substitution || shortPartyName(d.preneur  || raw.bail_reference?.preneur)),
     v(shortPartyName(d.bailleur || raw.bail_reference?.bailleur)),
-    v(d.type_bail), v(d.duree_totale), v(d.duree_ferme),
+    v(d.type_bail), dureeAff('duree_totale'), dureeAff('duree_ferme'),
     // Date effet / signature : pour avenant, utiliser les dates propres à l'avenant.
     // Si date_effet est vide mais définie par un événement futur (date_effet_condition),
     // reporter ce texte plutôt que de laisser la cellule vide.
-    isAv ? v(meta.date_effet_avenant) : v(d.date_effet || (d.date_effet_condition ? `À la levée de : ${d.date_effet_condition.libelle || ''}${d.date_effet_condition.date_limite ? ` (au plus tard le ${d.date_effet_condition.date_limite})` : ''}` : '')),
+    isAv ? v(meta.date_effet_avenant) : v(effetBail || (d.date_effet_condition ? `À la levée de : ${d.date_effet_condition.libelle || ''}${d.date_effet_condition.date_limite ? ` (au plus tard le ${d.date_effet_condition.date_limite})` : ''}` : '')),
     isAv ? v(meta.date_signature_avenant) : v(d.date_signature),
-    v(d.date_fin), v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
+    finEff, v(d.date_conge), v(d.notice), v(d.date_limite_travaux),
     ...breakVals,
     v(d.conditions_break),
     surf(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', pkUnit || '', v(d.rie),
     ...surfVals,
     amt(d.loyer_signature_montant), amt(d.loyer_cours), v(d.indexation),
-    // Indice base
-    (() => {
+    // Indice base — 4 colonnes (code, trimestre, valeur, source) : le tableau
+    // renvoyé DOIT être déplié (...), sinon il tient une seule cellule et toutes
+    // les colonnes suivantes sont décalées de 3 cases par rapport à leur en-tête.
+    ...(() => {
       const indice = d.indexation_indice
       if (!indice) return ['', '', '', '']
       if (d.indexation_valeur_base) return [indice, d.indexation_trimestre_base || '', d.indexation_valeur_base, 'bail']
@@ -912,7 +944,7 @@ function buildExcelRow(item, bailParentName, bailParentData) {
 function exportToExcel(items, fileName, selectedCols = null) {
   let rows, statuts
   if (Array.isArray(items)) {
-    rows = items.map(({ item, parentName, parentData }) => buildExcelRow(item, parentName, parentData))
+    rows = items.map(({ item, parentName, parentData, parentRow }) => buildExcelRow(item, parentName, parentData, parentRow))
     statuts = items.map(({ statut }) => statut || 'OK')
   } else {
     const fakeItem = { document_type: 'bail', data: items, file_name: fileName }
@@ -994,7 +1026,7 @@ function exportAllToExcel(tree, onErrors, selectedCols = null) {
       return toS(a.data?.date_effet_avenant || a.data?.date_signature_avenant || a.created_at)
             .localeCompare(toS(b.data?.date_effet_avenant || b.data?.date_signature_avenant || b.created_at))
     })
-    sortedAv.forEach(av => rows.push({ item: av, parentName, parentData, statut: 'OK' }))
+    sortedAv.forEach(av => rows.push({ item: av, parentName, parentData, parentRow: bail, statut: 'OK' }))
   })
 
   // Detect orphan avenants (no parent in tree)
@@ -2364,9 +2396,12 @@ function GuaranteeBox({ title, montant, montantPageField, duree, montantCalcule,
   )
 }
 
-function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPlaces }) {
+// Ventilation du loyer par composante — LA règle de calcul unique, utilisée
+// par le tableau de la fiche ET par l'export Excel (ce qu'on voit à l'écran est
+// exactement ce qu'on exporte) : loyers/prix calculés, stationnement, loyer de
+// catégorie réparti au prorata, déduction par écart, RIE contrôlée.
+function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   const safe = Array.isArray(surfaces) ? surfaces : []
-  if (!safe.length) return null
   const isPark = r => { const cat = (r.categorie || r.typologie || '').toLowerCase(); return cat.includes('station') || cat.includes('parking') || cat.includes('place') }
   // La RIE (restaurant inter-entreprises) est quasi toujours facturée sous
   // forme de redevance au m² de la surface de BUREAUX elle-même (ex: 16€/m²
@@ -2393,7 +2428,6 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   const parkRows = safe.filter(r => isPark(r))
   // Colonne Bâtiment affichée seulement si le bail porte sur plusieurs
   // bâtiments (au moins une ligne renseignée) — invisible sinon.
-  const hasBat = safe.some(r => safeStr(r.batiment))
   // Calcule le loyer d'une ligne : celui indiqué explicitement dans le bail
   // si présent, sinon celui déductible du prix unitaire × surface (marqué
   // comme calculé) — sans ce repli, une ligne qui n'a qu'un prix au m²
@@ -2470,6 +2504,20 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
       const gap = declaredTotal - knownSum
       const u = gap / unknown[0].qty
       if (u > 0 && u <= 100000) Object.assign(unknown[0], { loyer: gap, loyerSrc: 'ecart', unit: Math.round(u * 100) / 100, unitSrc: 'ecart' })
+    } else if (unknown.length > 1 && declaredTotal > knownSum) {
+      // Plusieurs lignes sans loyer, mais TOUTES de la même catégorie de
+      // locaux (ex: 11 lots de bureaux dont le bail ne donne que le loyer
+      // global "bureaux") : l'écart leur est réparti au prorata des surfaces.
+      // Catégories différentes : impossible de savoir comment répartir.
+      const catKey = x => stripAccents(String(x.row.categorie || x.row.typologie || '')).toLowerCase().trim()
+      const sameCat = new Set(unknown.map(catKey)).size === 1
+      const allLocaux = unknown.every(x => mainComputed.includes(x) && !isRie(x.row) && x.qty > 0)
+      const sumQ = unknown.reduce((t, x) => t + (x.qty || 0), 0)
+      if (sameCat && allLocaux && sumQ > 0) {
+        const gap = declaredTotal - knownSum
+        const u = gap / sumQ
+        if (u > 0 && u <= 100000) unknown.forEach(x => Object.assign(x, { loyer: Math.round(u * x.qty), loyerSrc: 'ecart', unit: Math.round(u * 100) / 100, unitSrc: 'ecart' }))
+      }
     }
   }
   const mainLoyerSum = mainComputed.reduce((a, x) => a + (x.loyer || 0), 0)
@@ -2484,6 +2532,16 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   const mainLoyerDisplay = mainLoyerSum > 0 ? mainLoyerSum
     : (declaredTotal > parkTotalLoyer ? declaredTotal - parkTotalLoyer : (declaredTotal || 0))
   const mainLoyerIsFallback = mainLoyerSum === 0 && mainLoyerDisplay > 0
+  return { safe, isPark, isRie, isMiscatRie, mainRows, parkRows, total, mainComputed, parkComputed, declaredTotal, mainLoyerSum, mainLoyerDisplay, mainLoyerIsFallback, parkTotalLoyer }
+}
+
+function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPlaces }) {
+  const safe = Array.isArray(surfaces) ? surfaces : []
+  if (!safe.length) return null
+  const { isPark, isRie, isMiscatRie, mainRows, parkRows, total, mainComputed, parkComputed, declaredTotal, mainLoyerSum, mainLoyerDisplay, mainLoyerIsFallback, parkTotalLoyer } = computeVentilation(safe, parkingNbPlaces, totalLoyerDeclared)
+  // Colonne Bâtiment affichée seulement si le bail porte sur plusieurs
+  // bâtiments (au moins une ligne renseignée) — invisible sinon.
+  const hasBat = safe.some(r => safeStr(r.batiment))
   const totalLoyer = mainLoyerDisplay + parkTotalLoyer
   // Écart entre la somme du détail et la surface totale déclarée du bail —
   // typiquement une quote-part de parties communes (« Surface Exploitée »,
@@ -2690,6 +2748,18 @@ function computeFranchiseSummary(periodes) {
   return `Franchise totale de ${totalMonths.toLocaleString('fr-FR')} mois${totalMontant > 0 ? ` (${fmtEur(totalMontant)})` : ''}, répartie en ${francs.length} tranches : ${parts.join(' ; ')}.`
 }
 
+// Équivalence d'une franchise en mois de loyer — commune au tableau de la fiche
+// et à l'export : incoherent = la durée extraite (souvent la période
+// d'application) ne colle pas au montant exonéré (écart > 25 %).
+function franchiseEquivalence(row, loyerAnnuel) {
+  if (!row || row._type === 'abattement') return null
+  const m = parseAmount(row.montant), lm = loyerAnnuel > 0 ? loyerAnnuel / 12 : null
+  if (!m || !lm) return null
+  const eq = m / lm, dm = parseMonthsCount(row.duree)
+  return { eq, incoherent: !!(dm && !/recalcul/i.test(String(row.duree)) && Math.abs(dm - eq) / eq > 0.25) }
+}
+const fmtMoisFranchise = n => `${(Math.round(n * 10) / 10).toLocaleString('fr-FR')} mois`
+
 function FranchiseTable({ periodes, item, loyerAnnuel }) {
   const safe = Array.isArray(periodes) ? periodes : []
   if (!safe.length) return null
@@ -2702,14 +2772,10 @@ function FranchiseTable({ periodes, item, loyerAnnuel }) {
     const m = parseAmount(row.montant)
     return (loyerMensuel && m) ? m / loyerMensuel : null
   }
-  const fmtMois = n => `${(Math.round(n * 10) / 10).toLocaleString('fr-FR')} mois`
+  const fmtMois = fmtMoisFranchise
   // Durée extraite incohérente avec le montant (écart > 25 %) : c'est alors la
   // période d'application, et l'équivalent en mois de loyer fait foi.
-  const incoherentDuree = row => {
-    if (row._type === 'abattement') return false
-    const eq = equivMonths(row), dm = parseMonthsCount(row.duree)
-    return !!(eq && dm && !/recalcul/i.test(String(row.duree)) && Math.abs(dm - eq) / eq > 0.25)
-  }
+  const incoherentDuree = row => !!franchiseEquivalence(row, loyerAnnuel)?.incoherent
   // Total de mois/euros en bas de tableau — sert à vérifier d'un coup d'œil
   // la cohérence avec le montant global annoncé dans le texte verbeux du
   // bail (champ "franchise"), sans avoir à ressommer les lignes à la main.
@@ -10161,7 +10227,7 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                 <button className="btn primary" onClick={() => {
                   const bailParent = history.find(b => b.avenants?.some(a => a.id === activeItem.id))
                   exportToExcel(
-                    [{ item: activeItem, parentName: bailParent?.data?.immeuble || '', parentData: bailParent?.data || null }],
+                    [{ item: activeItem, parentName: bailParent?.data?.immeuble || '', parentData: bailParent?.data || null, parentRow: bailParent || null }],
                     activeItem.data?.immeuble || activeItem.file_name
                   )
                 }}>
