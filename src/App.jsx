@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '17.10 · pages avenant'
+const APP_VERSION = '17.10 · loyer déduit'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1264,6 +1264,16 @@ function findDateInText(text) {
   if (m2) return `${pad(m2[1])}/${pad(FR_MONTHS_TXT[m2[2]])}/${m2[3]}`
   return null
 }
+// Surface affichée à la française : séparateur de milliers et virgule
+// décimale ("10391.30" → "10 391,30 m²"). Valeur non numérique : telle quelle.
+// round : arrondi à l'unité (dashboard, État locatif).
+function fmtSurface(v, { round = false } = {}) {
+  if (v === null || v === undefined || v === '') return null
+  const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.'))
+  if (isNaN(n)) return `${v} m²`
+  const dec = round || Number.isInteger(n) ? 0 : 2
+  return `${n.toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec })} m²`
+}
 function computeDateFinFromDuree(date_effet_str, duree_totale_str) {
   const effet = parseFR(date_effet_str)
   if (!effet) return null
@@ -2369,21 +2379,23 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
     return { value: null, computed: false }
   }
   const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
-  const mainLoyerSum = mainRows.reduce((a, r) => a + (rowLoyerAnnuel(r).value || 0), 0)
-  // Si aucune ligne n'a de loyer propre ou calculable (bail non ventilé par
-  // composante), on retombe sur le loyer global du bail plutôt que d'afficher
-  // un total vide.
-  const mainLoyerDisplay = mainLoyerSum > 0 ? mainLoyerSum : (parseAmount(totalLoyerDeclared) || 0)
-  const mainLoyerIsFallback = mainLoyerSum === 0 && mainLoyerDisplay > 0
-  // Le total général doit reprendre le MÊME loyer principal que la ligne
-  // "Total bureaux / locaux" ci-dessus (avec son repli sur le loyer global si
-  // besoin) — et non un total brut recalculé séparément à partir des seules
-  // valeurs explicites, qui ratait les loyers déductibles uniquement d'un
-  // prix au m² et ignorait le repli sur le loyer global du bail.
-  // Lignes de stationnement complétées : prix par place extrait, sinon déduit
-  // du loyer de la ligne ; loyer extrait, sinon prix × places ; en dernier
-  // recours (une seule ligne, ni prix ni loyer), loyer déduit de l'écart entre
-  // le loyer global du bail et la somme des autres lignes.
+  // Lignes complétées, locaux et stationnement :
+  // - prix extrait, sinon déduit du loyer de la ligne ; loyer extrait, sinon
+  //   prix × quantité (surface ou nombre de places) — marqués "calcule" ;
+  // - si UNE SEULE ligne du tableau reste sans loyer ni prix, elle reçoit
+  //   l'écart entre le loyer global du bail et la somme des autres lignes
+  //   (marqué "ecart"). Cas typique : bail sans ventilation dont le loyer
+  //   global porte sur une seule composante (30 000 € pour 240 m² de bureaux
+  //   → 125 €/m²), ou stationnement au prix non extrait.
+  const mainComputed = mainRows.map(row => {
+    const qty = parseFloat(String(row.surface_m2 || '').replace(/\s/g, '').replace(',', '.')) || 0
+    const explicitLoyer = parseAmount(row.loyer_annuel)
+    const up = unitPrice(row)
+    let loyer = explicitLoyer || (up && qty > 0 ? up * qty : null)
+    const loyerSrc = explicitLoyer ? 'extrait' : (loyer ? 'calcule' : null)
+    const unitSrc = up ? (row.prix_unitaire ? 'extrait' : 'calcule') : null
+    return { row, qty, loyer: loyer || null, loyerSrc, unit: up || null, unitSrc }
+  })
   const parkComputed = parkRows.map(row => {
     const fallbackNb = (!row.surface_m2 && parkRows.length === 1) ? parseParkingNbFallback(parkingNbPlaces) : null
     const nb = parseFloat(String(row.surface_m2 || fallbackNb || '').replace(/[^0-9.]/g, '')) || 0
@@ -2391,14 +2403,25 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
     let unit = parseAmount(row.prix_unitaire), unitSrc = unit ? 'extrait' : null
     if (!unit && loyer && nb > 0) { unit = Math.round(loyer / nb); unitSrc = 'calcule' }
     if (!loyer && unit && nb > 0) { loyer = unit * nb; loyerSrc = 'calcule' }
-    return { row, nb, loyer: loyer || null, loyerSrc, unit: unit || null, unitSrc }
+    return { row, nb, qty: nb, loyer: loyer || null, loyerSrc, unit: unit || null, unitSrc }
   })
   const declaredTotal = parseAmount(totalLoyerDeclared) || 0
-  if (parkComputed.length === 1 && !parkComputed[0].loyer && parkComputed[0].nb > 0 && mainLoyerSum > 0 && declaredTotal > mainLoyerSum) {
-    const gap = declaredTotal - mainLoyerSum
-    const u = gap / parkComputed[0].nb
-    if (u > 0 && u <= 10000) Object.assign(parkComputed[0], { loyer: gap, loyerSrc: 'ecart', unit: Math.round(u), unitSrc: 'ecart' })
+  {
+    const all = [...mainComputed, ...parkComputed]
+    const unknown = all.filter(x => !x.loyer)
+    const knownSum = all.reduce((t, x) => t + (x.loyer || 0), 0)
+    if (unknown.length === 1 && unknown[0].qty > 0 && declaredTotal > knownSum) {
+      const gap = declaredTotal - knownSum
+      const u = gap / unknown[0].qty
+      if (u > 0 && u <= 100000) Object.assign(unknown[0], { loyer: gap, loyerSrc: 'ecart', unit: Math.round(u * 100) / 100, unitSrc: 'ecart' })
+    }
   }
+  const mainLoyerSum = mainComputed.reduce((a, x) => a + (x.loyer || 0), 0)
+  // Si aucune ligne n'a de loyer propre, calculable ou déductible (bail non
+  // ventilé sur plusieurs composantes), on retombe sur le loyer global du bail
+  // plutôt que d'afficher un total vide.
+  const mainLoyerDisplay = mainLoyerSum > 0 ? mainLoyerSum : (declaredTotal || 0)
+  const mainLoyerIsFallback = mainLoyerSum === 0 && mainLoyerDisplay > 0
   const parkTotalLoyer = parkComputed.reduce((acc, p) => acc + (p.loyer || 0), 0)
   const totalLoyer = mainLoyerDisplay + parkTotalLoyer
   // Écart entre la somme du détail et la surface totale déclarée du bail —
@@ -2422,22 +2445,23 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
               </tr>
             </thead>
             <tbody>
-              {mainRows.map((row, i) => {
-                const up = unitPrice(row)
-                const rl = rowLoyerAnnuel(row)
+              {mainComputed.map(({ row, loyer, loyerSrc, unit, unitSrc }, i) => {
+                const mark = src => src === 'calcule'
+                  ? <span title="Calculé (prix unitaire × surface, ou loyer ÷ surface)" style={{ fontSize: '10px', marginLeft: '3px', fontWeight: 400 }}>*</span>
+                  : src === 'ecart'
+                    ? <span title="Déduit du loyer global du bail (seule composante sans loyer propre) — à vérifier" style={{ fontSize: '10px', marginLeft: '3px', fontWeight: 400, color: 'var(--accent)' }}>≈</span>
+                    : null
                 return (
                   <tr key={i}>
                     <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}{isRie(row) && <span title="Redevance calculée sur la surface de bureaux — non comptée en plus dans le total de surface" style={{ fontSize: '10px', marginLeft: '3px', color: 'var(--text3)', cursor: 'help' }}>†</span>}</td>
                     {hasBat && <td style={{ fontWeight: 500 }}>{safeStr(row.batiment) || '—'}</td>}
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{row.surface_m2 ? `${row.surface_m2} m²` : '—'}</td>
-                    <td style={{ textAlign: 'right', color: row.prix_unitaire ? 'var(--text)' : 'var(--text3)', fontStyle: row.prix_unitaire ? 'normal' : 'italic' }}>
-                      {up ? `${up.toLocaleString('fr-FR')} €` : '—'}
-                      {!row.prix_unitaire && up && <span title="Calculé" style={{ fontSize: '10px', marginLeft: '3px' }}>*</span>}
+                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{fmtSurface(row.surface_m2) || '—'}</td>
+                    <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
+                      {unit ? `${unit.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} €` : '—'}{unit && mark(unitSrc)}
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 500 }}>
-                      {rl.value != null ? fmtEur(rl.value) : '—'}
-                      {rl.computed && <span title="Calculé (prix unitaire × surface)" style={{ fontSize: '10px', marginLeft: '3px', fontWeight: 400 }}>*</span>}
+                      {loyer ? fmtEur(loyer) : '—'}{loyer && mark(loyerSrc)}
                     </td>
                   </tr>
                 )
@@ -3888,7 +3912,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
                         {t.estimated && <span title={t.estimatedField === 'start' ? 'Date d\'effet non extraite — recalculée à partir de la date de fin et de la durée totale' : 'Échéance estimée (VEFA)'} style={{ flexShrink: 0, color: 'var(--text3)' }}>≈</span>}
                         {t.reconductionTacite && <span title={`Reconduction tacite${t.reconductionTacite.periodicite ? ' ' + t.reconductionTacite.periodicite : ''}${t.reconductionTacite.preavis ? ', préavis ' + t.reconductionTacite.preavis : ''}`} style={{ flexShrink: 0, color: 'var(--accent)' }}>↻</span>}
                       </div>
-                      <div style={{ width: `${COL_W[1]}px`, flexShrink: 0, fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px' }}>{t.surface > 0 ? `${Math.round(t.surface)} m²` : '—'}</div>
+                      <div style={{ width: `${COL_W[1]}px`, flexShrink: 0, fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px' }}>{t.surface > 0 ? fmtSurface(t.surface, { round: true }) : '—'}</div>
                       <div style={{ width: `${COL_W[2]}px`, flexShrink: 0, fontSize: '12px', color: 'var(--text2)', paddingLeft: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.loyer > 0 ? fmtEur(t.loyer) : '—'}</div>
                       <div style={{ width: `${COL_W[3]}px`, flexShrink: 0, paddingLeft: '10px' }}>
                         <span title={t.locationLabel} style={{
@@ -4718,7 +4742,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                     </div>
                   ) : (
                     <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {d.surface_totale_m2 ? `${d.surface_totale_m2} m²` : '—'}
+                      {fmtSurface(d.surface_totale_m2) || '—'}
                       <PageJumpIcon item={item} pages={pages} field="surface_totale_m2" />
                       {onSaveManualSurface && !isAv && (
                         <button
@@ -4837,7 +4861,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                         )}
                         <td style={{ padding: '5px 6px', fontWeight: 500 }}>{row.categorie || row.typologie || '—'}</td>
                         <td style={{ padding: '5px 6px', color: 'var(--text2)', whiteSpace: 'nowrap' }}>{safeStr(row.niveau || row.localisation) || '—'}</td>
-                        <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>{row.surface_m2 ? `${row.surface_m2} m²` : '—'}</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtSurface(row.surface_m2) || '—'}</td>
                         <td style={{ padding: '5px 6px', textAlign: 'right' }}>{row.loyer_annuel ? fmtEur(row.loyer_annuel) : '—'}</td>
                       </tr>
                     ))}
@@ -4857,7 +4881,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                     <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Parking</span>
                     {parkRows.map((r, i) => (
                       <span key={i} style={{ fontSize: '11px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '4px', padding: '2px 7px', color: 'var(--text2)' }}>
-                        {r.niveau || r.localisation || `Lot ${i+1}`}{r.surface_m2 ? ` · ${r.surface_m2} m²` : ''}
+                        {r.niveau || r.localisation || `Lot ${i+1}`}{r.surface_m2 ? ` · ${fmtSurface(r.surface_m2)}` : ''}
                       </span>
                     ))}
                     {parkCount > 0 && <span style={{ fontSize: '11px', fontWeight: 600 }}>{parkCount.toLocaleString('fr-FR')} m²</span>}
@@ -8271,9 +8295,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   <span style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.4 }}>
                     {(() => {
                       const n = parseFloat(String(d.surface_totale_m2 || '').replace(',', '.'))
-                      return d.surface_totale_m2 ? (isNaN(n) ? `${d.surface_totale_m2} m²` : `${Math.round(n)} m²`) : '—'
+                      return d.surface_totale_m2 ? (isNaN(n) ? `${d.surface_totale_m2} m²` : fmtSurface(n, { round: true })) : '—'
                     })()}
-                    <OverrideMark field="surface_totale_m2" formatValue={v => { const n = parseFloat(String(v || '').replace(',', '.')); return isNaN(n) ? `${v} m²` : `${Math.round(n)} m²` }} />
+                    <OverrideMark field="surface_totale_m2" formatValue={v => { const n = parseFloat(String(v || '').replace(',', '.')); return isNaN(n) ? `${v} m²` : fmtSurface(n, { round: true }) }} />
                   </span>
                 </div>
 
