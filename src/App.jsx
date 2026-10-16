@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · CQ par thème'
+const APP_VERSION = '19.10 · sécurité extraction'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2092,7 +2092,9 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
   // le document — coût faible), plutôt que de perdre l'extraction déjà payée.
   try {
     const fixed = await repairJsonViaClaude(jsonStr)
-    if (fixed) return sanitizeExtracted(fixed)
+    // Réponse réparée par l'IA : signalée, pour que la fiche invite à vérifier
+    // (une réparation peut omettre ou altérer des éléments).
+    if (fixed) return { ...sanitizeExtracted(fixed), _json_repare: true }
   } catch (_) {}
   try { JSON.parse(repaired) } catch (e2) {
     const pos = parseInt(e2.message.match(/position (\d+)/)?.[1] || '0')
@@ -3551,6 +3553,9 @@ function auditBail(row) {
       })
     }
   }
+
+  // 2quinquies. Réponse de l'IA réparée automatiquement lors de l'extraction
+  if (d._json_repare) issues.push({ type: 'json_repare', severity: 'high', detail: "La réponse de l'IA était mal formée lors de la dernière extraction et a été réparée automatiquement : des données peuvent manquer ou être altérées. Réextraction recommandée." })
 
   // 2quater. Avenants : numéro déclaré (titre, nom de fichier) contraire à
   // l'ordre des dates de signature — date de signature mal extraite, erreur
@@ -5055,6 +5060,11 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         </div>
       )}
 
+      {item.data?._json_repare && (
+        <div style={{ margin: '0 0 14px', padding: '10px 14px', borderRadius: '8px', background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: '13px', lineHeight: 1.5 }}>
+          <strong>Extraction à vérifier :</strong> la réponse de l'IA était mal formée lors de cette extraction et a été réparée automatiquement — certaines données peuvent manquer ou être altérées. Relancez la réextraction.
+        </div>
+      )}
       {/* Dates */}
       {(primaryDates.length > 0 || secondaryDates.length > 0 || show('conditions_break')) && (
         <div className="sec">
@@ -6826,6 +6836,7 @@ const QC_THEMES = [
   { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
   { key: 'avenants', label: 'Avenants', types: ['avenant_anterieur_au_bail', 'avenant_sans_signature', 'avenants_ordre', 'date_effet_avenants_contradictoires'] },
   { key: 'doublons', label: 'Doublons', types: ['doublon_suspect'] },
+  { key: 'extraction', label: 'Extraction à refaire', types: ['json_repare'] },
 ]
 const qcThemeOf = type => QC_THEMES.find(t => t.types.includes(type))?.key || 'autres'
 
@@ -7083,6 +7094,7 @@ async function reextractOne(row, onProgress) {
         // indemnité/compensation, lues ensemble dans la même clause) — fait foi
         // sur break_options, y compris quand elle est vide (aucune sortie possible).
         if (Array.isArray(breakResult?.echeances_sortie)) {
+        if (breakResult?._json_repare) extracted._json_repare = true
           extracted.echeances_sortie = breakResult.echeances_sortie
           extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
         }
@@ -7092,6 +7104,7 @@ async function reextractOne(row, onProgress) {
           if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
           if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
           if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
+          if (f?._json_repare) extracted._json_repare = true
           if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
           if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
           if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
@@ -7106,6 +7119,7 @@ async function reextractOne(row, onProgress) {
           if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
           if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
           if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
+          if (f?._json_repare) extracted._json_repare = true
           if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
           if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
           if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
@@ -7212,6 +7226,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
             // indemnité/compensation, lues ensemble dans la même clause) — fait foi
             // sur break_options, y compris quand elle est vide (aucune sortie possible).
             if (Array.isArray(breakResult?.echeances_sortie)) {
+            if (breakResult?._json_repare) extracted._json_repare = true
               extracted.echeances_sortie = breakResult.echeances_sortie
               extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
             }
@@ -7221,6 +7236,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
               if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
               if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
+              if (f?._json_repare) extracted._json_repare = true
               if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
               if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
               if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
@@ -7235,6 +7251,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
               if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
               if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
+              if (f?._json_repare) extracted._json_repare = true
               if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
               if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
               if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
@@ -8068,6 +8085,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           // indemnité/compensation, lues ensemble dans la même clause) — fait foi
           // sur break_options, y compris quand elle est vide (aucune sortie possible).
           if (Array.isArray(breakResult?.echeances_sortie)) {
+          if (breakResult?._json_repare) extracted._json_repare = true
             extracted.echeances_sortie = breakResult.echeances_sortie
             extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
           }
@@ -8077,6 +8095,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
             if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
+            if (f?._json_repare) extracted._json_repare = true
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
@@ -8091,6 +8110,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
             if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
+            if (f?._json_repare) extracted._json_repare = true
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
@@ -9694,8 +9714,13 @@ export default function App() {
             const { data: fresh } = await supabase.from('extractions').select('data').eq('id', row.id).maybeSingle()
             if (!fresh || JSON.stringify(stripVV(fresh.data)) !== JSON.stringify(stripVV(row.data))) return
             const data = { ...fresh.data, _valeurs_en_vigueur: { ...snap, calcule_le: new Date().toISOString() } }
-            const { error } = await supabase.from('extractions').update({ data }).eq('id', row.id)
-            if (!error) updated.set(row.id, data)
+            // Écriture CONDITIONNELLE : seulement si l'horodatage d'extraction
+            // n'a pas changé depuis la relecture — une réextraction enregistrée
+            // entre-temps n'est jamais écrasée par l'ancienne version.
+            let q = supabase.from('extractions').update({ data }).eq('id', row.id)
+            q = fresh.data?._extracted_at ? q.eq('data->>_extracted_at', fresh.data._extracted_at) : q.is('data->>_extracted_at', null)
+            const { data: written, error } = await q.select('id')
+            if (!error && Array.isArray(written) && written.length) updated.set(row.id, data)
           }))
         }
       } finally {
@@ -10027,6 +10052,7 @@ export default function App() {
           // indemnité/compensation, lues ensemble dans la même clause) — fait foi
           // sur break_options, y compris quand elle est vide (aucune sortie possible).
           if (Array.isArray(breakResult?.echeances_sortie)) {
+          if (breakResult?._json_repare) extracted._json_repare = true
             extracted.echeances_sortie = breakResult.echeances_sortie
             extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
           }
@@ -10036,6 +10062,7 @@ export default function App() {
             if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
             if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
+            if (f?._json_repare) extracted._json_repare = true
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
@@ -10092,6 +10119,7 @@ export default function App() {
             if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
             if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
+            if (f?._json_repare) extracted._json_repare = true
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
