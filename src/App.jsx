@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '18.10 · RIE contrôlée'
+const APP_VERSION = '18.10 · réextraire fiche'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -8907,6 +8907,9 @@ export default function App() {
   const [returnToBuilding, setReturnToBuilding] = useState(null)
   // Relecture des échéances après saisie manuelle de la date d'effet
   const [exitsRecalc, setExitsRecalc] = useState(null) // { id, status: 'running'|'done'|'error', message? }
+  // Réextraction lancée depuis la fiche (bail ou avenant)
+  const [ficheReextract, setFicheReextract] = useState(null) // { label } pendant l'opération
+  const [ficheReextractMsg, setFicheReextractMsg] = useState(null) // { type, text } après
   const [showQualityCheck, setShowQualityCheck] = useState(false)
   const [showPortfolioChat, setShowPortfolioChat] = useState(false)
   // Pastille du bouton Contrôle qualité : même calcul que la fenêtre (hors
@@ -9093,6 +9096,8 @@ export default function App() {
 
   // Lien direct/partagé ouvert à froid : appliquer l'URL au montage
   useEffect(() => { applyUrlState() }, [])
+
+  useEffect(() => { setFicheReextractMsg(null) }, [activeItem?.id])
 
   // Fiche ouverte par l'adresse (rechargement, lien direct) : elle est d'abord
   // chargée SEULE, sans ses avenants (loadItemById). Dès que l'historique
@@ -9586,6 +9591,26 @@ export default function App() {
     return true
   }
 
+  async function reextractFromFiche(row) {
+    if (!window.confirm("Réextraire ce document à partir de son fichier source ?\n\nLes données actuelles seront remplacées, y compris les corrections manuelles (date d'effet saisie, surface, nom de substitution…).")) return
+    setFicheReextractMsg(null)
+    const labels = { downloading: 'Téléchargement…', loading: 'Lecture du document…', stripping: 'Retrait des annexes…', compressing: 'Compression…', extracting: 'Extraction en cours…' }
+    setFicheReextract({ label: 'Réextraction…' })
+    const result = await reextractOne(row, (state, current, total) => {
+      setFicheReextract({ label: (labels[state] || 'Réextraction…') + (current && total ? ` ${current}/${total}` : '') })
+    })
+    setFicheReextract(null)
+    if (result.success) {
+      const annexNote = result.originalPages != null
+        ? (result.removedCount > 0 ? ` — ${result.originalPages}→${result.keptPages} pages (annexes retirées p.${result.detectedPage})` : ` — ${result.originalPages} pages (annexes non détectées)`)
+        : ''
+      setFicheReextractMsg({ type: 'success', text: `Document réextrait avec succès${annexNote}.` })
+      await loadHistory() // la fiche se met à jour d'elle-même (synchronisation avec l'historique)
+    } else {
+      setFicheReextractMsg({ type: 'error', text: `Échec de la réextraction : ${result.error}` })
+    }
+  }
+
   async function recomputeExitsWithDate(row, dateEffetStr, baseData) {
     setExitsRecalc({ id: row.id, status: 'running' })
     try {
@@ -10056,6 +10081,16 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                     Voir le document source
                   </button>
                 )}
+                {activeItem.storage_path && (
+                  <button className="btn" disabled={!!ficheReextract}
+                    onClick={() => reextractFromFiche(activeItem)}
+                    title="Relancer l'extraction de ce document à partir de son fichier source (remplace les données actuelles, y compris les corrections manuelles)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                    </svg>
+                    {ficheReextract ? (ficheReextract.label || 'Réextraction…') : 'Réextraire'}
+                  </button>
+                )}
                 {avNav?.prev && (
                   <button className="btn" onClick={() => { setActiveItem(avNav.prev); navigate(`/bail/${avNav.prev.id}`) }} title="Document précédent">
                     {avNav.prevLabel}
@@ -10080,6 +10115,13 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                   Exporter Excel
                 </button>
               </div>
+              {ficheReextractMsg && (
+                <div style={{ marginTop: '10px', fontSize: '12.5px', padding: '7px 11px', borderRadius: '8px',
+                  background: ficheReextractMsg.type === 'error' ? 'var(--danger-bg)' : 'var(--success-bg)',
+                  color: ficheReextractMsg.type === 'error' ? 'var(--danger)' : 'var(--success)' }}>
+                  {ficheReextractMsg.text}
+                </div>
+              )}
             </div>
             )
           })()}
