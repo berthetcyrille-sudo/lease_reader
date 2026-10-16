@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '17.10 · types de bail'
+const APP_VERSION = '17.10 · loyer + RIE'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -134,7 +134,7 @@ REGLES PAR CHAMP:
   4) "a l'expiration de la Neme annee" → date_effet + N ans
   5) "renoncant expressement a sa faculte de donner conge a l'expiration de la Neme et de la Mieme Annee du Contrat" (ENUMERATION EXPLICITE des annees renoncees, formulation DIFFERENTE de "duree ferme" ou "Nieme fois") → calculer TOUTES les echeances triennales standard (multiples de 3 depuis date_effet: annee 3, 6, 9, 12...) jusqu'a duree_totale, PUIS RETIRER les annees explicitement nommees comme renoncees. NE JAMAIS inclure une annee que le texte nomme explicitement comme renoncee, meme si elle tombe sur un multiple de 3 par ailleurs. EXEMPLE (celui-ci est un piège frequent — l'annee renoncee est un vrai multiple de 3, ne pas l'inclure par erreur): date_effet=31/03/2021, duree_totale=12 ans (date_fin=30/03/2033), "renoncant a sa faculte de donner conge a l'expiration de la 3eme et de la 6eme Annee" → echeances triennales standard = annees 3,6,9,12 → retirer les annees 3 ET 6 (explicitement renoncees, PAS seulement la 3eme) → il ne reste QUE l'annee 9 (annee 12 de toute facon exclue car = date_fin) → break_options=["30/03/2030"] UNIQUEMENT (PAS "30/03/2027", qui correspond a l'annee 6 explicitement renoncee)
   Ne PAS inclure date_fin.
-- loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
+- loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. Les charges, impots et taxes refactures ne sont PAS du loyer.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
 - indexation_indice: code de l indice parmi: "ILAT","ILC","ICC","IRL","IPC","BT01","AUTRE". null si non renseigne.
 - indexation_trimestre_base: trimestre de reference si EXPLICITEMENT indique dans le bail (ex: "3T2025"). null si le bail dit "dernier indice publie a la date de signature" sans preciser lequel.
@@ -182,7 +182,7 @@ REGLES POUR date_effet_avenant / date_signature_avenant (champs top-level, PAS d
 - date_effet_avenant: UNIQUEMENT si l'avenant fixe explicitement (ou permet de deduire sans ambiguite) une date a laquelle SES modifications prennent effet — qui peut differer de la date de signature (effet retroactif ou differe explicitement stipule). NE JAMAIS y recopier la date de signature par defaut quand aucune prise d'effet propre n'est stipulee — laisser null dans ce cas (le tri par date_signature_avenant en absence de date_effet_avenant est deja gere par ailleurs).
 
 REGLES PAR CHAMP (champs_modifies):
-- loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m².
+- loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m². Meme definition que pour le bail : redevance RIE et stationnement enonces separement font partie du loyer facial (les additionner).
 - break_options: UNIQUEMENT si l'avenant modifie/redefinit EXPLICITEMENT les dates de sortie anticipee — c'est-a-dire si le texte de CET avenant parle lui-meme de faculte de resiliation/conge/break. INTERDICTION ABSOLUE de calculer et remplir des echeances triennales generiques (3/6/9 ans depuis une date d'effet) par reflexe des que cet avenant etablit ou confirme une date d'effet/date de fin — un avenant qui se contente de fixer/confirmer la date d'effet ou la date de fin SANS jamais mentionner de faculte de conge/resiliation doit laisser break_options a null, meme si on peut techniquement calculer des multiples de 3 ans a partir de la nouvelle date d'effet. Format: TABLEAU DE DATES PURES au format "jj/mm/aaaa" UNIQUEMENT, ex: ["31/12/2030","31/12/2033"]. JAMAIS de phrase descriptive (interdit: "Premiere faculte de conge a l'expiration de la 2e periode triennale le 31/12/2030" — mettre uniquement "31/12/2030"). Si l'avenant dit "renonciation a la resiliation triennale pour la duree ferme de N ans" ou "premier conge possible le jj/mm/aaaa", extraire la ou les date(s) exacte(s) mentionnee(s), pas le texte de la clause (le texte de la clause va dans conditions_break et _sources, pas dans break_options). null si non modifie.
 - echeances_sortie: UNIQUEMENT si cet avenant cree, supprime, deplace ou modifie une ou plusieurs facultes de sortie anticipee du preneur (dates de conge, indemnite de depart, compensation si maintien), OU s'il fixe/confirme une nouvelle date d'effet ou de fin qui decale les echeances de sortie existantes. Dans ce cas, fournir la LISTE COMPLETE des echeances de sortie EN VIGUEUR APRES cet avenant (pas seulement celles qui changent), une entree par echeance : {"date":"jj/mm/aaaa ou null","type":"triennale|exceptionnelle|a_tout_moment|autre","libelle":"fondement court","preavis":"...","indemnite_sortie":"formule/montant tel qu'ecrit si le preneur part, sinon null","montant_indemnite":"chiffre brut si ecrit, sinon null","compensation_maintien":"ce que le bailleur accorde si le preneur reste, tel qu'ecrit, sinon null","conditions":"conditions propres a cette sortie, sinon null","page":N}. Reprendre les echeances du bail que l'avenant ne modifie pas (voir contexte du bail fourni le cas echeant) en recalculant leurs dates si la date d'effet a change. Chaque indemnite/compensation est rattachee a l'echeance du paragraphe qui la stipule. break_options = les dates non nulles de cette liste. null si l'avenant ne touche ni aux facultes de sortie ni aux dates d'effet/fin.
 - franchise_periodes: TOUTES les nouvelles franchises de l'avenant. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null}]. null si aucune franchise dans l'avenant. ATTENTION: si plusieurs montants sont donnes a des dates anniversaires successives sans duree explicite, NE PAS supposer 12 mois entre deux echeances (voir regle detaillee dans le prompt d'extraction du bail) — calculer duree_mois = round(montant / (loyer_annuel_base/12)). FORMAT SYMETRIQUE (voir regle detaillee dans le prompt d'extraction du bail): si duree explicite et montant manquant, reprendre la duree telle quelle et ecrire "recalcul = <montant> €" dans montant ; si montant explicite et duree manquante, garder le montant en chiffre brut et ecrire "recalcul = <duree> mois" dans duree ; jamais de formule detaillee. ATTENTION DOUBLON: si l'avenant donne un montant GLOBAL de franchise PUIS son detail ventile en plusieurs tranches, NE CREER QU'UNE LIGNE PAR TRANCHE — ne jamais ajouter en plus une ligne reprenant le total global (voir regle detaillee dans le prompt d'extraction du bail). Le montant global va dans le champ texte "franchise" ci-dessous, jamais comme ligne supplementaire.
@@ -1048,7 +1048,7 @@ const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT 
 
 REGLES PAR CHAMP:
 
-loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. Jamais prix unitaire/m². Si tableau par lot: additionner tous les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document.
+loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. Jamais prix unitaire/m². Si tableau par lot: additionner tous les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. Les charges, impots et taxes refactures ne sont PAS du loyer.
 
 loyer_signature: texte descriptif complet du loyer (detail par composante, prix unitaires, etc.)
 
@@ -4969,6 +4969,24 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                     </div>
                   )}
                 </div>
+                {(() => {
+                  // Loyer extrait hors redevance RIE / stationnement alors que le
+                  // tableau les détaille en plus (extraction antérieure à la
+                  // règle "le loyer facial inclut RIE et stationnement") : on
+                  // affiche le loyer facial complet, à confirmer par réextraction.
+                  const declared = parseAmount(d.loyer_signature_montant) || 0
+                  const rows = Array.isArray(d.surfaces_detail) ? d.surfaces_detail : []
+                  const isExtra = r => /\bRIE\b|restaura|station|parking/i.test(String(r.categorie || r.typologie || ''))
+                  const extra = rows.filter(isExtra).reduce((t, r) => t + (parseAmount(r.loyer_annuel) || 0), 0)
+                  const main = rows.filter(r => !isExtra(r)).reduce((t, r) => t + (parseAmount(r.loyer_annuel) || 0), 0)
+                  if (!declared || !extra || Math.abs(main - declared) > Math.max(2, declared * 0.002)) return null
+                  return (
+                    <div style={{ fontSize: '12px', color: 'var(--accent)', marginTop: '4px' }}>
+                      Hors redevance RIE / stationnement — loyer facial complet : <strong>{fmtEur(declared + extra)}</strong>
+                      <span style={{ color: 'var(--text3)' }}> (à confirmer par réextraction)</span>
+                    </div>
+                  )
+                })()}
               </div>
               {pills.length > 0 && <div className="pills">{pills.map((p, i) => <span key={i} className={`pill ${p.cls}`}>{p.label}</span>)}</div>}
             </div>
