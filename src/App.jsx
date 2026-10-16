@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · tranches franchise'
+const APP_VERSION = '19.10 · frise années'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4351,9 +4351,11 @@ function EtatLocatifModal({ building, bails, onClose }) {
                   {years.map(y => {
                     const yd = new Date(y, 0, 1)
                     const rawPct = ((yd - domainStart) / domainMs) * 100
-                    // Cadrer entre 0 et 100 : sans ça, la toute première (ou
-                    // dernière) année peut tomber légèrement hors du cadre.
-                    const pct = Math.min(100, Math.max(0, rawPct))
+                    // Année dont le 1er janvier tombe HORS de la frise (ex: la
+                    // frise commence en décembre 2009) : pas d'étiquette — la
+                    // coller au bord la superposait à l'année suivante ('09 '10).
+                    if (rawPct < 0 || rawPct > 100) return null
+                    const pct = rawPct
                     // Éviter que l'étiquette de bord (première/dernière année)
                     // ne dépasse du cadre — on la cale contre son trait plutôt
                     // que de la centrer dessus.
