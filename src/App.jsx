@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · ordre avenants'
+const APP_VERSION = '19.10 · CQ par thème'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -6817,6 +6817,18 @@ function ReextractProgressModal({ progress }) {
 
 // Résultats du contrôle qualité — partagé entre la fenêtre et la pastille du
 // bouton de la barre du haut, pour que les deux chiffres soient identiques.
+// Thématiques du contrôle qualité (filtre de la fenêtre) — tout type non
+// listé tombe dans "Autres".
+const QC_THEMES = [
+  { key: 'breaks', label: 'Breaks et échéances', types: ['break_a_tout_moment_datee', 'break_ancien_calcul', 'break_apres_terme', 'break_format', 'break_jour_anniversaire', 'breaks_incomplets', 'indemnite_orpheline'] },
+  { key: 'dates', label: 'Dates et durées', types: ['champ_date_pollue', 'champ_duree_pollue', 'date_fin_incoherente', 'duree_ferme_ambigue', 'duree_ferme_indeterminee', 'effet_conditionnel', 'signature_posterieure_effet'] },
+  { key: 'surfaces', label: 'Surfaces et loyer', types: ['surface_incoherente', 'surface_loyer_incoherent'] },
+  { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
+  { key: 'avenants', label: 'Avenants', types: ['avenant_anterieur_au_bail', 'avenant_sans_signature', 'avenants_ordre', 'date_effet_avenants_contradictoires'] },
+  { key: 'doublons', label: 'Doublons', types: ['doublon_suspect'] },
+]
+const qcThemeOf = type => QC_THEMES.find(t => t.types.includes(type))?.key || 'autres'
+
 function computeQcResults(bails) {
   const dupDetails = findDuplicateBails(bails)
   return bails.map(row => {
@@ -6831,6 +6843,7 @@ function computeQcResults(bails) {
 function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversary, onFixSurfaceLoyer }) {
   const [showDismissed, setShowDismissed] = useState(false)
   const [qcSearch, setQcSearch] = useState('')
+  const [qcTheme, setQcTheme] = useState(null) // clé de QC_THEMES, null = toutes
   const [pending, setPending] = useState({}) // { [rowId]: true } — évite double-clic pendant l'écriture
   const [fixPending, setFixPending] = useState({}) // { [rowId]: true } — pour le bouton "−1 jour"
   const [fixSurfacePending, setFixSurfacePending] = useState({}) // { [rowId]: true } — pour le bouton de correction surface/loyer
@@ -6840,8 +6853,15 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
   const matchesQc = r => !qcQ || stripAccents([
     r.label, r.row.file_name, r.row.actif_group, ...(r.issues || []).map(i => i.detail),
   ].filter(Boolean).join(' ').toLowerCase()).includes(qcQ)
-  const activeResults = allResults.filter(r => !r.dismissed && matchesQc(r))
-  const dismissedResults = allResults.filter(r => r.dismissed && matchesQc(r))
+  // Thématique : on ne garde que les baux ayant un point de cette thématique,
+  // et sur chacun seulement ces points-là.
+  const byTheme = r => qcTheme ? { ...r, issues: r.issues.filter(i => qcThemeOf(i.type) === qcTheme) } : r
+  const activeResults = allResults.filter(r => !r.dismissed && matchesQc(r)).map(byTheme).filter(r => r.issues.length > 0)
+  const dismissedResults = allResults.filter(r => r.dismissed && matchesQc(r)).map(byTheme).filter(r => r.issues.length > 0)
+  const themeCounts = {}
+  allResults.filter(r => !r.dismissed && matchesQc(r)).forEach(r => {
+    new Set(r.issues.map(i => qcThemeOf(i.type))).forEach(k => { themeCounts[k] = (themeCounts[k] || 0) + 1 })
+  })
   const severityColor = { high: 'var(--danger)', medium: 'var(--accent)', low: 'var(--text3)' }
   const severityBg = { high: 'var(--danger-bg)', medium: 'var(--accent-bg)', low: 'var(--surface2)' }
   const severityLabel = { high: 'À vérifier en priorité', medium: 'À vérifier', low: 'Info' }
@@ -6961,7 +6981,21 @@ function QualityCheckModal({ bails, onClose, onSelect, onDismiss, onFixAnniversa
                   placeholder="Rechercher un immeuble, un preneur, un type de point…"
                   style={{ display: 'block', width: '100%', marginBottom: '12px', padding: '9px 12px', fontSize: '13px', border: '1px solid var(--border2)', borderRadius: '8px', background: 'var(--surface)', color: 'var(--text)', boxSizing: 'border-box' }}
                 />
-                {activeResults.length} {activeResults.length !== 1 ? 'baux' : 'bail'} {qcQ ? 'trouvés' : `sur ${bails.length}`} {qcQ ? '' : 'présentent au moins un point à vérifier.'}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
+                  {[{ key: null, label: 'Toutes' }, ...QC_THEMES, ...(themeCounts.autres ? [{ key: 'autres', label: 'Autres' }] : [])].map(t => {
+                    const n = t.key ? (themeCounts[t.key] || 0) : null
+                    if (t.key && !n) return null
+                    const active = qcTheme === t.key
+                    return (
+                      <button key={t.key || 'toutes'} type="button" onClick={() => setQcTheme(t.key)}
+                        style={{ padding: '5px 11px', fontSize: '12px', borderRadius: '999px', cursor: 'pointer', fontWeight: active ? 600 : 400,
+                          border: `1px solid ${active ? 'var(--accent)' : 'var(--border2)'}`, background: active ? 'var(--accent-bg)' : 'var(--surface)', color: active ? 'var(--accent)' : 'var(--text2)' }}>
+                        {t.label}{n != null ? ` (${n})` : ''}
+                      </button>
+                    )
+                  })}
+                </div>
+                {activeResults.length} {activeResults.length !== 1 ? 'baux' : 'bail'} {(qcQ || qcTheme) ? 'trouvés' : `sur ${bails.length}`} {(qcQ || qcTheme) ? '' : 'présentent au moins un point à vérifier.'}
                 {dismissedResults.length > 0 && (
                   <span onClick={() => setShowDismissed(v => !v)} style={{ marginLeft: '8px', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}>
                     {showDismissed ? 'Masquer' : 'Afficher aussi'} les {dismissedResults.length} déjà vérifié{dismissedResults.length !== 1 ? 's' : ''}
