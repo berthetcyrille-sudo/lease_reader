@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · frise années'
+const APP_VERSION = '19.10 · total franchise exact'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -844,11 +844,13 @@ function computeValeursEnVigueur(item, parentRow = null) {
   const franchises = frSrc.map(r => {
     const q = franchiseEquivalence(r, loyerAnnuel, rieAn)
     return {
-      date_debut: safeStr(r.date_debut) || null, date_fin: safeStr(r.date_fin) || null,
+      date_debut: safeStr(r.date_debut) || null,
+      date_fin: safeStr(r.date_fin) || franchiseDateFinCalculee(r, franchiseMonthsEffective(r, loyerAnnuel, rieAn)) || null,
+      date_fin_calculee: (!safeStr(r.date_fin) && !!franchiseDateFinCalculee(r, franchiseMonthsEffective(r, loyerAnnuel, rieAn))) || undefined,
       recalee: r._recale || undefined, dates_origine: r._dates_origine || undefined,
       surface_assiette: safeStr(r.surface_assiette) || null, indexation_incluse: safeStr(r.indexation_incluse) || null,
       montant: parseAmount(r.montant), duree_extraite: safeStr(r.duree) || null,
-      duree_affichee: q?.incoherent ? `≈ ${fmtMoisFranchise(q.eq)} (sur ${safeStr(r.duree)}, période d'application)` : (safeStr(r.duree) || null),
+      duree_affichee: (q && (q.incoherent || /recalcul/i.test(String(r.duree || '')))) ? `≈ ${fmtMoisFranchise(q.eq)}` : (safeStr(r.duree) || null),
       mois_de_loyer: q ? Math.round(q.eq * 10) / 10 : null,
       conditionnelle: isConditionalFranchise(r),
       condition: cleanTxt(r.condition) || null,
@@ -2924,7 +2926,25 @@ function isConditionalFranchise(row) {
 // extraite ne colle pas au montant, sinon la durée extraite.
 function franchiseMonthsEffective(row, loyerAnnuel, rieLoyer = 0) {
   const q = franchiseEquivalence(row, loyerAnnuel, rieLoyer)
-  return q?.incoherent ? q.eq : (parseMonthsCount(row?.duree) || (q ? q.eq : 0))
+  // Durée "recalcul = 4,7 mois" (arrondie par l'IA) ou incohérente : on repart
+  // du montant (valeur exacte) — sinon le total additionne des arrondis
+  // (6 × 4,7 = 28,2 au lieu de 28).
+  if (q && (q.incoherent || /recalcul/i.test(String(row?.duree || '')))) return q.eq
+  return parseMonthsCount(row?.duree) || (q ? q.eq : 0)
+}
+// Date de fin d'une franchise non précisée par la clause : date de début +
+// mois de loyer exonérés (partie entière en mois, reste en jours), veille.
+function franchiseDateFinCalculee(row, mois) {
+  if (!mois || mois <= 0) return null
+  const fin = normalizeDate(safeStr(row?.date_fin))
+  if (fin && /^\d{2}\/\d{2}\/\d{4}$/.test(fin)) return null
+  const deb = parseFR(normalizeDate(safeStr(row?.date_debut)))
+  if (!deb) return null
+  const whole = Math.floor(mois), frac = mois - whole
+  const afterWhole = new Date(deb.getFullYear(), deb.getMonth() + whole, deb.getDate())
+  const daysInMonth = new Date(afterWhole.getFullYear(), afterWhole.getMonth() + 1, 0).getDate()
+  const end = new Date(afterWhole.getFullYear(), afterWhole.getMonth(), afterWhole.getDate() + Math.round(frac * daysInMonth) - 1)
+  return fmtFR(end)
 }
 // Totaux des franchises, séparés acquis / conditionnel — LE calcul commun à la
 // pastille de l'en-tête, au tableau, aux valeurs en base et à l'export.
@@ -3036,14 +3056,25 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
                 )}
               </td>
               <td title={row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_debut || '—'}` : undefined}>{row.date_debut || '—'}{row._recale && <span style={{ color: 'var(--accent)', marginLeft: '3px', fontSize: '11px' }}>↻</span>}</td>
-              <td title={row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_fin || '—'}` : undefined}>{row.date_fin || '—'}</td>
+              {(() => {
+                const finCalc = row._type !== 'abattement' ? franchiseDateFinCalculee(row, franchiseMonthsEffective(row, loyerAnnuel, rieLoyer)) : null
+                return (
+                  <td title={finCalc ? 'Calculée : date de début + mois de loyer exonérés (la clause ne précise pas la date de fin)' : (row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_fin || '—'}` : undefined)}>
+                    {row.date_fin || (finCalc ? <span style={{ fontStyle: 'italic' }}>≈ {finCalc}</span> : '—')}
+                  </td>
+                )
+              })()}
               <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>
-                {incoherentDuree(row) ? (
-                  <span title="Le montant exonéré ne correspond pas à la durée extraite : celle-ci est la période d'application de la franchise. Valeur affichée = montant exonéré ÷ loyer mensuel.">
-                    ≈ {fmtMois(equivMonths(row))}
-                    <div style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text3)' }}>sur {row.duree} (période d'application)</div>
-                  </span>
-                ) : (row.duree || '—')}
+                {row._type === 'abattement' ? (row.duree || '—')
+                  : incoherentDuree(row) ? (
+                    <span title={`Durée extraite (${row.duree}) incohérente avec le montant exonéré — valeur affichée = montant ÷ loyer mensuel de l'assiette`} style={{ cursor: 'help' }}>
+                      ≈ {fmtMois(equivMonths(row))}
+                    </span>
+                  ) : /recalcul/i.test(String(row.duree || '')) ? (
+                    <span title="Calculée : montant exonéré ÷ loyer mensuel de l'assiette" style={{ cursor: 'help' }}>
+                      ≈ {fmtMois(equivMonths(row) ?? parseMonthsCount(row.duree) ?? 0)}
+                    </span>
+                  ) : (row.duree || '—')}
               </td>
               <td style={{ color: 'var(--text2)' }}>{row.surface_assiette || '—'}</td>
               <td style={{ textAlign: 'right', fontWeight: 500 }}>
