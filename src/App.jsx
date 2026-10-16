@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · sous-totaux franchises'
+const APP_VERSION = '19.10 · tag conditionnelle'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2939,7 +2939,7 @@ function FranchiseTable({ periodes, item, loyerAnnuel }) {
                   <span className={`pill ${row._type === 'franchise' ? 'pill-green' : 'pill-blue'}`}
                     style={{ fontSize: '10.5px', ...(row._type === 'franchise' && isConditionalFranchise(row) ? { background: '#FAEEDA', color: '#9A6B00', border: '1px solid rgba(184,134,11,.3)' } : {}) }}
                     title={row._type === 'franchise' && isConditionalFranchise(row) ? 'Franchise accordée sous condition — non acquise' : undefined}>
-                    {row._type === 'franchise' ? (isConditionalFranchise(row) ? 'Franchise conditionnelle' : 'Franchise') : 'Abattement'}
+                    {row._type === 'franchise' ? (isConditionalFranchise(row) ? 'Conditionnelle' : 'Franchise') : 'Abattement'}
                   </span>
                 )}
               </td>
