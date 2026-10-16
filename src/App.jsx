@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '18.10 · écart réparti'
+const APP_VERSION = '18.10 · prix RIE'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2475,6 +2475,14 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
     if (!unit && loyer && nb > 0) { unit = Math.round(loyer / nb); unitSrc = 'calcule' }
     if (!loyer && unit && nb > 0) { loyer = unit * nb; loyerSrc = 'calcule' }
     return { row, nb, qty: nb, loyer: loyer || null, loyerSrc, unit: unit || null, unitSrc }
+  })
+  // Redevance RIE extraite sans surface : elle porte par définition sur la
+  // surface de bureaux — prix au m² = redevance ÷ surface des autres locaux
+  // (ou redevance = prix × cette surface si seul le prix est connu).
+  mainComputed.forEach(x => {
+    if (!isRie(x.row) || x.qty > 0 || !othersSurf) return
+    if (x.loyer && !x.unit) Object.assign(x, { unit: Math.round(x.loyer / othersSurf * 100) / 100, unitSrc: 'calcule' })
+    else if (x.unit && !x.loyer) Object.assign(x, { loyer: Math.round(x.unit * othersSurf), loyerSrc: 'calcule' })
   })
   // Loyer global d'une CATÉGORIE collé sur un seul de ses lots (vécu : "loyer
   // surface bureaux : 1 010 385 €" pour 11 lots de bureaux, affecté au dernier
