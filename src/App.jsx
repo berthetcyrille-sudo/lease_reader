@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · sécurité extraction'
+const APP_VERSION = '19.10 · renouvellements EL'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4256,6 +4256,13 @@ function EtatLocatifModal({ building, bails, onClose }) {
         tenant: {
           name: row.data?.preneur_substitution || shortPartyName(d.preneur) || row.file_name,
           start, end, estimated, estimatedField,
+          // Renouvellement par avenant : bail d'origine daté, nouvelle période
+          // ouverte à une date postérieure (même règle que la fiche du bail)
+          renewal: (() => {
+            const own = parseFrDate(row.data?.date_effet), cur = parseFrDate(d.date_effet)
+            return (own && cur && cur > own) ? cur : null
+          })(),
+          renewalSignature: d._src?.date_effet?.data?.date_signature_avenant || null,
           breaks: mergedBreaks.map(parseFrDate).filter(Boolean),
           conditionalBreaks: conditionalBreaksRaw,
           loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
@@ -4323,8 +4330,12 @@ function EtatLocatifModal({ building, bails, onClose }) {
   // successives), chacun coloré différemment via une palette cyclique.
   function tenantSegments(t) {
     if (!t.start || !t.end) return []
-    const points = [t.start, ...t.breaks.filter(b => b > t.start && b < t.end).sort((a, b) => a - b), t.end]
-    return points.slice(0, -1).map((p, i) => ({ start: p, end: points[i + 1], color: SEGMENT_PALETTE[i % SEGMENT_PALETTE.length] }))
+    // Renouvellement : la période d'origine (révolue, ses breaks remplacés) en
+    // teinte neutre, puis les périodes du renouvellement colorées entre ses breaks.
+    const from = (t.renewal && t.renewal > t.start && t.renewal < t.end) ? t.renewal : t.start
+    const points = [from, ...t.breaks.filter(b => b > from && b < t.end).sort((a, b) => a - b), t.end]
+    const segs = points.slice(0, -1).map((p, i) => ({ start: p, end: points[i + 1], color: SEGMENT_PALETTE[i % SEGMENT_PALETTE.length] }))
+    return from > t.start ? [{ start: t.start, end: from, color: '#D6CEC2', origine: true }, ...segs] : segs
   }
 
   function TenantTooltip({ x, y, tenant: t }) {
@@ -4357,6 +4368,12 @@ function EtatLocatifModal({ building, bails, onClose }) {
               <span style={{ color: 'var(--text3)' }}>Prise d'effet{t.estimatedField === 'start' ? ' (estimée)' : ''}</span>
               <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.start)}</span>
             </div>
+            {t.renewal && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                <span style={{ color: 'var(--text3)' }}>Renouvelé à compter du</span>
+                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.renewal)}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
               <span style={{ color: 'var(--text3)' }}>{t.reconductionTacite ? 'Fin du terme ferme' : 'Échéance'}{t.estimatedField === 'end' ? ' (estimée)' : ''}</span>
               <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(t.end)}</span>
@@ -4530,6 +4547,21 @@ function EtatLocatifModal({ building, bails, onClose }) {
                                 }} />
                               )}
                             </div>
+                          </div>
+                        )
+                      })()}
+                      {t.renewal && (() => {
+                        const pct = ((t.renewal - domainStart) / domainMs) * 100
+                        if (pct < 0 || pct > 100) return null
+                        return (
+                          <div title={`Renouvellement — nouvelle période à compter du ${fmt(t.renewal)}${t.renewalSignature ? ` (avenant du ${t.renewalSignature})` : ''}`}
+                            style={{ position: 'absolute', left: `${pct}%`, top: '10px', bottom: 0, width: 0, borderLeft: '2px solid var(--text2)', zIndex: 3, cursor: 'help' }}>
+                            <span style={{
+                              position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)',
+                              fontSize: '11px', lineHeight: 1, background: 'var(--surface)', color: 'var(--text2)',
+                              borderRadius: '50%', width: '15px', height: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              border: '1px solid var(--text2)', fontWeight: 700,
+                            }}>↻</span>
                           </div>
                         )
                       })()}
