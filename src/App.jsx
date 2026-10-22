@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · renouvellements EL'
+const APP_VERSION = '19.10 · durées des périodes'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -865,6 +865,17 @@ function computeValeursEnVigueur(item, parentRow = null) {
     duree_ferme: duree('duree_ferme'),
     break_options: breaks,
     echeances_sortie: exits ? exits.map(e => ({ date: e.date || null, type: e.type || null, libelle: safeStr(e.libelle) || null, indemnite_sortie: e.indemnite_sortie || null, compensation_maintien: e.compensation_maintien || null })) : null,
+    // Périodes entre deux sorties possibles (prise d'effet de la période en
+    // cours → breaks → terme), avec leur durée — mêmes valeurs que les
+    // libellés des barres de l'État locatif.
+    periodes: (() => {
+      const pts = [eff.date_effet, ...breaks, dateFin].map(x => normalizeDate(safeStr(x))).filter(x => x && /^\d{2}\/\d{2}\/\d{4}$/.test(x))
+      const uniq = [...new Set(pts)].sort((a, b) => toSortableDateAv(a).localeCompare(toSortableDateAv(b)))
+      return uniq.slice(0, -1).map((debut, i) => {
+        const fin = uniq[i + 1], dur = dureePeriodeAns(debut, fin)
+        return { debut, fin, duree_ans: dur ? dur.ans : null }
+      })
+    })(),
     ventilation_loyer: ventilation,
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
@@ -1392,6 +1403,17 @@ function fmtSurface(v, { round = false } = {}) {
   return `${n.toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec })} m²`
 }
 // Durée en mois → forme courte : "9 ans", "1 an", "9 ans et 2 mois", "18 mois"
+// Durée d'une période entre deux dates, en années, libellé court : "3 ans",
+// "4,4 ans" (l'échéance tombant la veille de l'anniversaire, +1 jour).
+function dureePeriodeAns(debut, fin) {
+  const a = debut instanceof Date ? debut : parseFR(normalizeDate(safeStr(debut)))
+  const b = fin instanceof Date ? fin : parseFR(normalizeDate(safeStr(fin)))
+  if (!a || !b || b <= a) return null
+  const end = new Date(b.getFullYear(), b.getMonth(), b.getDate() + 1)
+  const mois = (end.getFullYear() - a.getFullYear()) * 12 + (end.getMonth() - a.getMonth()) + (end.getDate() - a.getDate()) / 30.44
+  const ans = Math.round(mois / 12 * 10) / 10
+  return { ans, libelle: `${ans.toLocaleString('fr-FR')} an${ans >= 2 ? 's' : ''}` }
+}
 function formatDureeMonths(m) {
   if (!m) return null
   const y = Math.floor(m / 12), mo = Math.round(m % 12)
@@ -4529,12 +4551,20 @@ function EtatLocatifModal({ building, bails, onClose }) {
                             style={{ position: 'absolute', left: `${left}%`, width: `${fullWidth}%`, top: '15px', height: '22px', cursor: t.row ? 'pointer' : 'default' }}>
                             <div style={{ position: 'relative', height: '100%', borderRadius: '5px', overflow: 'hidden', display: 'flex', border: t.estimated ? '1.5px dashed var(--text3)' : 'none' }}>
                               <div style={{ position: 'absolute', left: 0, width: `${fixedPortionPct}%`, top: 0, bottom: 0, display: 'flex' }}>
-                                {segments.map((seg, si) => (
-                                  <div key={si} style={{
-                                    position: 'absolute', left: `${((seg.start - t.start) / barSpan) * 100}%`, width: `${((seg.end - seg.start) / barSpan) * 100}%`,
-                                    top: 0, bottom: 0, background: seg.color, opacity: t.estimated ? 0.65 : 1, borderRight: si < segments.length - 1 ? '1.5px solid var(--surface)' : 'none',
-                                  }} />
-                                ))}
+                                {segments.map((seg, si) => {
+                                  // Durée de la période (jusqu'au break suivant ou au terme) —
+                                  // pas sur la période d'origine révolue d'un renouvellement
+                                  const dur = seg.origine ? null : dureePeriodeAns(seg.start, seg.end)
+                                  return (
+                                    <div key={si} title={dur ? `${dur.libelle} — du ${fmt(seg.start)} au ${fmt(seg.end)}` : undefined} style={{
+                                      position: 'absolute', left: `${((seg.start - t.start) / barSpan) * 100}%`, width: `${((seg.end - seg.start) / barSpan) * 100}%`,
+                                      top: 0, bottom: 0, background: seg.color, opacity: t.estimated ? 0.65 : 1, borderRight: si < segments.length - 1 ? '1.5px solid var(--surface)' : 'none',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+                                    }}>
+                                      {dur && <span style={{ fontSize: '10px', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', textShadow: '0 1px 1px rgba(0,0,0,.25)', pointerEvents: 'none' }}>{dur.libelle}</span>}
+                                    </div>
+                                  )
+                                })}
                               </div>
                               {t.reconductionTacite && (
                                 <div title={t.reconductionTacite.dateLimiteAbsolue
