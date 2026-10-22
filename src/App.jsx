@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · breaks au terme'
+const APP_VERSION = '19.10 · RIE pas deux fois'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -134,7 +134,7 @@ REGLES PAR CHAMP:
   4) "a l'expiration de la Neme annee" → date_effet + N ans
   5) "renoncant expressement a sa faculte de donner conge a l'expiration de la Neme et de la Mieme Annee du Contrat" (ENUMERATION EXPLICITE des annees renoncees, formulation DIFFERENTE de "duree ferme" ou "Nieme fois") → calculer TOUTES les echeances triennales standard (multiples de 3 depuis date_effet: annee 3, 6, 9, 12...) jusqu'a duree_totale, PUIS RETIRER les annees explicitement nommees comme renoncees. NE JAMAIS inclure une annee que le texte nomme explicitement comme renoncee, meme si elle tombe sur un multiple de 3 par ailleurs. EXEMPLE (celui-ci est un piège frequent — l'annee renoncee est un vrai multiple de 3, ne pas l'inclure par erreur): date_effet=31/03/2021, duree_totale=12 ans (date_fin=30/03/2033), "renoncant a sa faculte de donner conge a l'expiration de la 3eme et de la 6eme Annee" → echeances triennales standard = annees 3,6,9,12 → retirer les annees 3 ET 6 (explicitement renoncees, PAS seulement la 3eme) → il ne reste QUE l'annee 9 (annee 12 de toute facon exclue car = date_fin) → break_options=["30/03/2030"] UNIQUEMENT (PAS "30/03/2027", qui correspond a l'annee 6 explicitement renoncee)
   Ne PAS inclure date_fin.
-- loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. Les charges, impots et taxes refactures ne sont PAS du loyer.
+- loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. ATTENTION, CAS LE PLUS FREQUENT : un loyer donne PUIS \"decompose comme suit\" en lignes (surfaces, \"Loyer RIE : 15 €/m²\", parkings) INCLUT deja ces lignes — ex: \"loyer de base annuel : 84.036 € decompose comme suit : surface de 248 m² a 280 €, surface de 18,40 m² a 250 €, loyer RIE 15 €/m², parkings 1.500 €/u\" → 84036, JAMAIS 84036 + RIE. On n'ajoute la RIE QUE si le texte qualifie expressement le montant de \"hors redevance RIE\". Les charges, impots et taxes refactures ne sont PAS du loyer.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
 - indexation_indice: code de l indice parmi: "ILAT","ILC","ICC","IRL","IPC","BT01","AUTRE". null si non renseigne. Correspondances a appliquer, que l indice soit designe par son sigle OU par son nom en toutes lettres: "Indice des Loyers des Activites Tertiaires" → "ILAT" ; "Indice des Loyers Commerciaux" → "ILC" ; "Indice du Cout de la Construction" → "ICC" ; "Indice de Reference des Loyers" → "IRL" ; "Indice des Prix a la Consommation" → "IPC" ; index BT01 (batiment tous corps d etat) → "BT01". "AUTRE" UNIQUEMENT si le bail retient un indice reellement different de tous ceux-ci (ex: indice Syntec, indice composite propre au bail) — jamais par defaut quand l indice est simplement ecrit en toutes lettres.
 - indexation_trimestre_base: trimestre de reference si EXPLICITEMENT indique dans le bail (ex: "3T2025"). null si le bail dit "dernier indice publie a la date de signature" sans preciser lequel.
@@ -827,7 +827,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
       origine: c.loyerSrc || null, // extrait | calcule | reparti | ecart
     }
   })
-  const loyerAnnuel = parseAmount(d.loyer_signature_montant) || 0
+  const loyerAnnuel = loyerFacial(d).montant || 0
   // Franchises EN VIGUEUR (recalées si un avenant a décalé la prise d'effet)
   // Même règle que la fiche : pour un bail, ses propres franchises, ou celles
   // de l'état en vigueur si elles ont été RECALÉES ; pour un avenant, les
@@ -876,6 +876,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
         return { debut, fin, duree_ans: dur ? dur.ans : null }
       })
     })(),
+    loyer_facial: (() => { const lf = loyerFacial(d); return lf.corrige ? { montant: lf.montant, corrige: true, montant_extrait: lf.extrait } : { montant: lf.montant } })(),
     ventilation_loyer: ventilation,
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
@@ -986,7 +987,7 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
     v(d.conditions_break),
     surf(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', pkUnit || '', v(d.rie),
     ...surfVals,
-    amt(d.loyer_signature_montant), amt(d.loyer_cours), v(d.indexation),
+    (VV.loyer_facial?.montant ?? amt(d.loyer_signature_montant)), amt(d.loyer_cours), v(d.indexation),
     // Indice base — 4 colonnes (code, trimestre, valeur, source) : le tableau
     // renvoyé DOIT être déplié (...), sinon il tient une seule cellule et toutes
     // les colonnes suivantes sont décalées de 3 cases par rapport à leur en-tête.
@@ -1176,7 +1177,7 @@ const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT 
 
 REGLES PAR CHAMP:
 
-loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. Jamais prix unitaire/m². Si tableau par lot: additionner tous les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. Les charges, impots et taxes refactures ne sont PAS du loyer.
+loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. Jamais prix unitaire/m². Si tableau par lot: additionner tous les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. ATTENTION, CAS LE PLUS FREQUENT : un loyer donne PUIS \"decompose comme suit\" en lignes (surfaces, \"Loyer RIE : 15 €/m²\", parkings) INCLUT deja ces lignes — ex: \"loyer de base annuel : 84.036 € decompose comme suit : surface de 248 m² a 280 €, surface de 18,40 m² a 250 €, loyer RIE 15 €/m², parkings 1.500 €/u\" → 84036, JAMAIS 84036 + RIE. On n'ajoute la RIE QUE si le texte qualifie expressement le montant de \"hors redevance RIE\". Les charges, impots et taxes refactures ne sont PAS du loyer.
 
 loyer_signature: texte descriptif complet du loyer (detail par composante, prix unitaires, etc.)
 
@@ -2946,6 +2947,27 @@ function computeFranchiseSummary(periodes) {
 // Équivalence d'une franchise en mois de loyer — commune au tableau de la fiche
 // et à l'export : incoherent = la durée extraite (souvent la période
 // d'application) ne colle pas au montant exonéré (écart > 25 %).
+// LOYER FACIAL retenu — fonction commune (fiche, dashboard, État locatif,
+// valeurs en base, export). Garde-fou : si le loyer extrait est égal à la
+// somme des lignes du tableau PLUS la redevance RIE, la RIE a été comptée deux
+// fois (le bail donnait un total "décomposé comme suit", RIE comprise, et
+// l'extraction l'a rajoutée) → loyer facial = somme des lignes.
+function loyerFacial(d) {
+  const declared = parseAmount(d?.loyer_signature_montant) || 0
+  if (!declared) return { montant: null, corrige: false }
+  const surfaces = Array.isArray(d?.surfaces_detail) ? d.surfaces_detail : []
+  if (!surfaces.length) return { montant: declared, corrige: false }
+  const V = computeVentilation(surfaces, d.parking_nb_places, d.loyer_signature_montant)
+  const all = [...V.mainComputed, ...V.parkComputed]
+  if (!all.length || all.some(x => !x.loyer || x.loyerSrc === 'ecart' || x.loyerSrc === 'reparti')) return { montant: declared, corrige: false }
+  const lignes = all.reduce((t, x) => t + x.loyer, 0)
+  const rie = V.mainComputed.filter(x => V.isRie(x.row)).reduce((t, x) => t + (x.loyer || 0), 0)
+  if (rie > 0 && Math.abs(declared - lignes - rie) <= Math.max(2, declared * 0.002)) {
+    return { montant: Math.round(lignes * 100) / 100, corrige: true, extrait: declared, raison: 'redevance RIE comptée deux fois dans le montant extrait' }
+  }
+  return { montant: declared, corrige: false }
+}
+
 // Redevance RIE annuelle du bail, lue dans la ventilation commune
 function rieLoyerAnnuel(surfaces, parkingNbPlaces, loyerDeclared) {
   const V = computeVentilation(Array.isArray(surfaces) ? surfaces : [], parkingNbPlaces, loyerDeclared)
@@ -4320,7 +4342,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
           renewalSignature: d._src?.date_effet?.data?.date_signature_avenant || null,
           breaks: mergedBreaks.map(parseFrDate).filter(Boolean),
           conditionalBreaks: conditionalBreaksRaw,
-          loyer: parseAmount ? parseAmount(d.loyer_signature_montant) : (parseFloat(String(d.loyer_signature_montant || '').replace(/[^\d.,]/g, '').replace(',', '.')) || null),
+          loyer: loyerFacial(d).montant,
           reconductionTacite: d.reconduction_tacite?.applicable ? {
             preavis: d.reconduction_tacite.preavis || null,
             periodicite: d.reconduction_tacite.periodicite || null,
@@ -4862,7 +4884,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     else if (idx.includes('icc')) pills.push({ label: 'ICC', cls: 'pill-blue' })
   }
   if (d.franchise_periodes?.length > 0) {
-    const T = franchiseTotals(d.franchise_periodes, parseAmount(d.loyer_signature_montant) || 0, rieLoyerAnnuel(d.surfaces_detail, d.parking_nb_places, d.loyer_signature_montant))
+    const T = franchiseTotals(d.franchise_periodes, loyerFacial(d).montant || 0, rieLoyerAnnuel(d.surfaces_detail, d.parking_nb_places, d.loyer_signature_montant))
     const fm = n => (Math.round(n * 10) / 10).toLocaleString('fr-FR')
     pills.push({ label: T.acquise.mois > 0 ? `Franchise ${T.approx ? '≈ ' : ''}${fm(T.acquise.mois)} mois` : 'Franchise', cls: 'pill-green' })
     if (T.conditionnelle.mois > 0) pills.push({ label: `+ ${fm(T.conditionnelle.mois)} mois conditionnels`, cls: 'pill-amber' })
@@ -5633,7 +5655,15 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
               <div>
                 <div className="loyer-lbl" style={{ display: "flex", alignItems: "center", gap: "4px" }}>Loyer HT/HC annuel à la signature{src.loyer_signature_montant && <span title={src.loyer_signature_montant} style={{ cursor: "help", fontSize: "10px", color: "var(--text3)", border: "1px solid var(--border2)", borderRadius: "50%", width: "13px", height: "13px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>i</span>}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
-                  <div className="loyer-amount">{fmtEur(d.loyer_signature_montant) || d.loyer_signature_montant}</div>
+                  {(() => {
+                    const lf = loyerFacial(d)
+                    return (
+                      <div className="loyer-amount" title={lf.corrige ? `Montant extrait : ${fmtEur(lf.extrait)} — ${lf.raison}` : undefined}>
+                        {fmtEur(lf.montant ?? d.loyer_signature_montant) || d.loyer_signature_montant}
+                        {lf.corrige && <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent)', marginLeft: '8px', verticalAlign: 'middle' }}>corrigé (RIE comptée deux fois à l'extraction : {fmtEur(lf.extrait)})</span>}
+                      </div>
+                    )
+                  })()}
                   <PageJumpIcon item={item} pages={pages} field="loyer_signature_montant" />
                   {d.indexation_indice && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -5717,7 +5747,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                     {(() => {
                       // Avenant qui ne modifie pas le loyer : loyer et surfaces EN
                       // VIGUEUR du bail pour calculer les mois de loyer exonérés.
-                      const loyerRef = d.loyer_signature_montant || (isAv ? parentBailData?.loyer_signature_montant : null)
+                      const loyerRef = loyerFacial(d).montant || (isAv && parentBailData ? loyerFacial(parentBailData).montant : null)
                       const surfRef = (Array.isArray(d.surfaces_detail) && d.surfaces_detail.length) ? d.surfaces_detail : (isAv ? parentBailData?.surfaces_detail : null)
                       const parkRef = d.parking_nb_places || (isAv ? parentBailData?.parking_nb_places : null)
                       return <FranchiseTable periodes={merged} item={item} loyerAnnuel={parseAmount(loyerRef) || 0} rieLoyer={rieLoyerAnnuel(surfRef, parkRef, loyerRef)} />
@@ -8378,7 +8408,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // Loyer affiché dans la colonne "Loyer base" (HT/HC à la signature) — le tri suit
   // exactement les montants visibles. Les baux sans loyer restent en fin de
   // liste quel que soit le sens du tri.
-  const getLoyer = row => { const v = parseAmount(row.data?.loyer_signature_montant); return v && v > 0 ? v : null }
+  const getLoyer = row => { const v = loyerFacial(row.data || {}).montant; return v && v > 0 ? v : null }
   // Date de dernière extraction (horodatage enregistré à chaque extraction),
   // à défaut date de création de la ligne.
   const getExtractedAt = row => row.data?._extracted_at || row.created_at || ''
@@ -9195,8 +9225,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 {/* Loyer */}
                 <div className="dash-td dash-td-right" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
                   {d.loyer_signature_montant ? (
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}>
-                      {fmtEur(d.loyer_signature_montant)}
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}
+                      title={loyerFacial(d).corrige ? `Corrigé — montant extrait ${fmtEur(loyerFacial(d).extrait)} (RIE comptée deux fois)` : undefined}>
+                      {fmtEur(loyerFacial(d).montant ?? d.loyer_signature_montant)}
                       <OverrideMark field="loyer_signature_montant" formatValue={v => fmtEur(v)} />
                     </span>
                   ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—<OverrideMark field="loyer_signature_montant" formatValue={v => fmtEur(v)} /></span>}
