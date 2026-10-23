@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · structure du loyer'
+const APP_VERSION = '19.10 · total franchise annoncé'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3394,7 +3394,12 @@ function franchiseEcartAnnonce(d) {
   const txt = safeStr(d?.franchise) || ''
   const lignes = Array.isArray(d?.franchise_periodes) ? d.franchise_periodes : []
   if (!txt || !lignes.length) return null
+  // Seuls comptent les montants PRÉSENTÉS COMME UN TOTAL ("soit la somme de
+  // 576.483 €", "au total", "montant global"…) — un texte qui énumère des
+  // montants par année sans total n'annonce rien (vécu : 5 430 € puis 1 810 €
+  // pris pour un total de 5 430 €).
   const montants = [...txt.matchAll(/(\d{1,3}(?:[ .\u00a0\u202f]\d{3})+(?:,\d{1,2})?|\d{4,}(?:[.,]\d{1,2})?)\s*(?:€|euros?|eur\b)/gi)]
+    .filter(m => /(soit|total|somme|global|globale|representant|au titre de l.ensemble|en tout)\b[^0-9]{0,60}$/i.test(stripAccents(txt.slice(Math.max(0, m.index - 70), m.index))))
     .map(m => {
       // Montant écrit à la française : "576.483,00" ou "576 483" (milliers)
       let t = m[1].replace(/[\s\u00a0\u202f]/g, '')
@@ -4139,21 +4144,58 @@ function auditBail(row) {
     })
   }
 
-  // 6. Date de fin incohérente avec date d'effet + durée totale — même défaut
-  // que celui trouvé et corrigé côté affichage (dashboard/fiche), mais ici en
-  // contrôle qualité pour repérer les cas où la DONNÉE elle-même reste fausse
-  // en base (pas seulement son affichage, déjà corrigé ailleurs).
-  if (effet && fin && dureeTotaleYears) {
-    const expectedFin = new Date(effet.getFullYear() + dureeTotaleYears, effet.getMonth(), effet.getDate() - 1)
-    const diffDays = Math.abs(fin - expectedFin) / (24 * 60 * 60 * 1000)
-    if (diffDays > 5) {
-      issues.push({
+  // 6. Cohérence DATES / DURÉES, au mois près et sur les valeurs EN VIGUEUR
+  // (celles de la fiche, après avenants) :
+  //  a) prise d'effet + durée totale = date de fin ?
+  //  b) prise d'effet + durée ferme = première sortie possible ? (et pas de
+  //     sortie anticipée si la durée ferme couvre toute la durée)
+  // Vécu : « 25 ans et 10 mois » lu comme 25 ans → expiration 11/07/2035
+  // jugée cohérente au lieu du 11/05/2036 attendu.
+  try {
+    const effR = (Array.isArray(row.avenants) && row.avenants.length) ? mergedBailData(row) : d
+    const vvR = computeValeursEnVigueur(row, null)
+    const e0 = parseFrDate(normalizeDate(safeStr(effR.date_effet)))
+    const f0 = parseFrDate(vvR.date_fin)
+    const mT = parseDureeMonths(effR.duree_totale), mF = parseDureeMonths(effR.duree_ferme)
+    const addM = (dt, m) => new Date(dt.getFullYear(), dt.getMonth() + m, dt.getDate() - 1)
+    const ecartTxt = (x, y) => { const j = Math.round(Math.abs(x - y) / 86400000); return j >= 45 ? `${Math.round(j / 30.44)} mois` : `${j} jours` }
+    if (e0 && f0 && mT) {
+      const attendu = addM(e0, mT)
+      if (Math.abs(f0 - attendu) > 5 * 86400000) issues.push({
         type: 'date_fin_incoherente',
         severity: 'high',
-        detail: `Date de fin (${fmtFR(fin)}) incohérente avec date d'effet + durée totale (${fmtFR(expectedFin)} attendu, soit un écart de ${Math.round(diffDays)} jours) — à vérifier.`,
+        detail: `Prise d'effet (${fmtFR(e0)}) + durée totale (${safeStr(effR.duree_totale)}) = ${fmtFR(attendu)}, mais la date de fin est ${fmtFR(f0)} — écart de ${ecartTxt(f0, attendu)}. L'une des trois valeurs est fausse, ou la durée court à partir d'une autre date.`,
       })
     }
-  }
+    if (e0 && mF && mT && !effR._breakOptionsFromAvenant) {
+      // Breaks EXTRAITES antérieures à la fin de la durée ferme : écartées à
+      // l'affichage, mais leur présence trahit une contradiction entre deux
+      // valeurs extraites (durée ferme ou échéance fausse)
+      const finFerme = addM(e0, Math.min(mF, mT))
+      const brutes = (Array.isArray(effR.break_options) ? effR.break_options : []).map(x => parseFrDate(normalizeDate(safeStr(x)))).filter(Boolean)
+      const masquees = brutes.filter(x => x < new Date(finFerme.getTime() - 5 * 86400000) && x > e0).sort((x, y) => x - y)
+      if (masquees.length) issues.push({
+        type: 'duree_ferme_incoherente',
+        severity: 'high',
+        detail: `Échéance(s) extraite(s) le ${masquees.map(fmtFR).join(', ')}, AVANT la fin de la durée ferme (${safeStr(effR.duree_ferme)}, soit le ${fmtFR(finFerme)}) — écartée(s) à l'affichage. À vérifier : durée ferme ou échéances.`,
+      })
+      const sorties = (vvR.break_options || []).map(x => parseFrDate(x)).filter(Boolean).sort((x, y) => x - y)
+      if (mF < mT) {
+        const attendu = addM(e0, mF)
+        if (sorties.length && Math.abs(sorties[0] - attendu) > 5 * 86400000) issues.push({
+          type: 'duree_ferme_incoherente',
+          severity: 'high',
+          detail: `Prise d'effet (${fmtFR(e0)}) + durée ferme (${safeStr(effR.duree_ferme)}) = ${fmtFR(attendu)}, mais la première sortie possible est le ${fmtFR(sorties[0])} — écart de ${ecartTxt(sorties[0], attendu)}. À vérifier : durée ferme ou échéances.`,
+        })
+      } else if (sorties.length) {
+        issues.push({
+          type: 'duree_ferme_incoherente',
+          severity: 'high',
+          detail: `Durée ferme (${safeStr(effR.duree_ferme)}) égale à la durée totale (${safeStr(effR.duree_totale)}) — aucune sortie anticipée possible — mais une sortie est indiquée le ${fmtFR(sorties[0])}. À vérifier : durée ferme ou échéances.`,
+        })
+      }
+    }
+  } catch (_) {}
 
   // 7. Break postérieure à la date de fin du bail — logiquement impossible,
   // presque toujours un résidu de calcul erroné ou une confusion de champ.
@@ -7376,7 +7418,7 @@ function ReextractProgressModal({ progress }) {
 // listé tombe dans "Autres".
 const QC_THEMES = [
   { key: 'breaks', label: 'Breaks et échéances', types: ['break_a_tout_moment_datee', 'break_ancien_calcul', 'break_apres_terme', 'break_format', 'break_jour_anniversaire', 'breaks_incomplets', 'indemnite_orpheline', 'echeance_attendue_absente'] },
-  { key: 'dates', label: 'Dates et durées', types: ['champ_date_pollue', 'champ_duree_pollue', 'date_fin_incoherente', 'duree_ferme_ambigue', 'duree_ferme_indeterminee', 'effet_conditionnel', 'signature_posterieure_effet'] },
+  { key: 'dates', label: 'Dates et durées', types: ['champ_date_pollue', 'champ_duree_pollue', 'date_fin_incoherente', 'duree_ferme_incoherente', 'duree_ferme_ambigue', 'duree_ferme_indeterminee', 'effet_conditionnel', 'signature_posterieure_effet'] },
   { key: 'surfaces', label: 'Surfaces et loyer', types: ['surface_incoherente', 'surface_loyer_incoherent', 'loyer_ecart_ventilation'] },
   { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
   { key: 'avenants', label: 'Avenants', types: ['avenant_anterieur_au_bail', 'avenant_sans_signature', 'avenants_ordre', 'date_effet_avenants_contradictoires'] },
