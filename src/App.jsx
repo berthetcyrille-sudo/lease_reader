@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · RIE pas deux fois'
+const APP_VERSION = '19.10 · triennale après ferme'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1165,6 +1165,7 @@ REGLES :
 2) Ce qui est rattache a une echeance (indemnite si depart, compensation si maintien, conditions, preavis) vient du MEME paragraphe/de la MEME stipulation que celle qui ouvre cette faculte de sortie. Ne jamais rattacher l'indemnite d'une echeance a une autre date.
 3) Dates : appliquer les regles de calcul ci-dessus (convention jour anniversaire moins 1 jour, multiples de 3 ans depuis date_effet, renonciations). Une date ecrite en toutes lettres dans le texte se reprend telle quelle. Si la date ne peut pas etre calculee (date d'effet inconnue/conditionnelle), date=null et libelle explicite.
 4) Exclure : les echeances auxquelles le preneur a renonce ; la date de fin du bail elle-meme (date_fin n'est pas une sortie anticipee) ; les clauses de resiliation pour faute/manquement, de non-prise de possession, de cession — ce ne sont pas des facultes de sortie.
+4ter) Renonciation a la faculte triennale "POUR LA DUREE FERME" avec une premiere faculte de conge a la fin de cette duree ferme ("pour la premiere fois") : la renonciation ne vaut QUE pour la duree ferme — les expirations de periodes triennales qui suivent (multiples de 3 ans depuis la date d'effet, strictement avant le terme) redeviennent des sorties possibles et doivent figurer dans echeances_sortie (type triennale). Ex: bail de 12 ans dont 8 fermes, effet 01/07/2022 → 30/06/2030 (fin de la 8e annee, premiere faculte) PUIS 30/06/2031 (expiration de la 3e periode triennale = 9 ans) ; le 30/06/2034 est le terme, pas une sortie.
 4bis) Les periodes TRIENNALES se comptent TOUJOURS a partir de la date d'effet du bail (3, 6, 9 ans...), meme quand une echeance exceptionnelle intermediaire est accordee : "faculte de conge pour la premiere fois a l'expiration de la quatrieme annee, puis a l'expiration de chaque periode triennale suivante" (effet 01/09/2025) → 31/08/2029 (4e annee, type exceptionnelle) puis 31/08/2031 (2e periode triennale = 6 ans), PAS 31/08/2032.
 5) Une faculte de resiliation "a tout moment" (generalement sous condition de motif) = une entree type "a_tout_moment", date null, avec ses conditions et son preavis.
 6) break_options = exactement les dates (non nulles) de echeances_sortie, triees. Les deux doivent toujours concorder.
@@ -1948,6 +1949,29 @@ function getExitEvents(d) {
       const triDate = (e.type === 'triennale' && triennialOrdinalFromText(e.libelle)) ? resolveEcheanceDateFromText(e.libelle, d.date_effet) : null
       return { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
     })
+    // Renonciation à la faculté triennale "pour la durée ferme" + première
+    // faculté de congé à la fin de celle-ci ("pour la première fois") : les
+    // expirations triennales suivantes (3, 6, 9… ans depuis l'effet, avant le
+    // terme) redeviennent des sorties possibles — ajoutées si absentes (vécu :
+    // 12 ans dont 8 fermes, seule la sortie à 8 ans extraite, pas celle à 9 ans).
+    .reduce((acc, e, i, arr) => {
+      acc.push(e)
+      if (i !== arr.length - 1) return acc
+      const cb = stripAccents(String(d.conditions_break || '')).toLowerCase()
+      const effet = parseFR(normalizeDate(safeStr(d.date_effet))), fin = parseFR(normalizeDate(safeStr(d.date_fin)))
+      if (!effet || !fin || !/renonc/.test(cb) || !/(duree|periode) ferme/.test(cb) || !/premiere fois/.test(cb)) return acc
+      const dated = acc.map(x => x.date ? parseFR(x.date) : null).filter(Boolean)
+      if (!dated.length) return acc
+      const first = new Date(Math.min(...dated))
+      const ref = acc.find(x => x.date && parseFR(x.date).getTime() === first.getTime())
+      for (let k = 1; k <= 8; k++) {
+        const t = new Date(effet.getFullYear() + 3 * k, effet.getMonth(), effet.getDate() - 1)
+        if (t <= first || t >= new Date(fin.getTime() - 3 * 86400000)) continue
+        if (dated.some(x => Math.abs(x - t) <= 3 * 86400000)) continue
+        acc.push({ date: fmtFR(t), type: 'triennale', libelle: `Expiration de la ${k}ème période triennale`, preavis: ref?.preavis || null, indemnite_sortie: null, montant_indemnite: null, compensation_maintien: null, conditions: null, page: ref?.page || null, _deduite: true })
+      }
+      return acc
+    }, [])
     .filter(e => {
       // une "sortie" à la date d'expiration n'est pas une sortie anticipée
       if (!e.date || !d.date_fin) return true
@@ -5660,7 +5684,6 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                     return (
                       <div className="loyer-amount" title={lf.corrige ? `Montant extrait : ${fmtEur(lf.extrait)} — ${lf.raison}` : undefined}>
                         {fmtEur(lf.montant ?? d.loyer_signature_montant) || d.loyer_signature_montant}
-                        {lf.corrige && <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent)', marginLeft: '8px', verticalAlign: 'middle' }}>corrigé (RIE comptée deux fois à l'extraction : {fmtEur(lf.extrait)})</span>}
                       </div>
                     )
                   })()}
