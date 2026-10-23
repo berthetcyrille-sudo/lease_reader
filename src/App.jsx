@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · raisonnement échéances'
+const APP_VERSION = '19.10 · CQ calendrier attendu'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3664,6 +3664,37 @@ function auditBail(row) {
     }
   }
 
+  // 2sexies. Calendrier ATTENDU des échéances, calculé par le code à partir de
+  // la prise d'effet, de la durée totale et de la durée ferme (première sortie
+  // à la fin de la durée ferme, puis chaque expiration triennale suivante,
+  // avant le terme) : signale toute échéance FUTURE attendue absente de
+  // l'extraction. Contrôle seul — ne modifie aucune donnée. Ignoré quand un
+  // avenant a redéfini les breaks (renonciations possibles).
+  try {
+    const eff = (Array.isArray(row.avenants) && row.avenants.length) ? mergedBailData(row) : d
+    if (!eff._breakOptionsFromAvenant) {
+      const effet = parseFR(normalizeDate(safeStr(eff.date_effet)))
+      const mt = parseDureeMonths(eff.duree_totale), mf = parseDureeMonths(eff.duree_ferme)
+      if (effet && mt && mf && mf < mt) {
+        const fin = new Date(effet.getFullYear(), effet.getMonth() + mt, effet.getDate() - 1)
+        const attendues = [new Date(effet.getFullYear(), effet.getMonth() + mf, effet.getDate() - 1)]
+        for (let k = 1; k <= 8; k++) {
+          const t = new Date(effet.getFullYear() + 3 * k, effet.getMonth(), effet.getDate() - 1)
+          if (t > attendues[0] && t < new Date(fin.getTime() - 3 * 86400000)) attendues.push(t)
+        }
+        const today = new Date()
+        const vv = computeValeursEnVigueur(row, null)
+        const extraites = (vv.break_options || []).map(b => parseFR(normalizeDate(safeStr(b)))).filter(Boolean)
+        const manquantes = attendues.filter(t => t > today && !extraites.some(x => Math.abs(x - t) <= 3 * 86400000))
+        if (manquantes.length) issues.push({
+          type: 'echeance_attendue_absente',
+          severity: 'medium',
+          detail: `Échéance(s) attendue(s) d'après la durée (${safeStr(eff.duree_totale)}) et la durée ferme (${safeStr(eff.duree_ferme)}) mais absente(s) de l'extraction : ${manquantes.map(fmtFR).join(', ')} — à vérifier dans la clause (renonciation, échéance oubliée).`,
+        })
+      }
+    }
+  } catch (_) {}
+
   // 2quinquies. Réponse de l'IA réparée automatiquement lors de l'extraction
   if (d._json_repare) issues.push({ type: 'json_repare', severity: 'high', detail: "La réponse de l'IA était mal formée lors de la dernière extraction et a été réparée automatiquement : des données peuvent manquer ou être altérées. Réextraction recommandée." })
 
@@ -7000,7 +7031,7 @@ function ReextractProgressModal({ progress }) {
 // Thématiques du contrôle qualité (filtre de la fenêtre) — tout type non
 // listé tombe dans "Autres".
 const QC_THEMES = [
-  { key: 'breaks', label: 'Breaks et échéances', types: ['break_a_tout_moment_datee', 'break_ancien_calcul', 'break_apres_terme', 'break_format', 'break_jour_anniversaire', 'breaks_incomplets', 'indemnite_orpheline'] },
+  { key: 'breaks', label: 'Breaks et échéances', types: ['break_a_tout_moment_datee', 'break_ancien_calcul', 'break_apres_terme', 'break_format', 'break_jour_anniversaire', 'breaks_incomplets', 'indemnite_orpheline', 'echeance_attendue_absente'] },
   { key: 'dates', label: 'Dates et durées', types: ['champ_date_pollue', 'champ_duree_pollue', 'date_fin_incoherente', 'duree_ferme_ambigue', 'duree_ferme_indeterminee', 'effet_conditionnel', 'signature_posterieure_effet'] },
   { key: 'surfaces', label: 'Surfaces et loyer', types: ['surface_incoherente', 'surface_loyer_incoherent'] },
   { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
