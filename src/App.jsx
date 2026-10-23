@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · loyer prix au m² 2'
+const APP_VERSION = '19.10 · effet avenant ≠ effet bail'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -179,7 +179,7 @@ surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: reg
 
 REGLES POUR date_effet_avenant / date_signature_avenant (champs top-level, PAS dans champs_modifies) :
 - date_signature_avenant: chercher SYSTEMATIQUEMENT cette date dans TOUT le document, meme quand l'avenant ne modifie pas date_effet — c'est elle qui sert a classer chronologiquement les avenants d'un meme bail entre eux quand aucune date d'effet propre n'est disponible (voir date_effet_avenant ci-dessous). Se trouve generalement en toute fin d'acte (bloc de signature "Fait a ..., le [date]", juste avant les annexes), mais peut aussi figurer sur un certificat de signature electronique separe (DocuSign, Yousign ou equivalent) si le PDF en contient un. Si les parties signent a des dates differentes, retenir la DERNIERE date de signature. null UNIQUEMENT si aucune date n'est identifiable nulle part dans le document (ligne "Fait le" laissee vierge, page de signature absente du PDF fourni).
-- date_effet_avenant: UNIQUEMENT si l'avenant fixe explicitement (ou permet de deduire sans ambiguite) une date a laquelle SES modifications prennent effet — qui peut differer de la date de signature (effet retroactif ou differe explicitement stipule). NE JAMAIS y recopier la date de signature par defaut quand aucune prise d'effet propre n'est stipulee — laisser null dans ce cas (le tri par date_signature_avenant en absence de date_effet_avenant est deja gere par ailleurs).
+- date_effet_avenant: UNIQUEMENT si l'avenant fixe explicitement (ou permet de deduire sans ambiguite) une date a laquelle SES modifications prennent effet — qui peut differer de la date de signature (effet retroactif ou differe explicitement stipule). NE JAMAIS y recopier la date de signature par defaut quand aucune prise d'effet propre n'est stipulee — laisser null dans ce cas (le tri par date_signature_avenant en absence de date_effet_avenant est deja gere par ailleurs). ATTENTION: cette date NE VA PAS dans champs_modifies.date_effet. champs_modifies.date_effet (la prise d'effet DU BAIL) ne se remplit que si l'avenant modifie EXPRESSEMENT la date de prise d'effet du bail lui-meme (report ou avancement de la prise d'effet, levee d'une condition suspensive, livraison) — ex: un avenant d'extension \"a compter du 15 octobre 2024, le Bailleur donne a bail des locaux complementaires\" a date_effet_avenant = 15/10/2024 et champs_modifies.date_effet = null (le bail garde sa propre prise d'effet), et champs_modifies.date_fin / duree_totale = null tant que l'avenant ne modifie pas l'article Duree.
 
 REGLES PAR CHAMP (champs_modifies):
 - loyer_signature_montant: montant annuel total HT/HC. null si non modifie. JAMAIS prix unitaire/m². Meme definition que pour le bail : redevance RIE et stationnement enonces separement font partie du loyer facial (les additionner).
@@ -4024,7 +4024,7 @@ function auditBail(row) {
   // avenant a redéfini les breaks (renonciations possibles).
   try {
     const eff = (Array.isArray(row.avenants) && row.avenants.length) ? mergedBailData(row) : d
-    if (!eff._breakOptionsFromAvenant) {
+    if (!eff._breaksDonneesParAvenant) {
       const effet = parseFR(normalizeDate(safeStr(eff.date_effet)))
       const mt = parseDureeMonths(eff.duree_totale), mf = parseDureeMonths(eff.duree_ferme)
       if (effet && mt && mf && mf < mt) {
@@ -4191,7 +4191,7 @@ function auditBail(row) {
         detail: `Prise d'effet (${fmtFR(e0)}) + durée totale (${safeStr(effR.duree_totale)}) = ${fmtFR(attendu)}, mais la date de fin est ${fmtFR(f0)} — écart de ${ecartTxt(f0, attendu)}. L'une des trois valeurs est fausse, ou la durée court à partir d'une autre date.`,
       })
     }
-    if (e0 && mF && mT && !effR._breakOptionsFromAvenant) {
+    if (e0 && mF && mT && !effR._breaksDonneesParAvenant) {
       const sorties = (vvR.break_options || []).map(x => parseFrDate(x)).filter(Boolean).sort((x, y) => x - y)
       if (mF < mT) {
         const attendu = addM(e0, mF)
@@ -4268,7 +4268,7 @@ function auditBail(row) {
   // généralement un avenant à la fois.
   if (Array.isArray(row.avenants)) {
     const confirmedDates = [...new Set(
-      row.avenants.map(av => av.data?.champs_modifies?.date_effet).filter(Boolean).map(v => normalizeDate(safeStr(v)))
+      row.avenants.map(av => filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, row.data || {}).date_effet).filter(Boolean).map(v => normalizeDate(safeStr(v)))
     )]
     if (confirmedDates.length > 1) {
       issues.push({
@@ -4485,7 +4485,12 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
   const triDate = (a, k) => new Date(a.getFullYear() + 3 * k, a.getMonth(), a.getDate() - 1)
 
   // 2) break_options
-  const bs = (Array.isArray(prev.break_options) ? prev.break_options : []).map(b => parseFR(nd(b))).filter(Boolean)
+  // Échéances d'origine, AVANT recalcul : sans le filtre de la durée ferme
+  // (sauf si un avenant antérieur les a fixées lui-même), des triennales
+  // renoncées listées par l'extraction réapparaîtraient (vécu : 2027 et 2030
+  // affichées malgré 7 ans et 3 mois fermes)
+  const bsSrc = Array.isArray(prev.break_options) ? prev.break_options : []
+  const bs = (prev._breaksDonneesParAvenant ? bsSrc : filterBreaksByDureeFerme(bsSrc, prev.date_effet, prev.duree_ferme)).map(b => parseFR(nd(b))).filter(Boolean)
   let regenerated = null
   if (restated && base.date_fin) {
     // Article Durée réécrit avec son départ : échéances recalculées depuis ce
@@ -4507,8 +4512,20 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
       regenerated = kList.map(k => triDate(newAnchor, k)).filter(t => !newFin || t < newFin).map(fmtFR)
       break
     }
-    // Calendrier non triennal : conservé tel quel, borné à la nouvelle fin.
-    if (!regenerated) regenerated = bs.filter(t => !newFin || t < newFin).map(fmtFR)
+    // Calendrier non triennal : recalé sur la nouvelle prise d'effet si elle a
+    // glissé DANS le même bail (échéance calée sur l'effet : "à l'issue des 7
+    // ans et 3 mois" → effet + 87 mois − 1 jour) ; sinon conservé tel quel.
+    // Borné à la nouvelle fin.
+    if (!regenerated) {
+      const memeBail = effetChanged && prevEffet && newEffet && (!prevFin || newEffet < prevFin) && Math.abs(newEffet - prevEffet) < 3 * 365 * day
+      regenerated = bs.map(t => {
+        if (!memeBail) return t
+        const next = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1)
+        if (next.getDate() !== prevEffet.getDate()) return t
+        const m = (next.getFullYear() - prevEffet.getFullYear()) * 12 + (next.getMonth() - prevEffet.getMonth())
+        return new Date(newEffet.getFullYear(), newEffet.getMonth() + m, newEffet.getDate() - 1)
+      }).filter(t => !newFin || t < newFin).map(fmtFR)
+    }
   } else if (effetChanged) {
     const c = computeBreaks(base.date_effet, base.date_fin, base.conditions_break, [], base.duree_ferme)
     if (c.length) regenerated = c
@@ -4545,6 +4562,26 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
     base.break_options = list.map(e => e?.date).filter(Boolean)
     base._breakOptionsFromAvenant = true
   }
+}
+
+// CONFUSION FRÉQUENTE À L'EXTRACTION : la date à partir de laquelle un
+// avenant s'applique (ex: "à compter du 15 octobre 2024, le Bailleur donne à
+// bail des locaux complémentaires") rangée par erreur comme NOUVELLE DATE
+// D'EFFET DU BAIL, avec une date de fin déduite. Signes : date d'effet "du
+// bail" identique à la date d'effet de l'avenant, bail déjà daté, et objet de
+// l'avenant ne portant ni sur la prise d'effet, ni sur la durée, ni sur une
+// livraison ou une condition → ces champs sont ignorés (vécu : extension
+// Absys, présentée à tort comme un renouvellement au 15/10/2024).
+function filtrerDateEffetConfondue(av, mods, baseAvant) {
+  const effAv = normalizeDate(safeStr(av?.data?.date_effet_avenant))
+  const effMod = normalizeDate(safeStr(mods?.date_effet))
+  if (!effMod || !effAv || effMod !== effAv || !normalizeDate(safeStr(baseAvant?.date_effet))) return mods
+  const objet = stripAccents(`${safeStr(av?.data?.objet_avenant) || ''} ${safeStr(mods?.duree_totale) || ''}`).toLowerCase()
+  // ("prise à bail DE LOCAUX complémentaires" ne compte pas : seule la DATE de
+  // prise à bail / d'effet du bail, sa durée, un report ou une livraison)
+  if (/(date de prise a bail|prise d.effet|date d.effet|entree en jouissance|duree|report|livraison|condition suspensive|renouvel|avancement|prorogation|prolongation)/.test(objet)) return mods
+  const { date_effet, date_fin, duree_totale, ...reste } = mods
+  return reste
 }
 
 // ORDRE DES AVENANTS — règle unique (numérotation, calcul de l'état en
@@ -4591,11 +4628,12 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
   for (const av of avs) {
     if (beforeAvenantId && av.id === beforeAvenantId) break
     const isLast = throughAvenantId && av.id === throughAvenantId
-    const mods = av.data?.champs_modifies || {}
+    const mods = filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, base)
     const prev = { ...base }
     Object.entries(mods).forEach(([k, v]) => {
       if (v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0) && k !== '_sources') {
         base._src[k] = av
+        if (k === 'break_options' || k === 'echeances_sortie') base._breaksDonneesParAvenant = true
         base[k] = v
         // Un avenant qui redéfinit explicitement break_options rend cette
         // valeur définitive — le calcul de secours (computeBreaks), basé sur
@@ -5248,7 +5286,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     const toSortableAv = s => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s || '') }
     ;[...item.avenants].sort((a, b) =>
       compareAvenants(a, b))
-      .forEach(av => { if (av.data?.champs_modifies?.date_effet) effetConfirmePar = av })
+      .forEach(av => { if (filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, item.data || {}).date_effet) effetConfirmePar = av })
     // Date d'effet : un avenant ne REMPLIT la date d'effet du bail que si elle
     // était inconnue (bail sous condition suspensive, BEFA). Si le bail avait
     // déjà une date, un avenant qui en fixe une nouvelle (renouvellement) ouvre
