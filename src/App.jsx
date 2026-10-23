@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '20.10 · triennales reportées'
+const APP_VERSION = '20.10 · fin depuis effet confirmé'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -5443,7 +5443,20 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
         d.date_effet = csDate
         dateSrc = { date_effet: csAv }
         effetConfirmePar = csAv
-        if (!normalizeDate(safeStr(d.date_fin))) { const f = computeDateFinFromDuree(csDate, d.duree_totale); if (f) d.date_fin = f }
+        // Expiration TOUJOURS recalculée depuis la prise d'effet confirmée : une
+        // date de fin extraite du bail repose sur une date provisoire (vécu :
+        // JADE, fin au 23/01/2034 au lieu du 09/03/2034). Des breaks extraites
+        // sur cette même date provisoire glissent du même écart.
+        const finCalc = computeDateFinFromDuree(csDate, d.duree_totale)
+        if (finCalc) {
+          const finBrute = parseFR(normalizeDate(safeStr(d.date_fin))), finNew = parseFR(finCalc)
+          if (finBrute && finNew && finBrute.getTime() !== finNew.getTime() && Array.isArray(d.break_options) && d.break_options.length && !(Array.isArray(d.echeances_sortie) && d.echeances_sortie.length)) {
+            const md = (finNew.getFullYear() - finBrute.getFullYear()) * 12 + (finNew.getMonth() - finBrute.getMonth())
+            const dd = finNew.getDate() - finBrute.getDate()
+            d.break_options = d.break_options.map(b => { const t = parseFR(normalizeDate(safeStr(b))); return t ? fmtFR(new Date(t.getFullYear(), t.getMonth() + md, t.getDate() + dd)) : b })
+          }
+          d.date_fin = finCalc
+        }
       }
     } else {
       effetConfirmePar = null
