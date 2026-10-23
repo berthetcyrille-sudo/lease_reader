@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · effet avenant ≠ effet bail'
+const APP_VERSION = '19.10 · CQ loyer retenu'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3428,9 +3428,23 @@ function franchiseEcartAnnonce(d) {
       else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '')
       return parseFloat(t)
     }).filter(n => n && n > 0)
-  if (!montants.length) return null
-  const annonce = Math.max(...montants)
   const tableau = lignes.reduce((t, r) => t + (parseAmount(r.montant) || 0), 0)
+  const proche = (x, y) => Math.abs(x - y) <= Math.max(5, y * 0.005)
+  // 1) Le total du tableau figure dans le texte (avec ou sans mot-clé) :
+  //    rien à signaler (vécu : "franchise de 1.161.866,67 €" cité, puis
+  //    "rembourser 6 mois soit 348.560 €" pris à tort pour le total)
+  const tousMontants = [...txt.matchAll(/(\d{1,3}(?:[ .\u00a0\u202f]\d{3})+(?:,\d{1,2})?|\d{4,}(?:[.,]\d{1,2})?)\s*(?:€|euros?|eur\b)/gi)].map(m => {
+    let t = m[1].replace(/[\s\u00a0\u202f]/g, '')
+    if (/,\d{1,2}$/.test(t)) t = t.replace(/\./g, '').replace(',', '.')
+    else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '')
+    return parseFloat(t)
+  }).filter(n => n > 0)
+  if (tableau && tousMontants.some(n => proche(n, tableau))) return null
+  // 2) Un montant égal à l'une des tranches n'est pas un total
+  const tranches = lignes.map(r => parseAmount(r.montant)).filter(Boolean)
+  const candidats = montants.filter(n => !(tranches.length > 1 && tranches.some(t => proche(n, t))))
+  if (!candidats.length) return null
+  const annonce = Math.max(...candidats)
   if (!tableau || Math.abs(annonce - tableau) <= Math.max(5, annonce * 0.02)) return null
   return { annonce, tableau }
 }
@@ -3950,7 +3964,11 @@ function auditBail(row) {
   // cas, la vraie surface = (loyer total − part stationnement) ÷ prix unitaire.
   ;(() => {
     const rows = Array.isArray(d.surfaces_detail) ? d.surfaces_detail : []
-    const totalLoyerSignature = parseAmount(d.loyer_signature_montant)
+    // Loyer RETENU (loyerFacial : corrections RIE comptée deux fois, prix au
+    // m², loyer variable…), pas le montant brut extrait
+    const lfQ = loyerFacial(d)
+    if (lfQ.corrige || lfQ.variableSeul) return
+    const totalLoyerSignature = lfQ.montant
     if (!rows.length || !totalLoyerSignature) return
     const allHaveLoyer = rows.every(r => r.loyer_annuel != null && r.loyer_annuel !== '')
     if (!allHaveLoyer) return
@@ -3972,6 +3990,10 @@ function auditBail(row) {
       const newSurface = Math.round((newMontant / pu) * 100) / 100
       fixInfo = { rowIndex, newSurface, newMontant, oldSurface: mainRows[0].surface_m2, oldMontant: mainRows[0].loyer_annuel, categorie: mainRows[0].categorie || 'Bureaux' }
     }
+    // Sans correction de surface déductible, l'écart est déjà signalé par le
+    // contrôle "erreur matérielle de calcul du loyer" (loyerEcartVentilation) :
+    // pas de second point pour le même écart.
+    if (!fixInfo) return
     issues.push({
       type: 'surface_loyer_incoherent',
       severity: 'high',
