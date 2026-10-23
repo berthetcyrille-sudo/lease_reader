@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · CQ calendrier attendu'
+const APP_VERSION = '19.10 · écart loyer'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -876,7 +876,10 @@ function computeValeursEnVigueur(item, parentRow = null) {
         return { debut, fin, duree_ans: dur ? dur.ans : null }
       })
     })(),
-    loyer_facial: (() => { const lf = loyerFacial(d); return lf.corrige ? { montant: lf.montant, corrige: true, montant_extrait: lf.extrait } : { montant: lf.montant } })(),
+    loyer_facial: (() => {
+      const lf = loyerFacial(d), ec = loyerEcartVentilation(d)
+      return { montant: lf.montant, ...(lf.corrige ? { corrige: true, montant_extrait: lf.extrait } : {}), ...(ec ? { ecart_ventilation: ec.diff, total_ventilation: ec.total } : {}) }
+    })(),
     ventilation_loyer: ventilation,
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
@@ -3005,6 +3008,24 @@ function loyerFacial(d) {
   return { montant: declared, corrige: false }
 }
 
+// Écart entre le loyer facial retenu et le TOTAL GÉNÉRAL de la ventilation
+// (locaux + stationnement) — signale une erreur matérielle de calcul dans le
+// bail ou dans l'extraction. null si les deux concordent, ou si la
+// ventilation est incomplète ou complétée par déduction (elle est alors
+// alignée sur le loyer par construction).
+function loyerEcartVentilation(d) {
+  const lf = loyerFacial(d).montant
+  const surfaces = Array.isArray(d?.surfaces_detail) ? d.surfaces_detail : []
+  if (!lf || !surfaces.length) return null
+  const V = computeVentilation(surfaces, d.parking_nb_places, d.loyer_signature_montant)
+  const all = [...V.mainComputed, ...V.parkComputed]
+  if (!all.length || V.mainLoyerIsFallback || all.some(x => !x.loyer || x.loyerSrc === 'ecart')) return null
+  const total = Math.round(all.reduce((t, x) => t + x.loyer, 0) * 100) / 100
+  const diff = Math.round((total - lf) * 100) / 100
+  if (Math.abs(diff) <= Math.max(2, lf * 0.001)) return null
+  return { loyer: lf, total, diff, texte: `Attention : erreur matérielle de calcul du loyer — le total de la ventilation (${fmtEur(total)}) diffère du loyer extrait (${fmtEur(lf)}) de ${fmtEur(Math.abs(diff))}` }
+}
+
 // Redevance RIE annuelle du bail, lue dans la ventilation commune
 function rieLoyerAnnuel(surfaces, parkingNbPlaces, loyerDeclared) {
   const V = computeVentilation(Array.isArray(surfaces) ? surfaces : [], parkingNbPlaces, loyerDeclared)
@@ -3719,6 +3740,12 @@ function auditBail(row) {
         detail: `${sansDate.length} avenant(s) sans date de signature extraite (${sansDate.map(a => a.data?.objet_avenant ? safeStr(a.data.objet_avenant).slice(0, 40) : a.file_name).join(' ; ')}) — classé(s) par date d'effet à défaut.`,
       })
     }
+  }
+
+  // 2septies. Loyer extrait ≠ total général de la ventilation
+  {
+    const ec = loyerEcartVentilation(d)
+    if (ec) issues.push({ type: 'loyer_ecart_ventilation', severity: 'high', detail: `${ec.texte}.` })
   }
 
   // 2ter. Franchise : total annoncé par la clause ≠ somme du tableau
@@ -5728,6 +5755,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                     return (
                       <div className="loyer-amount" title={lf.corrige ? `Montant extrait : ${fmtEur(lf.extrait)} — ${lf.raison}` : undefined}>
                         {fmtEur(lf.montant ?? d.loyer_signature_montant) || d.loyer_signature_montant}
+                        {(() => { const ec = loyerEcartVentilation(d); return ec ? <span title={ec.texte} style={{ marginLeft: '10px', fontSize: '20px', color: 'var(--danger)', cursor: 'help', verticalAlign: 'middle' }}>⚠</span> : null })()}
                       </div>
                     )
                   })()}
@@ -7033,7 +7061,7 @@ function ReextractProgressModal({ progress }) {
 const QC_THEMES = [
   { key: 'breaks', label: 'Breaks et échéances', types: ['break_a_tout_moment_datee', 'break_ancien_calcul', 'break_apres_terme', 'break_format', 'break_jour_anniversaire', 'breaks_incomplets', 'indemnite_orpheline', 'echeance_attendue_absente'] },
   { key: 'dates', label: 'Dates et durées', types: ['champ_date_pollue', 'champ_duree_pollue', 'date_fin_incoherente', 'duree_ferme_ambigue', 'duree_ferme_indeterminee', 'effet_conditionnel', 'signature_posterieure_effet'] },
-  { key: 'surfaces', label: 'Surfaces et loyer', types: ['surface_incoherente', 'surface_loyer_incoherent'] },
+  { key: 'surfaces', label: 'Surfaces et loyer', types: ['surface_incoherente', 'surface_loyer_incoherent', 'loyer_ecart_ventilation'] },
   { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
   { key: 'avenants', label: 'Avenants', types: ['avenant_anterieur_au_bail', 'avenant_sans_signature', 'avenants_ordre', 'date_effet_avenants_contradictoires'] },
   { key: 'doublons', label: 'Doublons', types: ['doublon_suspect'] },
@@ -9295,6 +9323,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}
                       title={loyerFacial(d).corrige ? `Corrigé — montant extrait ${fmtEur(loyerFacial(d).extrait)} (RIE comptée deux fois)` : undefined}>
                       {fmtEur(loyerFacial(d).montant ?? d.loyer_signature_montant)}
+                      {(() => { const ec = !isAv ? loyerEcartVentilation(d) : null; return ec ? <span title={ec.texte} style={{ marginLeft: '4px', color: 'var(--danger)', cursor: 'help' }}>⚠</span> : null })()}
                       <OverrideMark field="loyer_signature_montant" formatValue={v => fmtEur(v)} />
                     </span>
                   ) : <span style={{ fontSize: '12px', color: 'var(--text3)' }}>—<OverrideMark field="loyer_signature_montant" formatValue={v => fmtEur(v)} /></span>}
