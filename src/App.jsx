@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · 1re triennale et terme'
+const APP_VERSION = '21.10 · sorties passées conservées'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -849,7 +849,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
   const exits = getExitEvents(eff)
   const breaks = dropTermBreaks(exits
     ? exits.map(e => e.date).filter(Boolean)
-    : breaksHorsEcheances(eff), eff.date_fin)
+    : breaksDeLaClause(eff), eff.date_fin)
   const finNorm = normalizeDate(safeStr(eff.date_fin))
   const dateFin = (finNorm && /^\d{2}\/\d{2}\/\d{4}$/.test(finNorm)) ? finNorm : (computeDateFinFromDuree(eff.date_effet, eff.duree_totale) || finNorm || null)
   const duree = k => {
@@ -949,6 +949,17 @@ function computeValeursEnVigueur(item, parentRow = null) {
     // Structure du loyer (mode, loyer de base en régime de croisière,
     // échéancier unique, part variable) — mêmes valeurs que la fiche
     structure_loyer: (() => { const SL = structureLoyer(d); return { mode: SL.mode, loyer_base: SL.loyer_base, mention: SL.mention, echeancier: SL.echeancier, variable: SL.variable } })(),
+    // Breaks CONDITIONNELLES affichées sur la fiche (issues des indemnités de
+    // break, hors échéances lues) — même calcul que la fiche
+    breaks_conditionnelles: (() => {
+      if (exits) return []
+      try {
+        return dropRenouncedConditional(
+          extractConditionalBreaks(eff, breaks).filter(c => dropTermBreaks([c.date], dateFin).length > 0),
+          breaks, (!isAv && eff._breakOptionsFromAvenant) ? eff._src?.break_options : null,
+        ).map(c => ({ date: normalizeDate(safeStr(c.date)) || null, condition: cleanTxt(c.condition) || null })).filter(c => c.date)
+      } catch (_) { return [] }
+    })(),
     ventilation_loyer: ventilation,
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
@@ -1245,6 +1256,7 @@ function exportControlesToExcel(tree) {
   })
   const maxOf = f => Math.max(0, ...rows.map(r => f(r.vv)))
   const nBreaks = maxOf(v => (v.break_options || []).length)
+  const nCond = maxOf(v => (v.breaks_conditionnelles || []).length)
   const nRed = maxOf(v => (v.reductions || []).length)
   const nInd = maxOf(v => (v.indemnites_terme || []).length)
   const nAut = maxOf(v => (v.indemnites_autres || []).length)
@@ -1256,7 +1268,7 @@ function exportControlesToExcel(tree) {
   const rep = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1)).flat()
   const headers = [
     'ID', 'Type', 'Bail lié (ID)', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur', 'Fichier', 'Avenant n°', 'Date de signature',
-    "Date d'effet", ...rep(nBreaks, i => [`Break ${i}`]), 'Date de fin',
+    "Date d'effet", ...rep(nBreaks, i => [`Break ${i}`]), ...rep(nCond, i => [`Break conditionnelle ${i} - Date`, `Break conditionnelle ${i} - Condition`]), 'Date de fin',
     'Loyer de base (régime de croisière)', 'Structure du loyer', 'Loyer à la signature (facial)', 'Loyer extrait', 'Total calcul par typologie', 'Écart (calcul − facial)', ...typos.map(t => `Loyer ${t}`),
     ...(hasVar ? ['Loyer variable - Taux', 'Loyer variable - Assiette'] : []),
     ...rep(nEch, i => [`Échéancier ${i} - Période`, `Échéancier ${i} - Nature`, `Échéancier ${i} - Montant annuel`]),
@@ -1278,7 +1290,9 @@ function exportControlesToExcel(tree) {
       safeStr((isAv ? parent : item)?.actif_group) || safeStr(id.immeuble) || '', safeStr(id.adresse) || '', safeStr(id.ville) || '',
       safeStr(id.preneur_substitution) || shortPartyName(id.preneur) || '', shortPartyName(id.bailleur) || '', item.file_name || '',
       isAv ? val(avenantNumeroDeclare(item)) : '', isAv ? (safeStr(dd.date_signature_avenant) || '') : (safeStr(dd.date_signature) || ''),
-      val(vv.date_effet), ...rep(nBreaks, i => [val((vv.break_options || [])[i - 1])]), val(vv.date_fin),
+      val(vv.date_effet), ...rep(nBreaks, i => [val((vv.break_options || [])[i - 1])]),
+      ...rep(nCond, i => { const c = (vv.breaks_conditionnelles || [])[i - 1]; return c ? [val(c.date), val(c.condition)] : ['', ''] }),
+      val(vv.date_fin),
       val(vv.structure_loyer?.loyer_base), MODE_LOYER_LABEL[vv.structure_loyer?.mode] || '',
       val(lf.montant), val(lf.montant_extrait), val(lf.total_ventilation), ecart, ...typos.map(t => val((lf.par_typologie || {})[t])),
       ...(hasVar ? [val(vv.structure_loyer?.variable?.taux), val(vv.structure_loyer?.variable?.assiette)] : []),
@@ -2185,6 +2199,9 @@ function getExitEvents(d) {
     .filter(e => {
       // une "sortie" à la date d'expiration n'est pas une sortie anticipée
       if (!e.date || !d.date_fin) return true
+      // ni au terme, ni APRÈS lui (bail échu : tacite prolongation)
+      const t = parseFR(normalizeDate(safeStr(e.date))), f = parseFR(normalizeDate(safeStr(d.date_fin)))
+      if (t && f && t > f) return false
       return dropTermBreaks([e.date], d.date_fin).length > 0
     })
     .sort((a, b) => {
@@ -4830,7 +4847,34 @@ function dureeFermeEffective(m) {
   const mois = (next.getFullYear() - effet.getFullYear()) * 12 + (next.getMonth() - effet.getMonth())
   const extrait = parseDureeMonths(m.duree_ferme)
   if (!(mois > 0) || mois === extrait) return null
+  // Breaks redonnées par un avenant (pas d'échéances lues) : une première
+  // sortie PLUS PRÉCOCE prouve une durée ferme plus courte ; une plus tardive ne
+  // prouve rien (les sorties déjà passées ont pu être omises — vécu : MENARD).
+  if (!exits && extrait && mois > extrait) return null
   return { mois, texte: formatDureeMonths(mois), extrait: safeStr(m.duree_ferme) || null }
+}
+
+// BREAKS DE LA CLAUSE (hors échéances détaillées lues) — fonction UNIQUE
+// pour la fiche, les valeurs en base et les exports : breaks extraites,
+// complétées par le calcul des triennales depuis la clause (sauf si un
+// avenant a donné lui-même les échéances), filtrées par la durée ferme (même
+// réserve), sans le terme, dédoublonnées au mois, triées.
+function breaksDeLaClause(m) {
+  if (!m) return []
+  let b = sanitizeBreakDates(Array.isArray(m.break_options) ? m.break_options : [])
+  const finRef = normalizeDate(safeStr(m.date_fin)) || computeDateFinFromDuree(m.date_effet, m.duree_totale) || null
+  if (!m._breaksDonneesParAvenant) {
+    let calc = []
+    try { calc = computeBreaks(m.date_effet, finRef || m.date_fin, m.conditions_break, [], m.duree_ferme) || [] } catch (_) { calc = [] }
+    const vus = new Set(b.map(x => String(x).trim()))
+    calc.forEach(c => { if (!vus.has(c)) { b.push(c); vus.add(c) } })
+    b = filterBreaksByDureeFerme(b, m.date_effet, m.duree_ferme)
+  }
+  b = dropTermBreaks(b, finRef)
+  const finD = parseFR(normalizeDate(safeStr(finRef)))
+  if (finD) b = b.filter(x => { const t = parseFR(normalizeDate(safeStr(x))); return !t || t <= finD })
+  b = [...new Map(b.map(x => { const t = parseFR(normalizeDate(safeStr(x))); return [t ? `${t.getFullYear()}-${t.getMonth()}` : x, x] })).values()]
+  return b.sort((x, y) => { const a = parseFR(normalizeDate(safeStr(x))), c = parseFR(normalizeDate(safeStr(y))); return (a && c) ? a - c : 0 })
 }
 
 // Breaks d'un état (bail ou état après avenants), hors échéances lues : le
@@ -4907,10 +4951,7 @@ function etatEcheances(m) {
   const fin = (finN && /^\d{2}\/\d{2}\/\d{4}$/.test(finN)) ? finN : (computeDateFinFromDuree(m.date_effet, m.duree_totale) || null)
   let breaks = exits
     ? exits.map(e => e.date).filter(Boolean)
-    : breaksHorsEcheances(m)
-  if (!breaks.length && m.date_effet && fin && m.conditions_break) {
-    try { breaks = computeBreaks(m.date_effet, fin, m.conditions_break, [], m.duree_ferme) || [] } catch (_) { breaks = [] }
-  }
+    : breaksDeLaClause({ ...m, date_fin: fin })
   breaks = [...new Set(dropTermBreaks(breaks, fin).map(b => normalizeDate(safeStr(b))).filter(b => /^\d{2}\/\d{2}\/\d{4}$/.test(b)))]
     .sort((a, b) => toSortableDateAv(a).localeCompare(toSortableDateAv(b)))
   return {
@@ -4931,7 +4972,9 @@ function etatEcheances(m) {
 function apparierSorties(avant, apres, dateRef = null) {
   const proche = (x, y) => { const a = parseFR(x), b = parseFR(y); return a && b && Math.abs(a - b) <= 3 * 86400000 }
   const ref = dateRef ? parseFR(normalizeDate(safeStr(dateRef))) : null
-  const disparues = avant.filter(x => !apres.some(y => proche(x, y)))
+  // une sortie déjà passée à la date de l'avenant et absente après lui n'est
+  // ni supprimée ni décalée : simple historique, écartée de l'appariement
+  const disparues = avant.filter(x => !apres.some(y => proche(x, y))).filter(x => { const t = parseFR(x); return !(ref && t && t < ref) })
   const apparues = apres.filter(y => !avant.some(x => proche(x, y)))
   const lignes = [], carte = {}
   apres.forEach(y => { const x = avant.find(z => proche(z, y)); if (x) carte[y] = { avant: x, statut: 'inchangee' } })
@@ -4980,7 +5023,12 @@ function chronologieAvenants(row) {
     const apres = etatEcheances(mergedBailData(row, { throughAvenantId: av.id }))
     const mods = av.data?.champs_modifies || {}
     const franchises = [
-      ...(Array.isArray(mods.franchise_periodes) ? mods.franchise_periodes : []).map(r => ({ type: isConditionalFranchise(r) ? 'Franchise conditionnelle' : 'Franchise', debut: safeStr(r.date_debut) || null, fin: safeStr(r.date_fin) || null, duree: safeStr(r.duree) || null, montant: parseAmount(r.montant) })),
+      ...(Array.isArray(mods.franchise_periodes) ? mods.franchise_periodes : []).map(r => {
+        const loyerRef = loyerFacial(mergedBailData(row, { throughAvenantId: av.id })).montant || 0
+        const mf = montantFranchise(r, loyerRef, 0)
+        const dureeTxt = safeStr(r.duree) ? safeStr(r.duree).replace(/recalcul\s*=\s*/i, '≈ ').replace(/(\d)\.(\d)/, '$1,$2') : null
+        return { type: isConditionalFranchise(r) ? 'Franchise conditionnelle' : 'Franchise', debut: safeStr(r.date_debut) || null, fin: safeStr(r.date_fin) || null, duree: dureeTxt, montant: mf.montant }
+      }),
       ...(Array.isArray(mods.abattements) ? mods.abattements : []).map(r => ({ type: 'Abattement', debut: safeStr(r.date_debut) || null, fin: safeStr(r.date_fin) || null, duree: null, montant: parseAmount(r.montant_annuel) })),
     ]
     const E = av.data?.echeancier_apres
@@ -5102,6 +5150,11 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
     if (modsHasBreaks && !modsHasExits) delete base.echeances_sortie
     // Recalcul des dates dérivées (expiration, breaks, échéances)
     recalcDatesAfterAvenant(base, prev, mods, av)
+    // Un avenant qui redonne ses breaks ne peut pas supprimer une échéance déjà
+    // PASSÉE à sa signature : c'est de l'historique, conservé (vécu : HIPTOWN,
+    // avenant de 2026 ajoutant une sortie au 28/02/2027, la triennale du
+    // 19/04/2025 disparaissait).
+    conserverSortiesPassees(base, prev, av)
     // ÉCHÉANCIER LU (lecture dédiée de l'avenant) : il FAIT FOI — prise
     // d'effet, durées, expiration et sorties remplacent ce que les règles
     // ont déduit (les règles ne restent qu'en secours pour un avenant pas
@@ -5110,6 +5163,24 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
     if (isLast) break
   }
   return base
+}
+
+function conserverSortiesPassees(base, prev, av) {
+  if (!base._breaksDonneesParAvenant || base._echeancierLu) return
+  const ref = parseFR(normalizeDate(safeStr(av?.data?.date_signature_avenant || av?.data?.date_effet_avenant)))
+  if (!ref) return
+  const exitsPrev = getExitEvents(prev)
+  const avant = (exitsPrev ? exitsPrev.map(e => e.date) : breaksDeLaClause(prev)).map(x => normalizeDate(safeStr(x))).filter(x => /^\d{2}\/\d{2}\/\d{4}$/.test(x))
+  const actuelles = (Array.isArray(base.break_options) ? base.break_options : []).map(x => parseFR(normalizeDate(safeStr(x)))).filter(Boolean)
+  const passees = avant.filter(x => { const t = parseFR(x); return t && t < ref && !actuelles.some(y => Math.abs(y - t) <= 3 * 86400000) })
+  if (!passees.length) return
+  base.break_options = [...passees, ...(base.break_options || [])].sort((a, b) => toSortableDateAv(normalizeDate(safeStr(a))).localeCompare(toSortableDateAv(normalizeDate(safeStr(b)))))
+  if (Array.isArray(base.echeances_sortie)) {
+    const datesEch = base.echeances_sortie.map(e => parseFR(normalizeDate(safeStr(e?.date)))).filter(Boolean)
+    const ajout = passees.filter(x => !datesEch.some(y => Math.abs(y - parseFR(x)) <= 3 * 86400000))
+      .map(x => (exitsPrev || []).find(e => normalizeDate(safeStr(e.date)) === x) || { date: x, type: 'triennale', libelle: null })
+    if (ajout.length) base.echeances_sortie = [...ajout, ...base.echeances_sortie]
+  }
 }
 
 function appliquerEcheancierLu(base, prev, av) {
@@ -5823,27 +5894,11 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   // stocké — pas seulement en fallback si vide — pour rattraper à l'affichage
   // les extractions faites avant le renforcement de ce calcul (ex: 3e break
   // triennale manquante alors que les 2 premières étaient déjà en base).
-  let breaks = sanitizeBreakDates(d.break_options || [])
-  const computedBreaks = breaksFromAvenant ? [] : computeBreaks(d.date_effet, d.date_fin, d.conditions_break, [], d.duree_ferme)
-  if (computedBreaks.length > 0) {
-    const existingSet = new Set(breaks.map(b => b.trim()))
-    computedBreaks.forEach(c => { if (!existingSet.has(c)) { breaks.push(c); existingSet.add(c) } })
-    breaks.sort((a, b) => { const da = parseFR(a), db = parseFR(b); return (da && db) ? da - db : 0 })
-  }
-
-  // Si duree_ferme est renseignée, supprimer les breaks AVANT date_effet + duree_ferme
-  // — sauf si les breaks viennent d'un avenant (ex: renouvellement 3/6/9) qui
-  // n'a pas redonné de durée ferme : celle connue est celle de l'ancien bail.
-  if (!breaksFromAvenantSansFerme) breaks = filterBreaksByDureeFerme(breaks, d.date_effet, d.duree_ferme)
+  // Breaks : fonction UNIQUE, la même que les valeurs en base et les exports
   // Expiration de référence : celle du document, ou pour un avenant qui ne la
   // modifie pas, celle en vigueur du bail
   const finPourBreaks = d.date_fin || (isAv ? parentBailData?.date_fin : null)
-  breaks = dropTermBreaks(breaks, finPourBreaks)
-  // Dédoublonner (ex: 29/06/2031 et 30/06/2031 = même date à 1 jour près)
-  breaks = [...new Map(breaks.map(b => {
-    const bd = parseFR(b)
-    return [bd ? `${bd.getFullYear()}-${bd.getMonth()}` : b, b]
-  })).values()]
+  let breaks = breaksDeLaClause({ ...d, date_fin: finPourBreaks, _breaksDonneesParAvenant: breaksFromAvenantSansFerme || d._breaksDonneesParAvenant })
 
   // Clean surfaces at display time too (for data already in DB)
   const cs = rows => cleanSurfaces(normalizeSurfaces(Array.isArray(rows) ? rows : []))
@@ -10143,7 +10198,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             const dashExits = getExitEvents(eff)
             const breaks = dropTermBreaks(dashExits
               ? dashExits.map(e => e.date).filter(Boolean)
-              : breaksHorsEcheances(eff), cleanDateFin)
+              : breaksDeLaClause(eff), cleanDateFin)
             // Un bail replié affiche ses PROPRES données extraites — mais si un
             // avenant a modifié un champ depuis (loyer, date de fin, break,
             // surface), c'est cette donnée-là qui prévaut réellement, pas
