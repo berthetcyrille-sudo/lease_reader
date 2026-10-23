@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '20.10 · échéances à la signature'
+const APP_VERSION = '20.10 · triennales reportées'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4502,7 +4502,42 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
   const finAvenant = parseFR(nd(base.date_fin))
   const breaksAvenant = (Array.isArray(mods.break_options) ? mods.break_options : []).map(b => parseFR(nd(b))).filter(Boolean)
   const alignesSurFin = !!finAvenant && breaksAvenant.length > 0 && breaksAvenant.every(b => b.getDate() === finAvenant.getDate() && b.getMonth() === finAvenant.getMonth())
-  if ((has('break_options') || has('echeances_sortie')) && (!rythmeTriennalSimple || alignesSurFin)) return
+  if ((has('break_options') || has('echeances_sortie')) && (!rythmeTriennalSimple || alignesSurFin)) {
+    // Les échéances de l'avenant font foi — mais s'il ne fixe que la PREMIÈRE
+    // faculté ("pour la première fois le 15/09/2023") ou reporte les
+    // triennales, le rythme triennal du bail CONTINUE après elle, jusqu'au
+    // terme (vécu : Le Coin du Pain, seule la 1re date extraite → la triennale
+    // du 15/09/2026 apparaissait "supprimée").
+    const txtAv = stripAccents(`${safeStr(mods.conditions_break) || ''} ${safeStr(mods.duree_totale) || ''} ${safeStr(av?.data?.objet_avenant) || ''}`).toLowerCase()
+    const txtBail = stripAccents(String(base.conditions_break || prev.conditions_break || '')).toLowerCase()
+    const continueTriennal = (/premiere fois/.test(txtAv) || /report\w*.{0,40}triennal/.test(txtAv) || /triennal\w*.{0,40}report/.test(txtAv))
+      && (/triennal/.test(txtBail) || /triennal/.test(txtAv))
+      && !/renonc/.test(stripAccents(safeStr(mods.conditions_break) || '').toLowerCase())
+    if (continueTriennal && finAvenant) {
+      const limite = new Date(finAvenant.getTime() - 3 * day)
+      const suite = list => {
+        const ds = list.map(x => parseFR(nd(x))).filter(Boolean).sort((a, b) => a - b)
+        if (!ds.length) return []
+        const ajout = []
+        let t = ds[ds.length - 1]
+        for (let k = 0; k < 10; k++) {
+          t = new Date(t.getFullYear() + 3, t.getMonth(), t.getDate())
+          if (t >= limite) break
+          if (!ds.some(x => Math.abs(x - t) <= 3 * day)) ajout.push(t)
+        }
+        return ajout
+      }
+      if (has('break_options')) {
+        const plus = suite(base.break_options)
+        if (plus.length) base.break_options = [...base.break_options, ...plus.map(fmtFR)]
+      }
+      if (has('echeances_sortie') && Array.isArray(base.echeances_sortie)) {
+        const plus = suite(base.echeances_sortie.map(e => e?.date).filter(Boolean))
+        if (plus.length) base.echeances_sortie = [...base.echeances_sortie, ...plus.map(t => ({ date: fmtFR(t), type: 'triennale', libelle: 'Expiration de la période triennale suivante (rythme triennal reporté)', preavis: base.echeances_sortie[0]?.preavis || null, page: base.echeances_sortie[0]?.page || null }))]
+      }
+    }
+    return
+  }
 
   const newFin = parseFR(nd(base.date_fin))
   const prevEffet = parseFR(nd(prev.date_effet)), newEffet = parseFR(nd(base.date_effet))
