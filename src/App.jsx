@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · total franchise annoncé'
+const APP_VERSION = '19.10 · correctif raisonnement'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2277,7 +2277,7 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000, { think
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        model: 'claude-sonnet-5', max_tokens: thinkingBudget > 0 ? 16000 + thinkingBudget : 16000,
+        model: 'claude-sonnet-5', max_tokens: thinkingBudget > 0 ? 32000 : 16000,
         // Sonnet 5 active le "thinking" adaptatif par défaut, et ce budget de
         // réflexion est prélevé sur le MÊME max_tokens que la réponse finale.
         // Sur un bail long, le modèle pouvait donc consommer une grande partie
@@ -2286,7 +2286,11 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000, { think
         // extraction" malgré un appel HTTP 200 réussi). On désactive ce
         // thinking pour une extraction structurée qui n'en a pas besoin, et on
         // relève la limite par sécurité.
-        thinking: thinkingBudget > 0 ? { type: 'enabled', budget_tokens: thinkingBudget } : { type: 'disabled' },
+        // Ce modèle n'accepte pas un budget de réflexion explicite : raisonnement
+        // en mode "adaptive", réglé par un niveau d'effort (output_config). La
+        // limite de longueur est relevée pour laisser la place à la réflexion.
+        thinking: thinkingBudget > 0 ? { type: 'adaptive' } : { type: 'disabled' },
+        ...(thinkingBudget > 0 ? { output_config: { effort: 'high' } } : {}),
         messages: [{ role: 'user', content: [
           { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
           { type: 'text', text: prompt }
@@ -4025,6 +4029,9 @@ function auditBail(row) {
       }
     }
   } catch (_) {}
+
+  // 2octies. Lecture dédiée aux échéances en échec lors de l'extraction
+  if (d._echeances_non_lues) issues.push({ type: 'echeances_non_lues', severity: 'high', detail: `La lecture dédiée à la clause de durée et de résiliation a échoué lors de la dernière extraction (${safeStr(d._echeances_non_lues).slice(0, 120)}) — échéances et date de fin issues de la seule lecture principale. Réextraction recommandée.` })
 
   // 2quinquies. Réponse de l'IA réparée automatiquement lors de l'extraction
   if (d._json_repare) issues.push({ type: 'json_repare', severity: 'high', detail: "La réponse de l'IA était mal formée lors de la dernière extraction et a été réparée automatiquement : des données peuvent manquer ou être altérées. Réextraction recommandée." })
@@ -7423,7 +7430,7 @@ const QC_THEMES = [
   { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
   { key: 'avenants', label: 'Avenants', types: ['avenant_anterieur_au_bail', 'avenant_sans_signature', 'avenants_ordre', 'date_effet_avenants_contradictoires'] },
   { key: 'doublons', label: 'Doublons', types: ['doublon_suspect'] },
-  { key: 'extraction', label: 'Extraction à refaire', types: ['json_repare'] },
+  { key: 'extraction', label: 'Extraction à refaire', types: ['json_repare', 'echeances_non_lues'] },
 ]
 const qcThemeOf = type => QC_THEMES.find(t => t.types.includes(type))?.key || 'autres'
 
@@ -7673,7 +7680,7 @@ async function reextractOne(row, onProgress) {
     try {
       if (!isAv) {
         const [breakResult, financialResult] = await Promise.all([
-          callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(() => null),
+          callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(e => ({ _echec: e.message || 'erreur' })),
           callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
         ])
         if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
@@ -7686,6 +7693,7 @@ async function reextractOne(row, onProgress) {
           extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
         }
         if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
+        if (breakResult?._echec) extracted._echeances_non_lues = breakResult._echec
         if (financialResult) {
           const f = financialResult
           if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
@@ -7805,7 +7813,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
         try {
           if (!isAv) {
             const [breakResult, financialResult] = await Promise.all([
-              callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(() => null),
+              callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(e => ({ _echec: e.message || 'erreur' })),
               callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
             ])
             if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
@@ -7818,6 +7826,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
             }
             if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
+            if (breakResult?._echec) extracted._echeances_non_lues = breakResult._echec
             if (financialResult) {
               const f = financialResult
               if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
@@ -8664,7 +8673,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       try {
         if (!isAv) {
           const [breakResult, financialResult] = await Promise.all([
-            callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(() => null),
+            callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(e => ({ _echec: e.message || 'erreur' })),
             callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
           ])
           if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
@@ -8677,6 +8686,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
           }
           if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
+          if (breakResult?._echec) extracted._echeances_non_lues = breakResult._echec
           if (financialResult) {
             const f = financialResult
             if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
@@ -10650,7 +10660,7 @@ export default function App() {
         // Appels dédiés en parallèle : breaks + financier critique
         try {
           const [breakResult, financialResult] = await Promise.all([
-            callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(() => null),
+            callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(e => ({ _echec: e.message || 'erreur' })),
             callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
           ])
           if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
@@ -10663,6 +10673,7 @@ export default function App() {
             extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
           }
           if (breakResult?.date_fin && !extracted.date_fin) extracted.date_fin = breakResult.date_fin
+          if (breakResult?._echec) extracted._echeances_non_lues = breakResult._echec
           if (financialResult) {
             const f = financialResult
             if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
