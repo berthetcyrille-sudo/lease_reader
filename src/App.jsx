@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · échéancier lu des avenants 2'
+const APP_VERSION = '21.10 · durées fiche avenant'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -5564,6 +5564,17 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   let avDatesRecalculees = false
   let avDateEffetRappel = false
   let avFranchisesRecalees = false
+  // Fiche d'avenant : « Contrat et durée » montre les durées EN VIGUEUR après
+  // cet avenant (même calcul que le tableau « Ce que cet avenant modifie »),
+  // pas le texte brut extrait (vécu : Narval B, « 9 ans » de durée ferme
+  // extrait, 6 ans en réalité).
+  if (isAv && parentRow) {
+    const chAv = chronologieAvenants(parentRow).find(c => c.av.id === item.id)
+    if (chAv?.apres) {
+      if (d.duree_totale != null && chAv.apres.duree_totale?.texte) d.duree_totale = chAv.apres.duree_totale.texte
+      if (d.duree_ferme != null && chAv.apres.duree_ferme?.texte) d.duree_ferme = chAv.apres.duree_ferme.texte
+    }
+  }
   if (isAv && parentBailData) {
     const ownFr = (Array.isArray(d.franchise_periodes) && d.franchise_periodes.length) || (Array.isArray(d.abattements) && d.abattements.length)
     const parentRecale = [...(parentBailData.franchise_periodes || []), ...(parentBailData.abattements || [])].some(r => r?._recale)
@@ -5957,7 +5968,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Contrat et durée</div></div>
           <div className="gx">
-            <Field label="Type de contrat" value={simplifyTypeBail(d.type_bail)} />
+            {(!isAv || d.type_bail) && <Field label="Type de contrat" value={simplifyTypeBail(d.type_bail)} />}
             <Field label="Durée totale" value={dateChanges.duree_totale ? `${d.duree_totale} (modifiée par avenant — initialement ${dateChanges.duree_totale})` : d.duree_totale} item={item} pages={pages} pageField="duree_totale" />
             {(() => {
               const hasFullWaiver = detectsFullTriennialWaiver((d.conditions_break || '').toLowerCase())
