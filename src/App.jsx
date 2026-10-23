@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · écart loyer'
+const APP_VERSION = '19.10 · franchise étalée'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -837,9 +837,9 @@ function computeValeursEnVigueur(item, parentRow = null) {
     const vig = Array.isArray(eff[key]) ? eff[key] : []
     if (!isAv) return vig.some(r => r?._recale) ? vig : own
     const modsList = Array.isArray(mods[key]) ? mods[key] : []
-    return modsList.length ? modsList : (vig.length ? vig : own)
+    return modsList.length ? modsList : (vig.some(r => r?._recale) ? vig : [])
   }
-  const frSrc = pickList('franchise_periodes')
+  const frSrc = expandFranchisesEtalees(pickList('franchise_periodes'), eff.date_effet)
   const abSrc = pickList('abattements')
   const rieAn = V.mainComputed.filter(x => V.isRie(x.row)).reduce((t, x) => t + (x.loyer || 0), 0)
   const franchises = frSrc.map(r => {
@@ -857,7 +857,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
       condition: cleanTxt(r.condition) || null,
     }
   })
-  const fTot = franchiseTotals(mergeLoyerReductions(frSrc, abSrc), loyerAnnuel, rieAn)
+  const fTot = franchiseTotals(mergeLoyerReductions(frSrc, abSrc, eff.date_effet), loyerAnnuel, rieAn)
   return {
     date_effet: isAv ? (safeStr(raw.date_effet_avenant) || null) : (raw.date_effet || eff.date_effet || null),
     date_fin: dateFin,
@@ -878,13 +878,68 @@ function computeValeursEnVigueur(item, parentRow = null) {
     })(),
     loyer_facial: (() => {
       const lf = loyerFacial(d), ec = loyerEcartVentilation(d)
-      return { montant: lf.montant, ...(lf.corrige ? { corrige: true, montant_extrait: lf.extrait } : {}), ...(ec ? { ecart_ventilation: ec.diff, total_ventilation: ec.total } : {}) }
+      const all = [...V.mainComputed, ...V.parkComputed]
+      const totalVent = all.length && all.every(x => x.loyer) ? Math.round(all.reduce((t, x) => t + x.loyer, 0) * 100) / 100 : null
+      const parTypo = {}
+      all.forEach(x => {
+        if (!x.loyer) return
+        const k = V.parkRows.includes(x.row) ? 'Stationnement' : (V.isRie(x.row) ? 'RIE' : (safeStr(x.row.categorie) || safeStr(x.row.typologie) || 'Autres'))
+        parTypo[k] = Math.round(((parTypo[k] || 0) + x.loyer) * 100) / 100
+      })
+      return {
+        montant: lf.montant,                          // loyer facial retenu (= écran)
+        montant_extrait: parseAmount(d.loyer_signature_montant) || null,
+        total_ventilation: totalVent,                 // somme du calcul par typologie
+        par_typologie: parTypo,
+        ...(lf.corrige ? { corrige: true } : {}),
+        ...(ec ? { ecart_ventilation: ec.diff } : {}),
+      }
     })(),
     ventilation_loyer: ventilation,
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
     franchises,
     abattements: abSrc.map(r => ({ date_debut: safeStr(r.date_debut) || null, date_fin: safeStr(r.date_fin) || null, montant_annuel: parseAmount(r.montant_annuel), description: safeStr(r.description) || null, recale: r._recale || undefined })),
+    // Lignes du tableau "Franchises & abattements" telles qu'affichées
+    reductions: mergeLoyerReductions(frSrc, abSrc, eff.date_effet).map(r => {
+      const abat = r._type === 'abattement'
+      const q = abat ? null : franchiseEquivalence(r, loyerAnnuel, rieAn)
+      const mois = abat ? null : franchiseMonthsEffective(r, loyerAnnuel, rieAn)
+      const finCalc = abat ? null : franchiseDateFinCalculee(r, mois)
+      return {
+        type: abat ? 'Abattement' : (isConditionalFranchise(r) ? 'Franchise conditionnelle' : 'Franchise'),
+        conditionnelle: isConditionalFranchise(r),
+        date_debut: safeStr(r.date_debut) || null,
+        date_fin: safeStr(r.date_fin) || finCalc || null,
+        date_fin_calculee: (!safeStr(r.date_fin) && !!finCalc) || undefined,
+        duree: abat ? (safeStr(r.duree) || null) : ((q && (q.incoherent || /recalcul/i.test(String(r.duree || '')))) ? `≈ ${fmtMoisFranchise(q.eq)}` : (safeStr(r.duree) || null)),
+        mois_de_loyer: mois ? Math.round(mois * 10) / 10 : null,
+        surface_assiette: safeStr(r.surface_assiette) || null,
+        montant: parseAmount(r.montant),
+        indexation_incluse: safeStr(r.indexation_incluse) || null,
+        condition: cleanTxt(r.condition) || null,
+        recalee: r._recale || undefined,
+      }
+    }),
+    // Tableau "Indemnités par terme" tel qu'affiché (fonction commune)
+    indemnites_terme: (() => {
+      const base = isAv ? mods : raw
+      const dI = { ...base, date_effet: eff.date_effet, date_fin: dateFin, break_options: breaks }
+      const ex = isAv ? (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length ? getExitEvents({ ...dI, echeances_sortie: mods.echeances_sortie }) : null) : exits
+      return computeIndemnitesTerme(dI, ex).map(r => ({
+        terme: safeStr(r.terme) || null, due_par: safeStr(r.due_par) || null, motif: safeStr(r.motif) || null,
+        montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null,
+      }))
+    })(),
+    // Autres indemnités et pénalités (section "Indemnités")
+    indemnites_autres: (Array.isArray((isAv ? mods : raw).indemnites) ? (isAv ? mods : raw).indemnites : []).map(r => (
+      typeof r === 'object' && r ? Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'page').map(([k, v2]) => [k, typeof v2 === 'object' ? safeStr(v2) : v2])) : { texte: safeStr(r) }
+    )),
+    // Participation travaux bailleur, telle qu'affichée
+    participations_travaux: (Array.isArray((isAv ? mods : raw).participations_travaux) ? (isAv ? mods : raw).participations_travaux : []).map(r => ({
+      libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: safeStr(r.date_limite) || null, remarque: cleanTxt(r.remarque) || null,
+    })),
+    travaux_montant: parseAmount((isAv ? mods : raw).travaux_montant),
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: Math.round(fTot.acquise.montant) },
     franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: Math.round(fTot.conditionnelle.montant) },
   }
@@ -1111,6 +1166,83 @@ function exportToExcel(items, fileName, selectedCols = null) {
   } catch {
     XLSX.writeFile(wb, `${safeName}.xlsx`)
   }
+}
+
+// EXPORT "CONTRÔLES" — export pré-paramétré limité aux données contrôlées à
+// l'écran : identification, dates (effet, breaks, fin), loyer facial (retenu,
+// extrait, calcul par typologie), franchises et abattements (acquis et
+// conditionnels), indemnités et pénalités, participations travaux. Toutes les
+// valeurs viennent de computeValeursEnVigueur — LA fonction dont les
+// résultats sont enregistrés en base et qui alimente l'écran.
+function exportControlesToExcel(tree) {
+  const lignes = []
+  tree.forEach(bail => {
+    if (bail.document_type !== 'bail') return
+    lignes.push({ item: bail, parent: null })
+    ;[...(bail.avenants || [])].sort(compareAvenants).forEach(av => lignes.push({ item: av, parent: bail }))
+  })
+  const rows = lignes.map(({ item, parent }) => {
+    let vv = null
+    try { vv = computeValeursEnVigueur(item, parent) } catch (e) { console.warn('Export contrôles : calcul impossible', item.id, e) }
+    return { item, parent, vv: vv || {} }
+  })
+  const maxOf = f => Math.max(0, ...rows.map(r => f(r.vv)))
+  const nBreaks = maxOf(v => (v.break_options || []).length)
+  const nRed = maxOf(v => (v.reductions || []).length)
+  const nInd = maxOf(v => (v.indemnites_terme || []).length)
+  const nAut = maxOf(v => (v.indemnites_autres || []).length)
+  const nTrav = maxOf(v => (v.participations_travaux || []).length)
+  const typos = [...new Set(rows.flatMap(r => Object.keys(r.vv.loyer_facial?.par_typologie || {})))]
+    .sort((a, b) => (a === 'Stationnement') - (b === 'Stationnement') || (a === 'RIE') - (b === 'RIE') || a.localeCompare(b))
+  const rep = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1)).flat()
+  const headers = [
+    'ID', 'Type', 'Bail lié (ID)', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur', 'Fichier', 'Avenant n°', 'Date de signature',
+    "Date d'effet", ...rep(nBreaks, i => [`Break ${i}`]), 'Date de fin',
+    'Loyer facial retenu', 'Loyer extrait', 'Total calcul par typologie', 'Écart (calcul − retenu)', ...typos.map(t => `Loyer ${t}`),
+    'Franchises acquises (mois de loyer)', 'Franchises et abattements acquis (€)', 'Franchises conditionnelles (mois de loyer)', 'Franchises et abattements conditionnels (€)',
+    ...rep(nRed, i => [`Réduction ${i} - Type`, `Réduction ${i} - Début`, `Réduction ${i} - Fin`, `Réduction ${i} - Durée`, `Réduction ${i} - Mois de loyer`, `Réduction ${i} - Montant`, `Réduction ${i} - Assiette`, `Réduction ${i} - Condition`]),
+    ...rep(nInd, i => [`Indemnité ${i} - Terme`, `Indemnité ${i} - Due par`, `Indemnité ${i} - Motif`, `Indemnité ${i} - Montant`, `Indemnité ${i} - Calcul`]),
+    ...rep(nAut, i => [`Autre indemnité/pénalité ${i}`]),
+    'Travaux - Montant global', ...rep(nTrav, i => [`Travaux ${i} - Libellé`, `Travaux ${i} - Montant`, `Travaux ${i} - Date limite`, `Travaux ${i} - Remarque`]),
+  ]
+  const val = x => (x === null || x === undefined) ? '' : x
+  const data = rows.map(({ item, parent, vv }) => {
+    const isAv = item.document_type === 'avenant'
+    const dd = item.data || {}, pd = parent?.data || {}
+    const id = isAv ? pd : dd
+    const lf = vv.loyer_facial || {}
+    const ecart = (lf.total_ventilation != null && lf.montant != null) ? Math.round((lf.total_ventilation - lf.montant) * 100) / 100 : ''
+    return [
+      item.id, isAv ? 'Avenant' : 'Bail', isAv ? (parent?.id || '') : '',
+      safeStr((isAv ? parent : item)?.actif_group) || safeStr(id.immeuble) || '', safeStr(id.adresse) || '', safeStr(id.ville) || '',
+      safeStr(id.preneur_substitution) || shortPartyName(id.preneur) || '', shortPartyName(id.bailleur) || '', item.file_name || '',
+      isAv ? val(avenantNumeroDeclare(item)) : '', isAv ? (safeStr(dd.date_signature_avenant) || '') : (safeStr(dd.date_signature) || ''),
+      val(vv.date_effet), ...rep(nBreaks, i => [val((vv.break_options || [])[i - 1])]), val(vv.date_fin),
+      val(lf.montant), val(lf.montant_extrait), val(lf.total_ventilation), ecart, ...typos.map(t => val((lf.par_typologie || {})[t])),
+      val(vv.franchise_totale_acquise?.mois || ''), val(vv.franchise_totale_acquise?.montant || ''), val(vv.franchise_totale_conditionnelle?.mois || ''), val(vv.franchise_totale_conditionnelle?.montant || ''),
+      ...rep(nRed, i => { const r = (vv.reductions || [])[i - 1]; return r ? [r.type, val(r.date_debut), val(r.date_fin) + (r.date_fin_calculee ? ' (calculée)' : ''), val(r.duree), val(r.mois_de_loyer), val(r.montant), val(r.surface_assiette), (val(r.condition) + (r.recalee ? ' [dates recalées]' : '')).trim()] : ['', '', '', '', '', '', '', ''] }),
+      ...rep(nInd, i => { const r = (vv.indemnites_terme || [])[i - 1]; return r ? [val(r.terme), val(r.due_par), val(r.motif), val(r.montant), val(r.calcul)] : ['', '', '', '', ''] }),
+      ...rep(nAut, i => { const r = (vv.indemnites_autres || [])[i - 1]; return [r ? Object.values(r).filter(x => x !== null && x !== '').join(' — ') : ''] }),
+      val(vv.travaux_montant), ...rep(nTrav, i => { const r = (vv.participations_travaux || [])[i - 1]; return r ? [val(r.libelle), val(r.montant), val(r.date_limite), val(r.remarque)] : ['', '', '', ''] }),
+    ]
+  })
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...data])
+  ws['!cols'] = headers.map(h => ({ wch: Math.min(40, Math.max(12, h.length + 2)) }))
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 }
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Contrôles')
+  const name = `LeaseReader_controles_${new Date().toISOString().slice(0, 10)}`
+  try {
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([wbout], { type: 'application/octet-stream' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `${name}.xlsx`
+    document.body.appendChild(a); a.click()
+    setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a) }, 100)
+  } catch {
+    XLSX.writeFile(wb, `${name}.xlsx`)
+  }
+  return { lignes: data.length, colonnes: headers.length }
 }
 
 function exportAllToExcel(tree, onErrors, selectedCols = null) {
@@ -2926,8 +3058,44 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
 // n'est pas un critère fiable ici, car franchise_periodes stocke souvent le
 // montant TOTAL de la période tandis qu'abattements stocke un montant ANNUEL
 // pour la même clause (deux représentations différentes du même chiffre).
-function mergeLoyerReductions(franchisePeriodes, abattements) {
-  const fr = Array.isArray(franchisePeriodes) ? franchisePeriodes : []
+// FRANCHISE ÉTALÉE décrite par une règle ("36 mois étalés sur 9 ans, à raison
+// de 4 mois par an appliqués à chaque date anniversaire") et extraite en une
+// seule ligne : découpée en tranches annuelles (36 ÷ 4 = 9 tranches), datées
+// à la prise d'effet puis à chaque date anniversaire, montant réparti à parts
+// égales (la dernière absorbe l'arrondi). Fonction commune écran / base /
+// exports ; les tranches produites sont marquées _etalee (pas de re-découpage).
+function expandFranchisesEtalees(list, dateEffet) {
+  if (!Array.isArray(list)) return list
+  const out = []
+  list.forEach(r => {
+    if (!r || r._etalee || r._type === 'abattement') { out.push(r); return }
+    const txt = stripAccents(`${safeStr(r.condition) || ''} ${safeStr(r.surface_assiette) || ''} ${safeStr(r.duree) || ''}`).toLowerCase()
+    const m = txt.match(/(\d+(?:[.,]\d+)?)\s*mois\s*(?:de\s+\w+\s+)?par\s*an/)
+    const total = parseMonthsCount(r.duree)
+    const deb = parseFR(normalizeDate(safeStr(r.date_debut))) || parseFR(normalizeDate(safeStr(dateEffet)))
+    if (!m || !total || !deb || !/(anniversaire|chaque annee|annuellement|par an)/.test(txt)) { out.push(r); return }
+    const parAn = parseFloat(m[1].replace(',', '.'))
+    const n = Math.round(total / parAn)
+    if (!(parAn > 0) || n < 2 || n > 15 || Math.abs(n * parAn - total) > 0.5) { out.push(r); return }
+    const montantTotal = parseAmount(r.montant)
+    const part = montantTotal ? Math.round(montantTotal / n) : null
+    for (let k = 0; k < n; k++) {
+      const d0 = new Date(deb.getFullYear() + k, deb.getMonth(), deb.getDate())
+      const montant = montantTotal ? (k === n - 1 ? Math.round(montantTotal - part * (n - 1)) : part) : null
+      out.push({
+        ...r,
+        date_debut: fmtFR(d0), date_fin: null,
+        duree: `${String(parAn).replace('.', ',')} mois`,
+        montant: montant != null ? String(montant) : r.montant,
+        _etalee: true, _tranche: `${k + 1}/${n}`,
+      })
+    }
+  })
+  return out
+}
+
+function mergeLoyerReductions(franchisePeriodes, abattements, dateEffet = null) {
+  const fr = expandFranchisesEtalees(Array.isArray(franchisePeriodes) ? franchisePeriodes : [], dateEffet)
   const ab = Array.isArray(abattements) ? abattements : []
   const sameDate = (a, b) => {
     const da = parseFR(a), db = parseFR(b)
@@ -3024,6 +3192,40 @@ function loyerEcartVentilation(d) {
   const diff = Math.round((total - lf) * 100) / 100
   if (Math.abs(diff) <= Math.max(2, lf * 0.001)) return null
   return { loyer: lf, total, diff, texte: `Attention : erreur matérielle de calcul du loyer — le total de la ventilation (${fmtEur(total)}) diffère du loyer extrait (${fmtEur(lf)}) de ${fmtEur(Math.abs(diff))}` }
+}
+
+// INDEMNITÉS PAR TERME (breaks et fin de bail) — calcul unique, utilisé par la
+// fiche ET enregistré en base (valeurs en vigueur) : forfaits de remise en
+// état + indemnités de sortie (si départ, dues par le preneur) et
+// compensations (si maintien, dues par le bailleur) lues dans les échéances,
+// à défaut indemnités de break filtrées.
+function computeIndemnitesTerme(d, exitEvents) {
+  const isDefaultBoilerplateRow2 = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
+  const cleanBreakIndem = (d.indemnites_break || []).filter((row) =>
+    !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
+    !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul))
+  ).map(row => ({ terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: row.montant, calcul: row.calcul, page: row.page }))
+  // Quand les échéances de sortie sont disponibles (lues avec leur texte),
+  // elles remplacent indemnites_break : indemnité si départ (due par le
+  // preneur) et compensation si maintien (due par le bailleur).
+  const exitTerme = e => e.date || (e.type === 'a_tout_moment' ? 'À tout moment' : (safeStr(e.libelle) || '—'))
+  const fromExits = exitEvents ? [
+    ...exitEvents.filter(e => safeStr(e.indemnite_sortie) || e.montant_indemnite).map(e => ({
+      terme: exitTerme(e), due_par: 'Preneur', motif: `Indemnité si départ${safeStr(e.libelle) ? ' — ' + safeStr(e.libelle) : ''}`,
+      montant: e.montant_indemnite, calcul: safeStr(e.indemnite_sortie), page: e.page,
+    })),
+    ...exitEvents.filter(e => safeStr(e.compensation_maintien)).map(e => ({
+      terme: exitTerme(e), due_par: 'Bailleur', motif: `Compensation si maintien${safeStr(e.libelle) ? ' — ' + safeStr(e.libelle) : ''}`,
+      montant: null, calcul: safeStr(e.compensation_maintien), page: e.page,
+    })),
+  ] : null
+  // indemnites_restitution est réservé aux forfaits de remise en état :
+  // une pénalité de non-restitution / d'immobilisation / de retard (que le
+  // prompt demande déjà d'exclure) n'y a pas sa place.
+  const restitutionRows = (d.indemnites_restitution || []).filter(r =>
+    !/non[\s-]?restitution|immobilisation|retard|maintien dans les lieux/i.test(`${safeStr(r.motif) || ''} ${safeStr(r.calcul) || ''}`))
+  const combined = [...restitutionRows, ...(fromExits || cleanBreakIndem)]
+  return combined
 }
 
 // Redevance RIE annuelle du bail, lue dans la ventilation commune
@@ -5817,7 +6019,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
             </div>
           )}
           {(() => {
-            const merged = mergeLoyerReductions(d.franchise_periodes, d.abattements)
+            const merged = mergeLoyerReductions(d.franchise_periodes, d.abattements, d.date_effet)
             const computedSummary = !d.franchise ? computeFranchiseSummary(merged) : null
             return (merged.length > 0 || d.franchise) && (
               <div style={{ marginTop: '8px' }}>
@@ -6059,31 +6261,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
           indemnité de break est voulue visible dans les deux sections, pas
           seulement celle qui lui est spécifiquement dédiée. */}
       {(() => {
-        const isDefaultBoilerplateRow2 = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
-        const cleanBreakIndem = (d.indemnites_break || []).filter((row) =>
-          !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
-          !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul))
-        ).map(row => ({ terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: row.montant, calcul: row.calcul, page: row.page }))
-        // Quand les échéances de sortie sont disponibles (lues avec leur texte),
-        // elles remplacent indemnites_break : indemnité si départ (due par le
-        // preneur) et compensation si maintien (due par le bailleur).
-        const exitTerme = e => e.date || (e.type === 'a_tout_moment' ? 'À tout moment' : (safeStr(e.libelle) || '—'))
-        const fromExits = exitEvents ? [
-          ...exitEvents.filter(e => safeStr(e.indemnite_sortie) || e.montant_indemnite).map(e => ({
-            terme: exitTerme(e), due_par: 'Preneur', motif: `Indemnité si départ${safeStr(e.libelle) ? ' — ' + safeStr(e.libelle) : ''}`,
-            montant: e.montant_indemnite, calcul: safeStr(e.indemnite_sortie), page: e.page,
-          })),
-          ...exitEvents.filter(e => safeStr(e.compensation_maintien)).map(e => ({
-            terme: exitTerme(e), due_par: 'Bailleur', motif: `Compensation si maintien${safeStr(e.libelle) ? ' — ' + safeStr(e.libelle) : ''}`,
-            montant: null, calcul: safeStr(e.compensation_maintien), page: e.page,
-          })),
-        ] : null
-        // indemnites_restitution est réservé aux forfaits de remise en état :
-        // une pénalité de non-restitution / d'immobilisation / de retard (que le
-        // prompt demande déjà d'exclure) n'y a pas sa place.
-        const restitutionRows = (d.indemnites_restitution || []).filter(r =>
-          !/non[\s-]?restitution|immobilisation|retard|maintien dans les lieux/i.test(`${safeStr(r.motif) || ''} ${safeStr(r.calcul) || ''}`))
-        const combined = [...restitutionRows, ...(fromExits || cleanBreakIndem)]
+        const combined = computeIndemnitesTerme(d, exitEvents)
         if (combined.length === 0) return null
         return (
           <div className="sec">
@@ -8856,6 +9034,20 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                     icon: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
                     label: 'Exporter tout',
                     onClick: () => { setShowExcelPicker(true); setShowToolsMenu(false) },
+                  },
+                  {
+                    icon: <><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></>,
+                    label: 'Export contrôles (dates, loyers, franchises, indemnités, travaux)',
+                    onClick: () => {
+                      setShowToolsMenu(false)
+                      try {
+                        const r = exportControlesToExcel(tree)
+                        showToast('success', `Export contrôles lancé : ${r.lignes} lignes, ${r.colonnes} colonnes — vérifiez vos téléchargements.`)
+                      } catch (e) {
+                        console.error('Export contrôles échoué', e)
+                        showToast('error', `Échec de l'export : ${e.message || e}`)
+                      }
+                    },
                   },
                 ].map((item, i) => (
                   <div key={i}
