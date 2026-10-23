@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · triennale après ferme'
+const APP_VERSION = '19.10 · triennale après ferme 2'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1957,12 +1957,22 @@ function getExitEvents(d) {
     .reduce((acc, e, i, arr) => {
       acc.push(e)
       if (i !== arr.length - 1) return acc
-      const cb = stripAccents(String(d.conditions_break || '')).toLowerCase()
+      // Tous les textes disponibles : résumé de la clause + libellés et
+      // conditions des échéances (l'IA reformule souvent le résumé).
+      const cb = stripAccents([d.conditions_break, ...acc.map(x => `${x.libelle || ''} ${x.conditions || ''}`)].filter(Boolean).join(' ')).toLowerCase()
       const effet = parseFR(normalizeDate(safeStr(d.date_effet))), fin = parseFR(normalizeDate(safeStr(d.date_fin)))
-      if (!effet || !fin || !/renonc/.test(cb) || !/(duree|periode) ferme/.test(cb) || !/premiere fois/.test(cb)) return acc
+      if (!effet || !fin) return acc
       const dated = acc.map(x => x.date ? parseFR(x.date) : null).filter(Boolean)
       if (!dated.length) return acc
       const first = new Date(Math.min(...dated))
+      // Signal : renonciation limitée à la durée ferme + première faculté, OU
+      // première sortie tombant exactement à la fin de la durée ferme extraite.
+      const mf = parseDureeMonths(d.duree_ferme)
+      const finFerme = mf ? new Date(effet.getFullYear(), effet.getMonth() + mf, effet.getDate() - 1) : null
+      const premiereAFinFerme = finFerme && Math.abs(first - finFerme) <= 3 * 86400000
+      const renonceFerme = /renonc/.test(cb) && /(duree|periode) ferme/.test(cb)
+      const totalMois = parseDureeMonths(d.duree_totale)
+      if (!(renonceFerme && (/premiere fois/.test(cb) || premiereAFinFerme)) && !(premiereAFinFerme && totalMois && mf && totalMois > mf && /triennal/.test(cb))) return acc
       const ref = acc.find(x => x.date && parseFR(x.date).getTime() === first.getTime())
       for (let k = 1; k <= 8; k++) {
         const t = new Date(effet.getFullYear() + 3 * k, effet.getMonth(), effet.getDate() - 1)
