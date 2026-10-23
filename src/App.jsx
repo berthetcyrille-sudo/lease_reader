@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · triennale après ferme 2'
+const APP_VERSION = '19.10 · raisonnement échéances'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2118,7 +2118,10 @@ function cleanJson(str, { fixEscapedStructure = false } = {}) {
 }
 
 // Raw single call — used internally and for detect
-async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
+// thinkingBudget > 0 : raisonnement activé avec un budget EXPLICITE, réservé
+// aux appels courts où le calcul compte (lecture des échéances) — la réponse y
+// est petite, donc pas de risque de troncature ; max_tokens est relevé d'autant.
+async function callClaude(base64, mediaType, prompt, timeoutMs = 120000, { thinkingBudget = 0 } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -2127,7 +2130,7 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        model: 'claude-sonnet-5', max_tokens: 16000,
+        model: 'claude-sonnet-5', max_tokens: thinkingBudget > 0 ? 16000 + thinkingBudget : 16000,
         // Sonnet 5 active le "thinking" adaptatif par défaut, et ce budget de
         // réflexion est prélevé sur le MÊME max_tokens que la réponse finale.
         // Sur un bail long, le modèle pouvait donc consommer une grande partie
@@ -2136,7 +2139,7 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000) {
         // extraction" malgré un appel HTTP 200 réussi). On désactive ce
         // thinking pour une extraction structurée qui n'en a pas besoin, et on
         // relève la limite par sécurité.
-        thinking: { type: 'disabled' },
+        thinking: thinkingBudget > 0 ? { type: 'enabled', budget_tokens: thinkingBudget } : { type: 'disabled' },
         messages: [{ role: 'user', content: [
           { type: 'document', source: { type: 'base64', media_type: mediaType, data: base64 } },
           { type: 'text', text: prompt }
@@ -7253,7 +7256,7 @@ async function reextractOne(row, onProgress) {
     try {
       if (!isAv) {
         const [breakResult, financialResult] = await Promise.all([
-          callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
+          callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(() => null),
           callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
         ])
         if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
@@ -7385,7 +7388,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
         try {
           if (!isAv) {
             const [breakResult, financialResult] = await Promise.all([
-              callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
+              callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(() => null),
               callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
             ])
             if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
@@ -8244,7 +8247,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       try {
         if (!isAv) {
           const [breakResult, financialResult] = await Promise.all([
-            callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
+            callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(() => null),
             callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
           ])
           if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
@@ -10212,7 +10215,7 @@ export default function App() {
         // Appels dédiés en parallèle : breaks + financier critique
         try {
           const [breakResult, financialResult] = await Promise.all([
-            callClaude(base64, mediaType, BREAK_PROMPT).catch(() => null),
+            callClaude(base64, mediaType, BREAK_PROMPT, 240000, { thinkingBudget: 6000 }).catch(() => null),
             callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null),
           ])
           if (breakResult?.break_options?.length > 0) extracted.break_options = breakResult.break_options
@@ -10436,7 +10439,7 @@ export default function App() {
       const prompt = BREAK_PROMPT + `
 
 DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document ne la fixe pas ou la subordonne à une condition). L'utiliser comme date_effet pour calculer date_fin, break_options et TOUTES les dates de echeances_sortie, en appliquant les facultés de congé prévues aux conditions générales ET aux conditions particulières (les CP priment, les CG s'appliquent tant que les CP ne les suppriment pas).`
-      const r = await callClaude(base64, blob.type || 'application/pdf', prompt, 180000)
+      const r = await callClaude(base64, blob.type || 'application/pdf', prompt, 240000, { thinkingBudget: 6000 })
       const updated = { ...baseData }
       if (Array.isArray(r?.echeances_sortie)) {
         updated.echeances_sortie = r.echeances_sortie
