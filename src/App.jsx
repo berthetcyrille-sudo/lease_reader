@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · franchise lissée'
+const APP_VERSION = '19.10 · clause recette'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -134,7 +134,7 @@ REGLES PAR CHAMP:
   4) "a l'expiration de la Neme annee" → date_effet + N ans
   5) "renoncant expressement a sa faculte de donner conge a l'expiration de la Neme et de la Mieme Annee du Contrat" (ENUMERATION EXPLICITE des annees renoncees, formulation DIFFERENTE de "duree ferme" ou "Nieme fois") → calculer TOUTES les echeances triennales standard (multiples de 3 depuis date_effet: annee 3, 6, 9, 12...) jusqu'a duree_totale, PUIS RETIRER les annees explicitement nommees comme renoncees. NE JAMAIS inclure une annee que le texte nomme explicitement comme renoncee, meme si elle tombe sur un multiple de 3 par ailleurs. EXEMPLE (celui-ci est un piège frequent — l'annee renoncee est un vrai multiple de 3, ne pas l'inclure par erreur): date_effet=31/03/2021, duree_totale=12 ans (date_fin=30/03/2033), "renoncant a sa faculte de donner conge a l'expiration de la 3eme et de la 6eme Annee" → echeances triennales standard = annees 3,6,9,12 → retirer les annees 3 ET 6 (explicitement renoncees, PAS seulement la 3eme) → il ne reste QUE l'annee 9 (annee 12 de toute facon exclue car = date_fin) → break_options=["30/03/2030"] UNIQUEMENT (PAS "30/03/2027", qui correspond a l'annee 6 explicitement renoncee)
   Ne PAS inclure date_fin.
-- loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. ATTENTION, CAS LE PLUS FREQUENT : un loyer donne PUIS \"decompose comme suit\" en lignes (surfaces, \"Loyer RIE : 15 €/m²\", parkings) INCLUT deja ces lignes — ex: \"loyer de base annuel : 84.036 € decompose comme suit : surface de 248 m² a 280 €, surface de 18,40 m² a 250 €, loyer RIE 15 €/m², parkings 1.500 €/u\" → 84036, JAMAIS 84036 + RIE. On n'ajoute la RIE QUE si le texte qualifie expressement le montant de \"hors redevance RIE\". Les charges, impots et taxes refactures ne sont PAS du loyer.
+- loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. JAMAIS prix unitaire/m². Si tableau par lot: additionner les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. LOYER VARIABLE (clause recette): si le loyer est EXCLUSIVEMENT variable sans loyer minimum garanti (ex: \"un seul loyer variable, a l'exclusion de tout loyer minimum garanti\"), loyer_signature_montant = 0 — JAMAIS la provision ni un montant de premiere annee (ils vont dans loyer_variable.montants_par_periode) — et loyer_signature = \"Loyer exclusivement variable (<taux> du <assiette>) — cf. clause recette\". Si un loyer minimum garanti (LMG) s'ajoute a une clause recette, loyer_signature_montant = montant annuel du LMG et loyer_signature commence par le LMG puis \"— cf. clause recette\". COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. ATTENTION, CAS LE PLUS FREQUENT : un loyer donne PUIS \"decompose comme suit\" en lignes (surfaces, \"Loyer RIE : 15 €/m²\", parkings) INCLUT deja ces lignes — ex: \"loyer de base annuel : 84.036 € decompose comme suit : surface de 248 m² a 280 €, surface de 18,40 m² a 250 €, loyer RIE 15 €/m², parkings 1.500 €/u\" → 84036, JAMAIS 84036 + RIE. On n'ajoute la RIE QUE si le texte qualifie expressement le montant de \"hors redevance RIE\". Les charges, impots et taxes refactures ne sont PAS du loyer.
 - loyer_cours: loyer annuel "de base" au sens indexation. Identique a loyer_signature_montant sauf mention contraire. JAMAIS prix unitaire/m².
 - indexation_indice: code de l indice parmi: "ILAT","ILC","ICC","IRL","IPC","BT01","AUTRE". null si non renseigne. Correspondances a appliquer, que l indice soit designe par son sigle OU par son nom en toutes lettres: "Indice des Loyers des Activites Tertiaires" → "ILAT" ; "Indice des Loyers Commerciaux" → "ILC" ; "Indice du Cout de la Construction" → "ICC" ; "Indice de Reference des Loyers" → "IRL" ; "Indice des Prix a la Consommation" → "IPC" ; index BT01 (batiment tous corps d etat) → "BT01". "AUTRE" UNIQUEMENT si le bail retient un indice reellement different de tous ceux-ci (ex: indice Syntec, indice composite propre au bail) — jamais par defaut quand l indice est simplement ecrit en toutes lettres.
 - indexation_trimestre_base: trimestre de reference si EXPLICITEMENT indique dans le bail (ex: "3T2025"). null si le bail dit "dernier indice publie a la date de signature" sans preciser lequel.
@@ -895,6 +895,16 @@ function computeValeursEnVigueur(item, parentRow = null) {
         ...(ec ? { ecart_ventilation: ec.diff } : {}),
       }
     })(),
+    loyer_variable: (() => {
+      const LV = loyerVariableInfo(d)
+      if (!LV) return null
+      const lf = loyerFacial(d)
+      return {
+        sans_lmg: LV.sansLmg, lmg: LV.lmg, taux: safeStr(LV.lv.taux) || null, assiette: safeStr(LV.lv.assiette) || null,
+        montants_par_periode: LV.periodes.length ? LV.periodes : (lf.variableSeul && lf.extrait ? [{ periode: 'Première année', montant: lf.extrait, nature: 'provision', a_confirmer: true }] : []),
+        plancher: parseAmount(LV.lv.plancher), plafond: parseAmount(LV.lv.plafond), regles: safeStr(LV.lv.regles) || null,
+      }
+    })(),
     ventilation_loyer: ventilation,
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
@@ -1192,6 +1202,8 @@ function exportControlesToExcel(tree) {
   const nInd = maxOf(v => (v.indemnites_terme || []).length)
   const nAut = maxOf(v => (v.indemnites_autres || []).length)
   const nTrav = maxOf(v => (v.participations_travaux || []).length)
+  const hasVar = rows.some(r => r.vv.loyer_variable)
+  const nVarPer = maxOf(v => (v.loyer_variable?.montants_par_periode || []).length)
   const typos = [...new Set(rows.flatMap(r => Object.keys(r.vv.loyer_facial?.par_typologie || {})))]
     .sort((a, b) => (a === 'Stationnement') - (b === 'Stationnement') || (a === 'RIE') - (b === 'RIE') || a.localeCompare(b))
   const rep = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1)).flat()
@@ -1199,6 +1211,7 @@ function exportControlesToExcel(tree) {
     'ID', 'Type', 'Bail lié (ID)', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur', 'Fichier', 'Avenant n°', 'Date de signature',
     "Date d'effet", ...rep(nBreaks, i => [`Break ${i}`]), 'Date de fin',
     'Loyer facial retenu', 'Loyer extrait', 'Total calcul par typologie', 'Écart (calcul − retenu)', ...typos.map(t => `Loyer ${t}`),
+    ...(hasVar ? ['Loyer variable - LMG', 'Loyer variable - Taux', 'Loyer variable - Assiette', ...rep(nVarPer, i => [`Loyer variable ${i} - Période`, `Loyer variable ${i} - Nature`, `Loyer variable ${i} - Montant`])] : []),
     'Franchises acquises (mois de loyer)', 'Franchises et abattements acquis (€)', 'Franchises conditionnelles (mois de loyer)', 'Franchises et abattements conditionnels (€)',
     ...rep(nRed, i => [`Réduction ${i} - Type`, `Réduction ${i} - Début`, `Réduction ${i} - Fin`, `Réduction ${i} - Durée`, `Réduction ${i} - Mois de loyer`, `Réduction ${i} - Montant`, `Réduction ${i} - Assiette`, `Réduction ${i} - Condition`]),
     ...rep(nInd, i => [`Indemnité ${i} - Terme`, `Indemnité ${i} - Due par`, `Indemnité ${i} - Motif`, `Indemnité ${i} - Montant`, `Indemnité ${i} - Calcul`]),
@@ -1219,6 +1232,12 @@ function exportControlesToExcel(tree) {
       isAv ? val(avenantNumeroDeclare(item)) : '', isAv ? (safeStr(dd.date_signature_avenant) || '') : (safeStr(dd.date_signature) || ''),
       val(vv.date_effet), ...rep(nBreaks, i => [val((vv.break_options || [])[i - 1])]), val(vv.date_fin),
       val(lf.montant), val(lf.montant_extrait), val(lf.total_ventilation), ecart, ...typos.map(t => val((lf.par_typologie || {})[t])),
+      ...(hasVar ? (() => {
+        const lvv = vv.loyer_variable
+        if (!lvv) return ['', '', '', ...rep(nVarPer, () => ['', '', ''])]
+        return [lvv.lmg != null ? lvv.lmg : (lvv.sans_lmg ? 'Aucun (loyer exclusivement variable)' : ''), val(lvv.taux), val(lvv.assiette),
+          ...rep(nVarPer, i => { const m = (lvv.montants_par_periode || [])[i - 1]; return m ? [val(m.periode), m.nature === 'provision' ? 'Provision (régularisable)' : 'Minimum garanti', val(m.montant)] : ['', '', ''] })]
+      })() : []),
       val(vv.franchise_totale_acquise?.mois || ''), val(vv.franchise_totale_acquise?.montant || ''), val(vv.franchise_totale_conditionnelle?.mois || ''), val(vv.franchise_totale_conditionnelle?.montant || ''),
       ...rep(nRed, i => { const r = (vv.reductions || [])[i - 1]; return r ? [r.type, val(r.date_debut), val(r.date_fin) + (r.date_fin_calculee ? ' (calculée)' : ''), val(r.duree), val(r.mois_de_loyer), val(r.montant), val(r.surface_assiette), (val(r.condition) + (r.recalee ? ' [dates recalées]' : '')).trim()] : ['', '', '', '', '', '', '', ''] }),
       ...rep(nInd, i => { const r = (vv.indemnites_terme || [])[i - 1]; return r ? [val(r.terme), val(r.due_par), val(r.motif), val(r.montant), val(r.calcul)] : ['', '', '', '', ''] }),
@@ -1313,7 +1332,7 @@ const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT 
 
 REGLES PAR CHAMP:
 
-loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. Jamais prix unitaire/m². Si tableau par lot: additionner tous les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. ATTENTION, CAS LE PLUS FREQUENT : un loyer donne PUIS \"decompose comme suit\" en lignes (surfaces, \"Loyer RIE : 15 €/m²\", parkings) INCLUT deja ces lignes — ex: \"loyer de base annuel : 84.036 € decompose comme suit : surface de 248 m² a 280 €, surface de 18,40 m² a 250 €, loyer RIE 15 €/m², parkings 1.500 €/u\" → 84036, JAMAIS 84036 + RIE. On n'ajoute la RIE QUE si le texte qualifie expressement le montant de \"hors redevance RIE\". Les charges, impots et taxes refactures ne sont PAS du loyer.
+loyer_signature_montant: MONTANT ANNUEL TOTAL HT/HC. Jamais prix unitaire/m². Si tableau par lot: additionner tous les loyer_annuel. INTERDIT de retourner null si un loyer figure dans le document. LOYER VARIABLE (clause recette): si le loyer est EXCLUSIVEMENT variable sans loyer minimum garanti (ex: \"un seul loyer variable, a l'exclusion de tout loyer minimum garanti\"), loyer_signature_montant = 0 — JAMAIS la provision ni un montant de premiere annee (ils vont dans loyer_variable.montants_par_periode) — et loyer_signature = \"Loyer exclusivement variable (<taux> du <assiette>) — cf. clause recette\". Si un loyer minimum garanti (LMG) s'ajoute a une clause recette, loyer_signature_montant = montant annuel du LMG et loyer_signature commence par le LMG puis \"— cf. clause recette\". COMPOSANTES A INCLURE: le loyer facial annuel comprend TOUTES les sommes dues au titre de la location, y compris quand le bail les enonce separement — redevance RIE (restaurant inter-entreprises), loyer des emplacements de stationnement, archives, terrasses. Si le bail donne un "loyer de base hors redevance RIE" PUIS une "redevance annuelle RIE", additionner les deux (ex: "loyer de base annuel hors redevance RIE: 21.960 €" + "redevance annuelle RIE: 1.825,35 €" → 23785.35, PAS 21960). Si le bail donne deja un loyer global incluant ces composantes (ex: "loyer annuel de 987.264 € ... decompose en ... RIE ... stationnement"), reprendre ce global tel quel sans rien rajouter. ATTENTION, CAS LE PLUS FREQUENT : un loyer donne PUIS \"decompose comme suit\" en lignes (surfaces, \"Loyer RIE : 15 €/m²\", parkings) INCLUT deja ces lignes — ex: \"loyer de base annuel : 84.036 € decompose comme suit : surface de 248 m² a 280 €, surface de 18,40 m² a 250 €, loyer RIE 15 €/m², parkings 1.500 €/u\" → 84036, JAMAIS 84036 + RIE. On n'ajoute la RIE QUE si le texte qualifie expressement le montant de \"hors redevance RIE\". Les charges, impots et taxes refactures ne sont PAS du loyer.
 
 loyer_signature: texte descriptif complet du loyer (detail par composante, prix unitaires, etc.)
 
@@ -1321,7 +1340,7 @@ paliers_loyer: tableau si le loyer evolue par etapes a des dates definies (ex: l
 
 abattements: tableau de toutes les reductions temporaires de loyer DISTINCTES d'une franchise (ex: abattement RIE, reduction liee a des travaux, loyer minoré conditionnel pour un motif autre qu'une franchise commerciale). CAS TRES FREQUENT A NE JAMAIS OUBLIER: une "REDUCTION DE LOYER" chiffree en montant pour une ou plusieurs annees, sans le mot "franchise" (ex: "le BAILLEUR consent au PRENEUR une reduction du loyer de base pour la premiere annee et du loyer indexe la seconde annee : la premiere annee d'un montant de 8.700,00 € hors taxe ; la deuxieme annee d'un montant de 5.220,00 €") → une ligne PAR ANNEE dans abattements : {"date_debut":"<debut de l'annee 1>","date_fin":"<fin de l'annee 1>","montant_annuel":"8700","description":"Reduction de loyer de base 1ere annee"} puis {"date_debut":"<debut de l'annee 2>","date_fin":"<fin de l'annee 2>","montant_annuel":"5220","description":"Reduction du loyer indexe 2eme annee"} (montant_annuel = montant de la reduction pour l'annee, l'annee courant a compter de la date d'effet). Une telle reduction s'AJOUTE aux franchises eventuelles du meme bail : un bail peut avoir A LA FOIS des franchises (franchise_periodes) ET une reduction de loyer (abattements) — ne jamais omettre l'une parce que l'autre existe. ATTENTION DOUBLON: si une clause utilise le mot "franchise" (meme partielle) ou decrit une exoneration totale de loyer sur une periode donnee, elle va UNIQUEMENT dans franchise_periodes — NE JAMAIS la dupliquer ici. IMPORTANT: renseigner ce tableau MEME SI l'information est deja decrite en texte libre ailleurs (notamment dans le champ RIE) — les deux champs sont INDEPENDANTS et doivent TOUS LES DEUX etre remplis quand l'info existe ; decrire une clause de quote-part RIE non due dans le champ RIE ne dispense JAMAIS de l'ajouter aussi ici sous forme structuree si elle correspond a une reduction temporaire chiffrable (montant/periode). Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant_annuel":"12345","description":"ex: reduction RIE jusqu a mise en service","page":N}] — page = numero de page du PDF ou figure la clause (obligatoire, comme pour franchise_periodes). montant_annuel = le TAUX ANNUEL normalement du qui est temporairement supprime (PAS le montant total de la periode — l'affichage se charge de proratiser selon la duree). EXEMPLE TYPE (clause RIE transitoire tres frequente): "Aucune redevance ni aucun loyer portant sur la quote-part de jouissance du RIE ne seront dus par le PRENEUR jusqu'a la date a laquelle le PRENEUR aura acces au RIE de l'Immeuble" + ailleurs dans le bail la quote-part RIE incluse dans le loyer est chiffree a X €/an → creer une ligne {"date_debut":"<date_effet>","date_fin":"<date d'acces prevue au RIE definitif, ex: 01/09/2022>","montant_annuel":"<X, le montant annuel de la quote-part RIE normalement due>","description":"Quote-part RIE non due jusqu'a l'acces au RIE de l'Immeuble"}. [] si aucun abattement distinct d'une franchise.
 
-loyer_variable: si le bail contient une clause de loyer variable ou indexe sur le CA/chiffre d affaires. Format: {"type":"CA ou autre","taux":"ex: 3%","assiette":"ex: CA TTC annuel","plancher":"montant brut ou null","plafond":"montant brut ou null","regles":"texte complet de la formule et des conditions de declenchement"}. null si pas de loyer variable.
+loyer_variable: si le bail contient une clause de loyer variable ou indexe sur le CA/chiffre d affaires (clause recette). Format: {\"type\":\"CA ou autre\",\"taux\":\"ex: 6,5%\",\"assiette\":\"ex: CA HT realise dans ou a partir des Locaux\",\"sans_lmg\":true si le bail exclut EXPRESSEMENT tout loyer minimum garanti (\"a l'exclusion de tout loyer minimum garanti\", \"un seul loyer variable\"), false sinon,\"lmg\":\"montant annuel du loyer minimum garanti, ou null\",\"montants_par_periode\":[{\"periode\":\"ex: annee 1 / 2022 / annees 1 a 3\",\"montant\":\"104146.87\",\"nature\":\"provision OU minimum\"}],\"plancher\":\"montant brut ou null\",\"plafond\":\"montant brut ou null\",\"regles\":\"texte complet de la formule et des conditions de declenchement\"}. NATURE: \"provision\" = acompte verse dans l'attente du loyer definitif puis regularise (\"provision ... dans l'attente de la determination du loyer annuel definitif\") ; \"minimum\" = montant plancher qui reste du quel que soit le CA. Ne jamais qualifier une provision de minimum. null si pas de loyer variable.
 
 franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnelles et complementaires. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"123405","surface_assiette":"ex: LC1 (701 m²)","indexation_incluse":"Non","condition":"null ou texte si conditionnelle ex: si non-delivrance de conge au 31/08/2030","page":3}]. montant: calculer si non explicite (loyer_annuel_assiette * duree_mois / 12). FRANCHISE REPARTIE EN TRANCHES (montants echelonnes): UNE LIGNE PAR TRANCHE LISTEE dans la clause — le nombre de lignes doit egaler le nombre de tranches (ex: 96.080 € a la prise d'effet puis 96.080 € a chacune des 1re a 4e dates anniversaires et 96.083 € a la 5e = 6 lignes) et la somme des montants doit egaler le total annonce (ex: 576.483 €) : verifier avant de repondre. date_debut = date de la tranche (prise d'effet, ou Neme date anniversaire = date d'effet + N ans) ; date_fin = null si la clause ne la precise pas. NE JAMAIS INVENTER de duree : si la clause ne donne que des montants, duree = \"recalcul = <montant / loyer mensuel de l'assiette, arrondi a 0,1> mois\" — l'assiette etant le loyer HORS redevance RIE si la clause le precise. DUREE = NOMBRE DE MOIS DE LOYER EXONERES, PAS la periode d'application (ne concerne QUE les clauses appelees franchise : une \"reduction de loyer\" chiffree par annee va dans abattements, pas ici) : si la franchise est un MONTANT impute sur une periode (ex: "franchise de 5.430 € HT imputee sur les loyers de la premiere annee"), la periode (12 mois) va dans date_debut/date_fin, et duree = equivalent en mois de loyer, ecrit "recalcul = <montant / loyer mensuel arrondi a 0,1> mois" (ex: 5430 / (47060/12) → "recalcul = 1,4 mois") — JAMAIS "12 mois". ATTENTION DISTINCTION AVEC mise_a_disposition: une franchise reduit un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero. NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation avant la date d'effet officielle du bail, "pas de loyer ni charges dus"), meme si le texte l'appelle "franchise" et meme si elle est ventilee par lot avec des dates differentes — cela va dans le champ dedie mise_a_disposition, pas ici. ATTENTION CAS INVERSE FREQUENT: quand plusieurs montants de franchise sont donnes a des dates anniversaires successives (ex: un montant "à compter du" 15/09/2025, un autre "à compter du" 15/09/2026, etc.) SANS duree ni date de fin explicite pour chaque tranche, NE JAMAIS supposer 12 mois entre deux echeances — c'est presque toujours un montant equivalent a quelques semaines/mois de loyer accorde CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an), pas une exoneration continue toute l'annee. Calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)) puis date_fin = date_debut + duree_mois mois - 1 jour. N'utiliser 12 mois que si le texte le dit explicitement. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — (a) si la duree est explicite et le montant manquant: reprendre la duree telle quelle dans "duree", calculer montant = duree_mois * (loyer_annuel_base_HT_HC/12) et ecrire "recalcul = <montant> €" dans "montant" (pas un chiffre brut). (b) si le montant est explicite et la duree manquante: montant reste un chiffre brut normal, calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC/12)) et ecrire "recalcul = <duree_mois> mois" dans "duree" (pas une phrase). Si les deux sont explicites, les reprendre tels quels sans marqueur. Jamais de formule detaillee type "A / B = C".
 
@@ -3175,6 +3194,20 @@ function computeFranchiseSummary(periodes) {
 // Équivalence d'une franchise en mois de loyer — commune au tableau de la fiche
 // et à l'export : incoherent = la durée extraite (souvent la période
 // d'application) ne colle pas au montant exonéré (écart > 25 %).
+// CLAUSE RECETTE (loyer variable) — lecture commune : loyer exclusivement
+// variable sans loyer minimum garanti (sansLmg), ou LMG + part variable.
+function loyerVariableInfo(d) {
+  const lv = d?.loyer_variable
+  if (!lv || typeof lv !== 'object') return null
+  const txt = stripAccents([lv.regles, lv.type, lv.assiette, d.loyer_signature].map(x => safeStr(x) || '').join(' ')).toLowerCase()
+  const lmg = parseAmount(lv.lmg) || null
+  const sansLmg = !lmg && (lv.sans_lmg === true || /(exclusion de tout loyer minimum|sans (aucun )?loyer minimum|aucun loyer minimum|un seul loyer variable|exclusivement variable)/.test(txt))
+  const periodes = (Array.isArray(lv.montants_par_periode) ? lv.montants_par_periode : []).map(m => ({
+    periode: safeStr(m.periode) || null, montant: parseAmount(m.montant), nature: /provision|acompte/i.test(safeStr(m.nature) || '') ? 'provision' : 'minimum',
+  })).filter(m => m.montant)
+  return { lv, sansLmg, lmg, periodes }
+}
+
 // LOYER FACIAL retenu — fonction commune (fiche, dashboard, État locatif,
 // valeurs en base, export). Garde-fou : si le loyer extrait est égal à la
 // somme des lignes du tableau PLUS la redevance RIE, la RIE a été comptée deux
@@ -3182,6 +3215,11 @@ function computeFranchiseSummary(periodes) {
 // l'extraction l'a rajoutée) → loyer facial = somme des lignes.
 function loyerFacial(d) {
   const declared = parseAmount(d?.loyer_signature_montant) || 0
+  // Loyer EXCLUSIVEMENT variable, sans minimum garanti : loyer de base = 0
+  // (une provision ou un montant de 1re année extrait comme loyer de base
+  // reste visible dans la section Loyer variable, via "extrait")
+  const LV = loyerVariableInfo(d)
+  if (LV?.sansLmg) return { montant: 0, variableSeul: true, extrait: declared || null }
   if (!declared) return { montant: null, corrige: false }
   const surfaces = Array.isArray(d?.surfaces_detail) ? d.surfaces_detail : []
   if (!surfaces.length) return { montant: declared, corrige: false }
@@ -3202,6 +3240,7 @@ function loyerFacial(d) {
 // ventilation est incomplète ou complétée par déduction (elle est alors
 // alignée sur le loyer par construction).
 function loyerEcartVentilation(d) {
+  if (loyerVariableInfo(d)?.sansLmg) return null
   const lf = loyerFacial(d).montant
   const surfaces = Array.isArray(d?.surfaces_detail) ? d.surfaces_detail : []
   if (!lf || !surfaces.length) return null
@@ -5967,7 +6006,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         || (isAv && (avFranchisesRecalees || (Array.isArray(d.franchise_periodes) && d.franchise_periodes.length > 0) || (Array.isArray(d.abattements) && d.abattements.length > 0)))) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Loyer</div></div>
-          {d.loyer_signature_montant && (
+          {(d.loyer_signature_montant || d.loyer_variable) && (
             <div className="loyer-hero">
               <div>
                 <div className="loyer-lbl" style={{ display: "flex", alignItems: "center", gap: "4px" }}>Loyer HT/HC annuel à la signature{src.loyer_signature_montant && <span title={src.loyer_signature_montant} style={{ cursor: "help", fontSize: "10px", color: "var(--text3)", border: "1px solid var(--border2)", borderRadius: "50%", width: "13px", height: "13px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>i</span>}</div>
@@ -5976,7 +6015,8 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
                     const lf = loyerFacial(d)
                     return (
                       <div className="loyer-amount" title={lf.corrige ? `Montant extrait : ${fmtEur(lf.extrait)} — ${lf.raison}` : undefined}>
-                        {fmtEur(lf.montant ?? d.loyer_signature_montant) || d.loyer_signature_montant}
+                        {lf.variableSeul ? '0 €' : (fmtEur(lf.montant ?? d.loyer_signature_montant) || d.loyer_signature_montant)}
+                        {d.loyer_variable && <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text2)', marginLeft: '10px', verticalAlign: 'middle' }}>{lf.variableSeul ? 'loyer exclusivement variable — cf. clause recette' : 'cf. clause recette'}</span>}
                         {(() => { const ec = loyerEcartVentilation(d); return ec ? <span title={ec.texte} style={{ marginLeft: '10px', fontSize: '20px', color: 'var(--danger)', cursor: 'help', verticalAlign: 'middle' }}>⚠</span> : null })()}
                       </div>
                     )
@@ -6262,12 +6302,45 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Loyer variable</div></div>
           <div className="gx" style={{ marginBottom: '8px' }}>
+            {(() => {
+              const LV = loyerVariableInfo(d), lf = loyerFacial(d)
+              return (
+                <Field label="Loyer minimum garanti (LMG)"
+                  value={LV?.lmg ? fmtEur(LV.lmg) : (LV?.sansLmg ? 'Aucun — loyer exclusivement variable' : (parseAmount(d.loyer_signature_montant) ? `${fmtEur(d.loyer_signature_montant)} (loyer de base)` : '—'))} />
+              )
+            })()}
             {d.loyer_variable.type && <Field label="Type" value={safeStr(d.loyer_variable.type)} />}
             {d.loyer_variable.taux && <Field label="Taux" value={safeStr(d.loyer_variable.taux)} />}
             {d.loyer_variable.assiette && <Field label="Assiette de calcul" value={safeStr(d.loyer_variable.assiette)} />}
             {d.loyer_variable.plancher && <Field label="Plancher" value={fmtEur(d.loyer_variable.plancher) || safeStr(d.loyer_variable.plancher)} />}
             {d.loyer_variable.plafond && <Field label="Plafond" value={fmtEur(d.loyer_variable.plafond) || safeStr(d.loyer_variable.plafond)} />}
           </div>
+          {(() => {
+            // Provisions et minimums par période (année 1, 2…) — à défaut, pour
+            // une extraction antérieure, le montant extrait comme loyer de base
+            // d'un loyer exclusivement variable (provision ou 1re année)
+            const LV = loyerVariableInfo(d), lf = loyerFacial(d)
+            const rows = LV?.periodes?.length ? LV.periodes : (lf.variableSeul && lf.extrait ? [{ periode: 'Première année', montant: lf.extrait, nature: 'provision', ancien: true }] : [])
+            if (!rows.length) return null
+            return (
+              <div className="table-wrap" style={{ marginBottom: '10px' }}>
+                <table className="indemnites-table">
+                  <thead><tr><th>Période</th><th>Nature</th><th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th></tr></thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 500 }}>{r.periode || '—'}</td>
+                        <td title={r.nature === 'provision' ? 'Acompte versé dans l\'attente du loyer définitif, puis régularisé' : 'Montant dû quel que soit le chiffre d\'affaires'}>
+                          {r.nature === 'provision' ? 'Provision (régularisable)' : 'Minimum garanti'}{r.ancien ? ' — à confirmer par réextraction' : ''}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtEur(r.montant)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          })()}
           {d.loyer_variable.regles && (
             <Field label="Formule et règles de déclenchement" value={safeStr(d.loyer_variable.regles)} verbose />
           )}
@@ -9531,7 +9604,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
                 {/* Loyer */}
                 <div className="dash-td dash-td-right" style={{ alignItems: 'flex-start', paddingTop: '13px' }}>
-                  {d.loyer_signature_montant ? (
+                  {(!isAv && loyerFacial(d).variableSeul) ? (
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }} title="Loyer exclusivement variable — cf. clause recette">0 € <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)' }}>variable</span></span>
+                  ) : d.loyer_signature_montant ? (
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}
                       title={loyerFacial(d).corrige ? `Corrigé — montant extrait ${fmtEur(loyerFacial(d).extrait)} (RIE comptée deux fois)` : undefined}>
                       {fmtEur(loyerFacial(d).montant ?? d.loyer_signature_montant)}
