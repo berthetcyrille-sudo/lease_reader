@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · durée ferme avenant 2'
+const APP_VERSION = '21.10 · montant franchise calculé'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -900,7 +900,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
       date_fin_calculee: (!safeStr(r.date_fin) && !!franchiseDateFinCalculee(r, franchiseMonthsEffective(r, loyerAnnuel, rieAn))) || undefined,
       recalee: r._recale || undefined, dates_origine: r._dates_origine || undefined,
       surface_assiette: safeStr(r.surface_assiette) || null, indexation_incluse: safeStr(r.indexation_incluse) || null,
-      montant: parseAmount(r.montant), duree_extraite: safeStr(r.duree) || null,
+      montant: montantFranchise(r, loyerAnnuel, rieAn).montant, montant_calcule: montantFranchise(r, loyerAnnuel, rieAn).calcule || undefined,
+      charges_non_chiffrees: montantFranchise(r, loyerAnnuel, rieAn).chargesNonChiffrees || undefined, duree_extraite: safeStr(r.duree) || null,
       duree_affichee: (q && (q.incoherent || /recalcul/i.test(String(r.duree || '')))) ? `≈ ${fmtMoisFranchise(q.eq)}` : (safeStr(r.duree) || null),
       mois_de_loyer: q ? Math.round(q.eq * 10) / 10 : null,
       conditionnelle: isConditionalFranchise(r),
@@ -968,7 +969,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
         duree: abat ? (safeStr(r.duree) || null) : ((q && (q.incoherent || /recalcul/i.test(String(r.duree || '')))) ? `≈ ${fmtMoisFranchise(q.eq)}` : (safeStr(r.duree) || null)),
         mois_de_loyer: mois ? Math.round(mois * 10) / 10 : null,
         surface_assiette: safeStr(r.surface_assiette) || null,
-        montant: parseAmount(r.montant),
+        montant: abat ? parseAmount(r.montant) : montantFranchise(r, loyerAnnuel, rieAn).montant,
+        montant_calcule: (!abat && montantFranchise(r, loyerAnnuel, rieAn).calcule) || undefined,
         indexation_incluse: safeStr(r.indexation_incluse) || null,
         condition: cleanTxt(r.condition) || null,
         recalee: r._recale || undefined,
@@ -3407,6 +3409,39 @@ function rieLoyerAnnuel(surfaces, parkingNbPlaces, loyerDeclared) {
   const V = computeVentilation(Array.isArray(surfaces) ? surfaces : [], parkingNbPlaces, loyerDeclared)
   return V.mainComputed.filter(x => V.isRie(x.row)).reduce((t, x) => t + (x.loyer || 0), 0)
 }
+// MONTANT D'UNE FRANCHISE — fonction commune (tableau, totaux, équivalence,
+// base, exports) : le montant ÉCRIT dans le bail s'il y en a un ; sinon un
+// montant recalculé par l'appli, vérifiable — loyer annuel de l'assiette ×
+// jours de la période ÷ 365 (dates de début et de fin connues), à défaut × mois
+// ÷ 12 ou × semaines × 7 ÷ 365 — plutôt que le « recalcul = … » de l'IA (vécu :
+// 3 semaines du 10/12 au 31/12/2024 sur 64 160 €/an → 2 463 € par l'IA, soit
+// 14 jours, au lieu de 3 867 € pour 22 jours). chargesNonChiffrees : la
+// franchise porte aussi sur des charges / impôts / taxes, que le montant
+// (loyer seul) ne comprend pas.
+function montantFranchise(row, loyerAnnuel, rieLoyer = 0) {
+  if (!row) return { montant: null }
+  const brut = row.montant
+  const ecrit = (brut != null && brut !== '' && !/recalcul/i.test(String(brut))) ? parseAmount(brut) : null
+  const txt = stripAccents(`${safeStr(row.surface_assiette) || ''} ${safeStr(row.condition) || ''} ${safeStr(row.duree) || ''}`).toLowerCase()
+  const chargesNonChiffrees = /(charges|impots|taxes)/.test(txt)
+  if (ecrit) return { montant: ecrit, calcule: false, chargesNonChiffrees }
+  const horsRie = /hors\s+(la\s+)?(redevance\s+)?(rie|restaurant)/.test(txt)
+  const base = (horsRie && rieLoyer > 0 && loyerAnnuel > rieLoyer) ? loyerAnnuel - rieLoyer : loyerAnnuel
+  if (!(base > 0)) return { montant: parseAmount(brut), calcule: true, chargesNonChiffrees }
+  const d0 = parseFR(normalizeDate(safeStr(row.date_debut))), d1 = parseFR(normalizeDate(safeStr(row.date_fin)))
+  let montant = null, methode = null
+  if (d0 && d1 && d1 >= d0) {
+    const jours = Math.round((d1 - d0) / 86400000) + 1
+    montant = base * jours / 365; methode = `${jours} jours × loyer annuel ÷ 365`
+  } else {
+    const mois = parseMonthsCount(row.duree)
+    const sem = (String(row.duree || '').match(/(\d+(?:[.,]\d+)?)\s*semaines?/i) || [])[1]
+    if (mois) { montant = base * mois / 12; methode = `${String(mois).replace('.', ',')} mois × loyer annuel ÷ 12` }
+    else if (sem) { const n = parseFloat(sem.replace(',', '.')); montant = base * n * 7 / 365; methode = `${n} semaine(s) × 7 jours × loyer annuel ÷ 365` }
+  }
+  return { montant: montant ? Math.round(montant) : parseAmount(brut), calcule: true, methode, chargesNonChiffrees }
+}
+
 // rieLoyer : redevance RIE annuelle du bail — retirée de la base quand la
 // franchise est calculée "hors redevance RIE" (assiette ou condition), comme le
 // prévoit la clause (vécu : 96 080 € = 4,67 mois hors RIE, et non 4,4 mois).
@@ -3414,7 +3449,7 @@ function franchiseEquivalence(row, loyerAnnuel, rieLoyer = 0) {
   if (!row || row._type === 'abattement') return null
   const horsRie = /hors\s+(la\s+)?(redevance\s+)?(rie|restaurant)/i.test(stripAccents(`${safeStr(row.surface_assiette) || ''} ${safeStr(row.condition) || ''}`))
   const base = (horsRie && rieLoyer > 0 && loyerAnnuel > rieLoyer) ? loyerAnnuel - rieLoyer : loyerAnnuel
-  const m = parseAmount(row.montant), lm = base > 0 ? base / 12 : null
+  const m = montantFranchise(row, loyerAnnuel, rieLoyer).montant, lm = base > 0 ? base / 12 : null
   if (!m || !lm) return null
   const eq = m / lm, dm = parseMonthsCount(row.duree)
   return { eq, incoherent: !!(dm && !/recalcul/i.test(String(row.duree)) && Math.abs(dm - eq) / eq > 0.25) }
@@ -3495,6 +3530,20 @@ function franchiseEcartAnnonce(d) {
   const candidats = montants.filter(n => !(tranches.length > 1 && tranches.some(t => proche(n, t))))
   if (!candidats.length) return null
   const annonce = Math.max(...candidats)
+  // RÈGLE DÉFINITIVE : un total annoncé n'est un écart que si AUCUNE
+  // combinaison de lignes du tableau ne le reconstitue — sinon il vise une
+  // partie des franchises (vécu : « montant total de 128 320 € » pour les six
+  // tranches de 24 mois, à côté d'une franchise de 3 semaines et d'une
+  // franchise conditionnelle). Recherche exhaustive (tableaux ≤ 16 lignes).
+  const montantsLignes = lignes.map(r => parseAmount(r.montant) || 0).filter(x => x > 0)
+  if (montantsLignes.length <= 16) {
+    const n = montantsLignes.length
+    for (let mask = 1; mask < (1 << n); mask++) {
+      let somme = 0
+      for (let i = 0; i < n; i++) if (mask & (1 << i)) somme += montantsLignes[i]
+      if (proche(somme, annonce)) return null
+    }
+  }
   if (!tableau || Math.abs(annonce - tableau) <= Math.max(5, annonce * 0.02)) return null
   return { annonce, tableau }
 }
@@ -3509,7 +3558,7 @@ function franchiseTotals(periodes, loyerAnnuel, rieLoyer = 0) {
     if (r._type === 'abattement') { out[k].montant += parseAmount(r.montant) || 0; continue }
     if (franchiseEquivalence(r, loyerAnnuel, rieLoyer)?.incoherent) out.approx = true
     out[k].mois += franchiseMonthsEffective(r, loyerAnnuel, rieLoyer)
-    out[k].montant += parseAmount(r.montant) || 0
+    out[k].montant += montantFranchise(r, loyerAnnuel, rieLoyer).montant || 0
   }
   out.acquise.mois = Math.round(out.acquise.mois * 10) / 10
   out.conditionnelle.mois = Math.round(out.conditionnelle.mois * 10) / 10
@@ -3607,7 +3656,17 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
               <td style={{ color: 'var(--text2)' }}>{row.surface_assiette || '—'}</td>
               <td style={{ textAlign: 'right', fontWeight: 500 }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                  {row.montant ? fmtEur(row.montant) : '—'}
+                  {(() => {
+                    if (row._type === 'abattement') return row.montant ? fmtEur(row.montant) : '—'
+                    const mf = montantFranchise(row, loyerAnnuel, rieLoyer)
+                    if (!mf.montant) return '—'
+                    const info = [mf.calcule ? `Montant non écrit dans le bail — calculé : ${mf.methode || 'à partir de la durée'}` : null, mf.chargesNonChiffrees ? 'Loyer seul : la franchise porte aussi sur des charges, impôts ou taxes, non chiffrés' : null].filter(Boolean).join(' · ')
+                    return (
+                      <span title={info || undefined} style={{ cursor: info ? 'help' : 'default', fontStyle: mf.calcule ? 'italic' : 'normal' }}>
+                        {mf.calcule ? '≈ ' : ''}{fmtEur(mf.montant)}{mf.chargesNonChiffrees ? <span style={{ fontSize: '10.5px', fontWeight: 400, color: 'var(--text3)', marginLeft: '4px' }}>loyer seul</span> : null}
+                      </span>
+                    )
+                  })()}
                   <PageJumpIcon item={item} page={row.page || (row._type === 'abattement' ? (pages.abattements || pages.franchise_periodes) : pages.franchise_periodes) || null} />
                 </span>
               </td>
