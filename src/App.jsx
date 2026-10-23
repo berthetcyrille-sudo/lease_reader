@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '20.10 · fin depuis effet confirmé'
+const APP_VERSION = '20.10 · signature et durée ferme'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -798,9 +798,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
   const exits = getExitEvents(eff)
   const breaks = dropTermBreaks(exits
     ? exits.map(e => e.date).filter(Boolean)
-    : (eff._breakOptionsFromAvenant
-        ? sanitizeBreakDates(Array.isArray(eff.break_options) ? eff.break_options : [])
-        : filterBreaksByDureeFerme(Array.isArray(eff.break_options) ? eff.break_options : [], eff.date_effet, eff.duree_ferme)), eff.date_fin)
+    : breaksHorsEcheances(eff), eff.date_fin)
   const finNorm = normalizeDate(safeStr(eff.date_fin))
   const dateFin = (finNorm && /^\d{2}\/\d{2}\/\d{4}$/.test(finNorm)) ? finNorm : (computeDateFinFromDuree(eff.date_effet, eff.duree_totale) || finNorm || null)
   const duree = k => {
@@ -4629,6 +4627,45 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
   }
 }
 
+// Breaks d'un état (bail ou état après avenants), hors échéances lues : le
+// filtre de la durée ferme (qui écarte les triennales renoncées) n'est levé que
+// si un avenant a DONNÉ lui-même les échéances — pas quand elles ont été
+// simplement recalculées (vécu : JADE, triennale à 3 ans réapparue après la
+// levée de la condition suspensive malgré 6 ans fermes).
+function breaksHorsEcheances(m) {
+  const list = Array.isArray(m?.break_options) ? m.break_options : []
+  return m?._breaksDonneesParAvenant ? sanitizeBreakDates(list) : filterBreaksByDureeFerme(list, m?.date_effet, m?.duree_ferme)
+}
+
+// Données du bail « À LA SIGNATURE » — fonction commune (fiche et encadré des
+// modifications) : les données du bail, sauf une prise d'effet inconnue au bail
+// (condition suspensive, BEFA) et fixée par un avenant, qui la remplit ;
+// l'expiration est alors recalculée depuis elle (une date de fin extraite du
+// bail repose sur une date provisoire) et des breaks extraites sur cette même
+// base glissent du même écart.
+function donneesSignature(row) {
+  const d = { ...(row?.data || {}) }
+  let csAv = null
+  if (!normalizeDate(safeStr(d.date_effet)) && Array.isArray(row?.avenants) && row.avenants.length) {
+    csAv = [...row.avenants].sort(compareAvenants).find(av => filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, row.data || {}).date_effet) || null
+    const csDate = csAv ? normalizeDate(safeStr(csAv.data.champs_modifies.date_effet)) : null
+    if (csDate) {
+      d.date_effet = csDate
+      const finCalc = computeDateFinFromDuree(csDate, d.duree_totale)
+      if (finCalc) {
+        const finBrute = parseFR(normalizeDate(safeStr(d.date_fin))), finNew = parseFR(finCalc)
+        if (finBrute && finNew && finBrute.getTime() !== finNew.getTime() && Array.isArray(d.break_options) && d.break_options.length && !(Array.isArray(d.echeances_sortie) && d.echeances_sortie.length)) {
+          const md = (finNew.getFullYear() - finBrute.getFullYear()) * 12 + (finNew.getMonth() - finBrute.getMonth())
+          const dd = finNew.getDate() - finBrute.getDate()
+          d.break_options = d.break_options.map(b => { const t = parseFR(normalizeDate(safeStr(b))); return t ? fmtFR(new Date(t.getFullYear(), t.getMonth() + md, t.getDate() + dd)) : b })
+        }
+        d.date_fin = finCalc
+      }
+    } else csAv = null
+  }
+  return { data: d, csAv }
+}
+
 // Durée lue au jour près pour l'affichage et la comparaison : "neuf (9)
 // années, un (1) mois et quinze (15) jours" → { mois: 109, jours: 15,
 // texte: "9 ans, 1 mois et 15 jours" }.
@@ -4654,7 +4691,7 @@ function etatEcheances(m) {
   const fin = (finN && /^\d{2}\/\d{2}\/\d{4}$/.test(finN)) ? finN : (computeDateFinFromDuree(m.date_effet, m.duree_totale) || null)
   let breaks = exits
     ? exits.map(e => e.date).filter(Boolean)
-    : (m._breakOptionsFromAvenant ? sanitizeBreakDates(Array.isArray(m.break_options) ? m.break_options : []) : filterBreaksByDureeFerme(Array.isArray(m.break_options) ? m.break_options : [], m.date_effet, m.duree_ferme))
+    : breaksHorsEcheances(m)
   if (!breaks.length && m.date_effet && fin && m.conditions_break) {
     try { breaks = computeBreaks(m.date_effet, fin, m.conditions_break, [], m.duree_ferme) || [] } catch (_) { breaks = [] }
   }
@@ -4692,8 +4729,12 @@ function diffEtats(a, b) {
 // franchises / abattements qu'il accorde.
 function chronologieAvenants(row) {
   const avs = (Array.isArray(row?.avenants) ? row.avenants : []).filter(a => !a.data?._archived).sort(compareAvenants)
+  const signature = etatEcheances(donneesSignature(row).data)
   return avs.map((av, i) => {
-    const avant = etatEcheances(mergedBailData(row, { beforeAvenantId: av.id }))
+    // 1er avenant : comparé à l'état « à la signature » (prise d'effet fixée
+    // par levée de condition et expiration recalculée depuis elle) — pas à
+    // l'extraction brute, dont la date de fin reposait sur une date provisoire
+    const avant = i === 0 ? signature : etatEcheances(mergedBailData(row, { beforeAvenantId: av.id }))
     const apres = etatEcheances(mergedBailData(row, { throughAvenantId: av.id }))
     const mods = av.data?.champs_modifies || {}
     const franchises = [
@@ -4811,7 +4852,7 @@ function computeNextExit(row, today = new Date()) {
   const d = mergedBailData(row)
   const exits = getExitEvents(d)
   let breaks = exits ? exits.map(e => e.date).filter(Boolean) : (Array.isArray(d.break_options) ? d.break_options : [])
-  if (!exits && !(d._breakOptionsFromAvenant && !d._dureeFermeFromAvenant)) {
+  if (!exits && !d._breaksDonneesParAvenant) {
     breaks = filterBreaksByDureeFerme(breaks, d.date_effet, d.duree_ferme)
   }
   breaks = dropTermBreaks(breaks, d.date_fin)
@@ -4890,7 +4931,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
       // ferme redonnée : la durée ferme connue est celle de l'ANCIEN bail —
       // l'appliquer depuis la nouvelle date d'effet supprimerait à tort les
       // échéances du renouvellement.
-      if (!(d._breakOptionsFromAvenant && !d._dureeFermeFromAvenant)) {
+      if (!d._breaksDonneesParAvenant) {
         mergedBreaks = filterBreaksByDureeFerme(mergedBreaks, d.date_effet, d.duree_ferme)
       }
       // Échéances lues dans le texte disponibles : elles font foi (aucun calcul
@@ -5434,30 +5475,14 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
     // vigueur. Seule exception : une prise d'effet inconnue au bail (condition
     // suspensive, BEFA) et FIXÉE par un avenant remplit la prise d'effet, pour
     // que les échéances initiales se calculent.
-    const ownEffet = normalizeDate(safeStr(d.date_effet))
     dateSrc = {}
-    if (!ownEffet) {
-      const csAv = [...item.avenants].sort(compareAvenants).find(av => filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, item.data || {}).date_effet)
-      const csDate = csAv ? normalizeDate(safeStr(csAv.data.champs_modifies.date_effet)) : null
-      if (csDate) {
-        d.date_effet = csDate
-        dateSrc = { date_effet: csAv }
-        effetConfirmePar = csAv
-        // Expiration TOUJOURS recalculée depuis la prise d'effet confirmée : une
-        // date de fin extraite du bail repose sur une date provisoire (vécu :
-        // JADE, fin au 23/01/2034 au lieu du 09/03/2034). Des breaks extraites
-        // sur cette même date provisoire glissent du même écart.
-        const finCalc = computeDateFinFromDuree(csDate, d.duree_totale)
-        if (finCalc) {
-          const finBrute = parseFR(normalizeDate(safeStr(d.date_fin))), finNew = parseFR(finCalc)
-          if (finBrute && finNew && finBrute.getTime() !== finNew.getTime() && Array.isArray(d.break_options) && d.break_options.length && !(Array.isArray(d.echeances_sortie) && d.echeances_sortie.length)) {
-            const md = (finNew.getFullYear() - finBrute.getFullYear()) * 12 + (finNew.getMonth() - finBrute.getMonth())
-            const dd = finNew.getDate() - finBrute.getDate()
-            d.break_options = d.break_options.map(b => { const t = parseFR(normalizeDate(safeStr(b))); return t ? fmtFR(new Date(t.getFullYear(), t.getMonth() + md, t.getDate() + dd)) : b })
-          }
-          d.date_fin = finCalc
-        }
-      }
+    const sig = donneesSignature(item)
+    if (sig.csAv) {
+      d.date_effet = sig.data.date_effet
+      if (sig.data.date_fin) d.date_fin = sig.data.date_fin
+      if (Array.isArray(sig.data.break_options)) d.break_options = sig.data.break_options
+      dateSrc = { date_effet: sig.csAv }
+      effetConfirmePar = sig.csAv
     } else {
       effetConfirmePar = null
     }
@@ -9740,9 +9765,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             const dashExits = getExitEvents(eff)
             const breaks = dropTermBreaks(dashExits
               ? dashExits.map(e => e.date).filter(Boolean)
-              : (eff._breakOptionsFromAvenant
-                  ? sanitizeBreakDates(Array.isArray(eff.break_options) ? eff.break_options : [])
-                  : filterBreaksByDureeFerme(Array.isArray(eff.break_options) ? eff.break_options : [], eff.date_effet, eff.duree_ferme)), cleanDateFin)
+              : breaksHorsEcheances(eff), cleanDateFin)
             // Un bail replié affiche ses PROPRES données extraites — mais si un
             // avenant a modifié un champ depuis (loyer, date de fin, break,
             // surface), c'est cette donnée-là qui prévaut réellement, pas
