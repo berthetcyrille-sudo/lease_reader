@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · franchise étalée'
+const APP_VERSION = '19.10 · franchise lissée'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3070,14 +3070,34 @@ function expandFranchisesEtalees(list, dateEffet) {
   list.forEach(r => {
     if (!r || r._etalee || r._type === 'abattement') { out.push(r); return }
     const txt = stripAccents(`${safeStr(r.condition) || ''} ${safeStr(r.surface_assiette) || ''} ${safeStr(r.duree) || ''}`).toLowerCase()
-    const m = txt.match(/(\d+(?:[.,]\d+)?)\s*mois\s*(?:de\s+\w+\s+)?par\s*an/)
     const total = parseMonthsCount(r.duree)
-    const deb = parseFR(normalizeDate(safeStr(r.date_debut))) || parseFR(normalizeDate(safeStr(dateEffet)))
-    if (!m || !total || !deb || !/(anniversaire|chaque annee|annuellement|par an)/.test(txt)) { out.push(r); return }
-    const parAn = parseFloat(m[1].replace(',', '.'))
-    const n = Math.round(total / parAn)
-    if (!(parAn > 0) || n < 2 || n > 15 || Math.abs(n * parAn - total) > 0.5) { out.push(r); return }
     const montantTotal = parseAmount(r.montant)
+    const deb = parseFR(normalizeDate(safeStr(r.date_debut))) || parseFR(normalizeDate(safeStr(dateEffet)))
+    if (!deb || !/(anniversaire|chaque annee|annuellement|par an|\/an)/.test(txt)) { out.push(r); return }
+    // Règle exprimée en MOIS par an ("4 mois par an") …
+    let n = null, parAn = null
+    const mMois = txt.match(/(\d+(?:[.,]\d+)?)\s*mois\s*(?:de\s+\w+\s+)?par\s*an/)
+    if (mMois && total) {
+      parAn = parseFloat(mMois[1].replace(',', '.'))
+      const k = Math.round(total / parAn)
+      if (parAn > 0 && Math.abs(k * parAn - total) <= 0.5) n = k
+    }
+    // … ou en MONTANT par an ("à hauteur de 357.705 €/an", "357 705 EUR par an")
+    if (!n && montantTotal) {
+      const mEur = txt.match(/(\d{1,3}(?:[ .\u00a0\u202f]\d{3})+(?:,\d{1,2})?|\d{4,}(?:,\d{1,2})?)\s*(?:€|eur(?:os)?)?\s*(?:ht\s*\/?\s*hc\s*)?(?:de\s+franchise\s+)?(?:\/\s*an|par\s*an)/)
+      if (mEur) {
+        let t = mEur[1].replace(/[\s\u00a0\u202f]/g, '')
+        if (/,\d{1,2}$/.test(t)) t = t.replace(/\./g, '').replace(',', '.')
+        else t = t.replace(/\./g, '')
+        const eurAn = parseFloat(t)
+        const k = eurAn > 0 ? Math.round(montantTotal / eurAn) : 0
+        if (k >= 2 && Math.abs(k * eurAn - montantTotal) <= Math.max(5, montantTotal * 0.005)) {
+          n = k
+          parAn = total ? Math.round(total / k * 10) / 10 : null
+        }
+      }
+    }
+    if (!n || n < 2 || n > 15) { out.push(r); return }
     const part = montantTotal ? Math.round(montantTotal / n) : null
     for (let k = 0; k < n; k++) {
       const d0 = new Date(deb.getFullYear() + k, deb.getMonth(), deb.getDate())
@@ -3085,7 +3105,7 @@ function expandFranchisesEtalees(list, dateEffet) {
       out.push({
         ...r,
         date_debut: fmtFR(d0), date_fin: null,
-        duree: `${String(parAn).replace('.', ',')} mois`,
+        duree: parAn ? `${String(parAn).replace('.', ',')} mois` : r.duree,
         montant: montant != null ? String(montant) : r.montant,
         _etalee: true, _tranche: `${k + 1}/${n}`,
       })
