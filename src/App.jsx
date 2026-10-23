@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · montant franchise calculé'
+const APP_VERSION = '21.10 · 1re triennale et terme'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1364,6 +1364,7 @@ REGLES :
 2) Ce qui est rattache a une echeance (indemnite si depart, compensation si maintien, conditions, preavis) vient du MEME paragraphe/de la MEME stipulation que celle qui ouvre cette faculte de sortie. Ne jamais rattacher l'indemnite d'une echeance a une autre date.
 3) Dates : appliquer les regles de calcul ci-dessus (convention jour anniversaire moins 1 jour, multiples de 3 ans depuis date_effet, renonciations). Une date ecrite en toutes lettres dans le texte se reprend telle quelle. Si la date ne peut pas etre calculee (date d'effet inconnue/conditionnelle), date=null et libelle explicite.
 4) Exclure : les echeances auxquelles le preneur a renonce ; la date de fin du bail elle-meme (date_fin n'est pas une sortie anticipee) ; les clauses de resiliation pour faute/manquement, de non-prise de possession, de cession — ce ne sont pas des facultes de sortie.
+4quater) Une faculte de conge SUPPLEMENTAIRE ouverte « a partir de la deuxieme periode triennale » (ex: conge chaque annee a la date anniversaire a partir de la 2e periode triennale) ne supprime PAS la faculte triennale pour la PREMIERE periode : l'expiration de la 1re periode triennale reste une sortie (echeances_sortie, type triennale), sauf renonciation expresse. Ex: effet 05/10/2009, bail 3/6/9, conge annuel « a partir de la deuxieme periode triennale » aux 14/10/2013 … 14/10/2017 → sorties : 04/10/2012 (1re triennale) PUIS 14/10/2013, 14/10/2014, 14/10/2015, 14/10/2016, 14/10/2017. Une date listee posterieure au terme (ex: 14/10/2018 pour une fin au 04/10/2018) n'est pas une sortie : ne pas la retenir.
 4ter) Renonciation a la faculte triennale "POUR LA DUREE FERME" avec une premiere faculte de conge a la fin de cette duree ferme ("pour la premiere fois") : la renonciation ne vaut QUE pour la duree ferme — les expirations de periodes triennales qui suivent (multiples de 3 ans depuis la date d'effet, strictement avant le terme) redeviennent des sorties possibles et doivent figurer dans echeances_sortie (type triennale). Ex: bail de 12 ans dont 8 fermes, effet 01/07/2022 → 30/06/2030 (fin de la 8e annee, premiere faculte) PUIS 30/06/2031 (expiration de la 3e periode triennale = 9 ans) ; le 30/06/2034 est le terme, pas une sortie.
 4bis) Les periodes TRIENNALES se comptent TOUJOURS a partir de la date d'effet du bail (3, 6, 9 ans...), meme quand une echeance exceptionnelle intermediaire est accordee : "faculte de conge pour la premiere fois a l'expiration de la quatrieme annee, puis a l'expiration de chaque periode triennale suivante" (effet 01/09/2025) → 31/08/2029 (4e annee, type exceptionnelle) puis 31/08/2031 (2e periode triennale = 6 ans), PAS 31/08/2032.
 5) Une faculte de resiliation "a tout moment" (generalement sous condition de motif) = une entree type "a_tout_moment", date null, avec ses conditions et son preavis.
@@ -4351,15 +4352,36 @@ function auditBail(row) {
     }
   } catch (_) {}
 
-  // 7. Break postérieure à la date de fin du bail — logiquement impossible,
-  // presque toujours un résidu de calcul erroné ou une confusion de champ.
+  // 7. Break postérieure à la date de fin du bail — logiquement impossible
+  // (le bail est alors échu : tacite prolongation, congé à 6 mois pour la fin
+  // d'un trimestre civil) — liste simple ET échéances lues dans le texte.
   if (fin) {
-    const badBreaks = cleanBreaks.filter(b => { const bd = parseFrDate(b); return bd && bd > fin })
+    const datesEch = (Array.isArray(d.echeances_sortie) ? d.echeances_sortie : []).map(e => normalizeDate(safeStr(e?.date))).filter(x => /^\d{2}\/\d{2}\/\d{4}$/.test(x))
+    const badBreaks = [...new Set([...cleanBreaks, ...datesEch])].filter(b => { const bd = parseFrDate(b); return bd && bd > fin })
     if (badBreaks.length > 0) {
       issues.push({
         type: 'break_apres_terme',
         severity: 'high',
-        detail: `Break(s) postérieure(s) à la date de fin du bail (${fmtFR(fin)}) : ${badBreaks.join(', ')} — incohérence à vérifier.`,
+        detail: `Sortie(s) prévue(s) après la date de fin du bail (${fmtFR(fin)}) : ${badBreaks.join(', ')} — impossible : à cette date le bail est échu (tacite prolongation, congé à 6 mois pour la fin d'un trimestre civil). Incohérence du bail ou de l'extraction, écartée de l'affichage.`,
+      })
+    }
+    // 7bis. Clause « aux dates anniversaires » dont les dates listées n'en sont
+    // pas (vécu : effet 05/10/2009, dates « anniversaires » au 14 octobre) —
+    // seulement si le texte parle expressément de dates anniversaires.
+    const effA = parseFrDate(d.date_effet)
+    const clauseA = stripAccents(safeStr(d.conditions_break) || '').toLowerCase()
+    if (effA && /anniversaire/.test(clauseA)) {
+      const nonAnniv = [...new Set([...cleanBreaks, ...datesEch])].filter(b => {
+        const t = parseFrDate(b); if (!t) return false
+        const lend = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1)
+        const veille = lend.getDate() === effA.getDate() && lend.getMonth() === effA.getMonth()
+        const jour = t.getDate() === effA.getDate() && t.getMonth() === effA.getMonth()
+        return !veille && !jour && t <= fin
+      })
+      if (nonAnniv.length) issues.push({
+        type: 'dates_anniversaires_incoherentes',
+        severity: 'low',
+        detail: `La clause prévoit des sorties aux dates anniversaires du bail (prise d'effet le ${fmtFR(effA)}), mais ${nonAnniv.length > 1 ? 'les dates' : 'la date'} ${nonAnniv.join(', ')} n'en ${nonAnniv.length > 1 ? 'sont' : 'est'} pas — incohérence probable du bail, dates écrites conservées.`,
       })
     }
   }
@@ -8054,7 +8076,7 @@ function ReextractProgressModal({ progress }) {
 // Thématiques du contrôle qualité (filtre de la fenêtre) — tout type non
 // listé tombe dans "Autres".
 const QC_THEMES = [
-  { key: 'breaks', label: 'Breaks et échéances', types: ['break_a_tout_moment_datee', 'break_ancien_calcul', 'break_apres_terme', 'break_format', 'break_jour_anniversaire', 'breaks_incomplets', 'indemnite_orpheline', 'echeance_attendue_absente'] },
+  { key: 'breaks', label: 'Breaks et échéances', types: ['dates_anniversaires_incoherentes', 'break_a_tout_moment_datee', 'break_ancien_calcul', 'break_apres_terme', 'break_format', 'break_jour_anniversaire', 'breaks_incomplets', 'indemnite_orpheline', 'echeance_attendue_absente'] },
   { key: 'dates', label: 'Dates et durées', types: ['champ_date_pollue', 'champ_duree_pollue', 'date_fin_incoherente', 'duree_ferme_incoherente', 'duree_ferme_ambigue', 'duree_ferme_indeterminee', 'effet_conditionnel', 'signature_posterieure_effet'] },
   { key: 'surfaces', label: 'Surfaces et loyer', types: ['surface_incoherente', 'surface_loyer_incoherent', 'loyer_ecart_ventilation'] },
   { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
