@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '20.10 · durée ferme effective'
+const APP_VERSION = '21.10 · échéancier lu des avenants 2'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -208,6 +208,57 @@ REGLES PAR CHAMP (champs_modifies):
 // prompt à elle seule ne peut fiabiliser ça : il faut que le modèle voie
 // explicitement l'état actuel pour savoir ce qui, en cas de silence du texte,
 // doit être laissé à null (= inchangé) plutôt que recalculé from scratch.
+// ÉCHÉANCIER D'UN AVENANT — lecture dédiée (avec raisonnement) : l'IA reçoit le
+// calendrier en vigueur juste avant l'avenant et renvoie le calendrier COMPLET
+// après lui. L'appli n'a plus à le reconstruire par des règles : elle enregistre
+// (data.echeancier_apres), affiche et contrôle.
+function buildEcheancierAvenantPrompt(avant) {
+  const e = avant ? etatEcheances(avant) : null
+  const exits = avant ? (getExitEvents(avant) || []) : []
+  const sorties = e && e.breaks.length
+    ? e.breaks.map(b => { const x = exits.find(z => normalizeDate(safeStr(z.date)) === b); return x?.libelle ? `${b} (${safeStr(x.libelle).slice(0, 90)})` : b }).join(' ; ')
+    : 'aucune connue'
+  const clause = safeStr(avant?.conditions_break) ? safeStr(avant.conditions_break).replace(/\s+/g, ' ').slice(0, 1200) : 'non renseignée'
+  return `Expert baux commerciaux français. Ce document est un AVENANT à un bail. Ta SEULE tâche : établir le CALENDRIER COMPLET du bail APRÈS cet avenant — prise d'effet, durée totale, durée ferme, expiration et TOUTES les sorties anticipées possibles du preneur.
+
+CALENDRIER EN VIGUEUR JUSTE AVANT CET AVENANT (établi à partir du bail et des avenants précédents) :
+- Prise d'effet : ${e?.date_effet || 'inconnue (bail sous condition suspensive ou date à fixer)'}
+- Durée totale : ${e?.duree_totale?.texte || safeStr(avant?.duree_totale) || 'non renseignée'} ; durée ferme : ${e?.duree_ferme?.texte || safeStr(avant?.duree_ferme) || 'non renseignée'}
+- Expiration : ${e?.date_fin || 'non renseignée'}
+- Sorties possibles : ${sorties}
+- Clause de résiliation du bail (résumé) : ${clause}
+
+MÉTHODE :
+1. Repère ce que l'avenant modifie EXPRESSÉMENT : article Durée réécrit, prise d'effet reportée / avancée / fixée (levée de condition suspensive, livraison), prorogation, renonciation à une échéance, report des échéances.
+2. Ce que l'avenant ne modifie pas reste tel qu'avant, MAIS les dates qui découlent de la prise d'effet ou de la durée suivent leur changement : prise d'effet reportée dans le même bail → les échéances calées sur elle glissent d'autant ; « report d'autant des échéances triennales » → toutes les triennales suivantes glissent ; une première faculté fixée « pour la première fois » ou « au plus tôt » est suivie des expirations triennales suivantes (comptées depuis la prise d'effet) si le bail prévoit le rythme triennal.
+3. Une sortie n'est SUPPRIMÉE que si l'avenant y renonce expressément. Une renonciation « pour la durée ferme » ne supprime que les sorties pendant cette durée.
+4. Liste TOUTES les sorties possibles après l'avenant, strictement AVANT l'expiration (le terme n'est jamais une sortie), y compris celles déjà passées à la date de l'avenant.
+5. La date à partir de laquelle l'avenant s'applique (ex : « à compter du 15 octobre 2024, le Bailleur donne à bail des locaux complémentaires ») N'EST PAS la prise d'effet du bail : date_effet ne change que si l'avenant modifie ou fixe expressément la prise d'effet DU BAIL.
+6. Calcule les dates exactes : une échéance tombe la veille de la date anniversaire (prise d'effet 01/08/2020 + 3 ans → 31/07/2023).
+7. Si l'avenant ne touche à rien de tout cela (avenant de loyer, de surface, de destination…), recopie le calendrier d'avant tel quel avec modifie_echeancier = false.
+
+Réponds UNIQUEMENT avec un JSON minifié sur UNE ligne, sans markdown :
+{"date_effet":"jj/mm/aaaa ou null","statut_date_effet":"inchangee|modifiee|fixee","duree_totale":"ex: 9 ans, 1 mois et 15 jours","duree_ferme":"ex: 3 ans, 1 mois et 15 jours","date_fin":"jj/mm/aaaa","sorties":[{"date":"jj/mm/aaaa","statut":"inchangee|modifiee|ajoutee","date_avant":"jj/mm/aaaa ou null","libelle":"ex: Expiration de la 2e periode triennale (reportee par l'avenant)","page":N}],"sorties_supprimees":[{"date_avant":"jj/mm/aaaa","motif":"ex: renonciation a la 2e periode triennale","page":N}],"modifie_echeancier":true,"commentaire":"une phrase"}`
+}
+
+// Lecture de l'échéancier après un avenant, ajoutée aux données extraites de
+// l'avenant (data.echeancier_apres). Un échec n'empêche pas l'extraction : il
+// est noté (_echeancier_echec), et les règles de secours s'appliquent.
+async function ajouterEcheancierAvenant(extracted, base64, mediaType, contexteAvant) {
+  if (!extracted || typeof extracted !== 'object') return extracted
+  try {
+    const r = await callClaude(base64, mediaType, buildEcheancierAvenantPrompt(contexteAvant), 240000, { thinkingBudget: 6000 })
+    const fin = normalizeDate(safeStr(r?.date_fin))
+    if (r && fin && /^\d{2}\/\d{2}\/\d{4}$/.test(fin)) {
+      extracted.echeancier_apres = { ...r, _lu_le: new Date().toISOString() }
+      delete extracted._echeancier_echec
+    } else extracted._echeancier_echec = 'réponse incomplète'
+  } catch (e) {
+    extracted._echeancier_echec = e.message || 'erreur'
+  }
+  return extracted
+}
+
 function buildAvenantPrompt(parentBailData) {
   if (!parentBailData) return AVENANT_PROMPT
   const ctx = []
@@ -804,9 +855,9 @@ function computeValeursEnVigueur(item, parentRow = null) {
   const duree = k => {
     if (k === 'duree_ferme' && !isAv) { const dfe = dureeFermeEffective(eff); if (dfe) return dfe.texte }
     if (isAv || eff === raw) return safeStr(d[k]) || null
-    const mb = parseDureeMonths(raw[k]), ma = parseDureeMonths(eff[k])
-    if (!ma || ma === mb) return safeStr(raw[k]) || null
-    return `${formatDureeMonths(ma)} (modifiée par avenant — initialement ${mb ? formatDureeMonths(mb) : safeStr(raw[k])})`
+    const lb = lireDuree(raw[k]), la = lireDuree(eff[k])
+    if (!la || (lb && la.cle === lb.cle)) return safeStr(raw[k]) || null
+    return `${la.texte} (modifiée par avenant — initialement ${lb ? lb.texte : safeStr(raw[k])})`
   }
   const surfaces = computeUnitPrices(Array.isArray(d.surfaces_detail) ? d.surfaces_detail : [], d.parking_nb_places, null)
   const V = computeVentilation(surfaces, d.parking_nb_places, d.loyer_signature_montant)
@@ -2092,7 +2143,7 @@ function getExitEvents(d) {
       // (effet + 3×rang ans − 1 jour) et prime sur une date calculée par l'IA —
       // vécu : 2e triennale comptée à partir d'une échéance exceptionnelle à 4
       // ans (2032) au lieu de la date d'effet (2031).
-      const triDate = (e.type === 'triennale' && triennialOrdinalFromText(e.libelle)) ? resolveEcheanceDateFromText(e.libelle, d.date_effet) : null
+      const triDate = (e.type === 'triennale' && !e._date_lue && triennialOrdinalFromText(e.libelle)) ? resolveEcheanceDateFromText(e.libelle, d.date_effet) : null
       return { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
     })
     // Renonciation à la faculté triennale "pour la durée ferme" + première
@@ -4071,6 +4122,12 @@ function auditBail(row) {
   // 2octies. Lecture dédiée aux échéances en échec lors de l'extraction
   if (d._echeances_non_lues) issues.push({ type: 'echeances_non_lues', severity: 'high', detail: `La lecture dédiée à la clause de durée et de résiliation a échoué lors de la dernière extraction (${safeStr(d._echeances_non_lues).slice(0, 120)}) — échéances et date de fin issues de la seule lecture principale. Réextraction recommandée.` })
 
+  // 2nonies. Lecture de l'échéancier d'un avenant en échec
+  {
+    const ko = (Array.isArray(row.avenants) ? row.avenants : []).filter(a => a.data?._echeancier_echec && !a.data?.echeancier_apres)
+    if (ko.length) issues.push({ type: 'echeancier_avenant_non_lu', severity: 'medium', detail: `Échéancier non lu pour ${ko.length} avenant(s) (${ko.map(a => a.file_name).join(' ; ')}) — échéances après avenant déduites par les règles de secours. Relancer « Relire les échéanciers des avenants » ou réextraire l'avenant.` })
+  }
+
   // 2quinquies. Réponse de l'IA réparée automatiquement lors de l'extraction
   if (d._json_repare) issues.push({ type: 'json_repare', severity: 'high', detail: "La réponse de l'IA était mal formée lors de la dernière extraction et a été réparée automatiquement : des données peuvent manquer ou être altérées. Réextraction recommandée." })
 
@@ -4201,8 +4258,12 @@ function auditBail(row) {
     const vvR = computeValeursEnVigueur(row, null)
     const e0 = parseFrDate(normalizeDate(safeStr(effR.date_effet)))
     const f0 = parseFrDate(vvR.date_fin)
-    const mT = parseDureeMonths(effR.duree_totale), mF = (dureeFermeEffective(effR)?.mois) || parseDureeMonths(effR.duree_ferme)
-    const addM = (dt, m) => new Date(dt.getFullYear(), dt.getMonth() + m, dt.getDate() - 1)
+    const dT = lireDuree(effR.duree_totale)
+    const dfeR = dureeFermeEffective(effR)
+    const dF = dfeR ? lireDuree(dfeR.texte) : lireDuree(effR.duree_ferme)
+    const mT = dT?.mois, mF = dF?.mois
+    // durée au jour près : effet + mois + jours − 1 jour
+    const addM = (dt, m) => new Date(dt.getFullYear(), dt.getMonth() + m, dt.getDate() - 1 + (m === mT ? (dT?.jours || 0) : (m === mF ? (dF?.jours || 0) : 0)))
     const ecartTxt = (x, y) => { const j = Math.round(Math.abs(x - y) / 86400000); return j >= 45 ? `${Math.round(j / 30.44)} mois` : `${j} jours` }
     if (e0 && f0 && mT) {
       const attendu = addM(e0, mT)
@@ -4212,7 +4273,7 @@ function auditBail(row) {
         detail: `Prise d'effet (${fmtFR(e0)}) + durée totale (${safeStr(effR.duree_totale)}) = ${fmtFR(attendu)}, mais la date de fin est ${fmtFR(f0)} — écart de ${ecartTxt(f0, attendu)}. L'une des trois valeurs est fausse, ou la durée court à partir d'une autre date.`,
       })
     }
-    if (e0 && mF && mT && !effR._breaksDonneesParAvenant) {
+    if (e0 && mF && mT && (!effR._breaksDonneesParAvenant || effR._echeancierLu)) {
       const sorties = (vvR.break_options || []).map(x => parseFrDate(x)).filter(Boolean).sort((x, y) => x - y)
       if (mF < mT) {
         const attendu = addM(e0, mF)
@@ -4808,7 +4869,28 @@ function chronologieAvenants(row) {
       ...(Array.isArray(mods.franchise_periodes) ? mods.franchise_periodes : []).map(r => ({ type: isConditionalFranchise(r) ? 'Franchise conditionnelle' : 'Franchise', debut: safeStr(r.date_debut) || null, fin: safeStr(r.date_fin) || null, duree: safeStr(r.duree) || null, montant: parseAmount(r.montant) })),
       ...(Array.isArray(mods.abattements) ? mods.abattements : []).map(r => ({ type: 'Abattement', debut: safeStr(r.date_debut) || null, fin: safeStr(r.date_fin) || null, duree: null, montant: parseAmount(r.montant_annuel) })),
     ]
-    return { av, numero: avenantNumeroDeclare(av) || (i + 1), avant, apres, lignes: diffEtats(avant, apres), franchises }
+    const E = av.data?.echeancier_apres
+    let lignes = diffEtats(avant, apres)
+    if (E) {
+      const supp = Array.isArray(E.sorties_supprimees) ? E.sorties_supprimees : []
+      lignes = lignes.map(l => {
+        if (l.apres === 'supprimée') {
+          const m = supp.find(z => normalizeDate(safeStr(z?.date_avant)) === l.avant)
+          return m?.motif ? { ...l, apres: `supprimée — ${safeStr(m.motif)}` } : l
+        }
+        return l
+      })
+      // Prise d'effet FIXÉE (condition suspensive, livraison) : une seule ligne —
+      // les échéances et l'expiration ne font que la suivre
+      if (E.statut_date_effet === 'fixee' && lignes.some(l => l.label === "Prise d'effet")) {
+        const pe = lignes.find(l => l.label === "Prise d'effet")
+        lignes = [
+          { label: "Prise d'effet fixée par l'avenant", avant: pe.avant, apres: `${pe.apres} — échéances et expiration recalées en conséquence` },
+          ...lignes.filter(l => l.label === 'Durée totale' || l.label === 'Durée ferme' || /supprimée/.test(l.apres)),
+        ]
+      }
+    }
+    return { av, numero: avenantNumeroDeclare(av) || (i + 1), avant, apres, lignes, franchises, echeancierLu: !!E }
   })
 }
 
@@ -4904,9 +4986,50 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
     if (modsHasBreaks && !modsHasExits) delete base.echeances_sortie
     // Recalcul des dates dérivées (expiration, breaks, échéances)
     recalcDatesAfterAvenant(base, prev, mods, av)
+    // ÉCHÉANCIER LU (lecture dédiée de l'avenant) : il FAIT FOI — prise
+    // d'effet, durées, expiration et sorties remplacent ce que les règles
+    // ont déduit (les règles ne restent qu'en secours pour un avenant pas
+    // encore relu). Les franchises recalées par le recalcul sont conservées.
+    appliquerEcheancierLu(base, prev, av)
     if (isLast) break
   }
   return base
+}
+
+function appliquerEcheancierLu(base, prev, av) {
+  const E = av?.data?.echeancier_apres
+  const fin = normalizeDate(safeStr(E?.date_fin))
+  if (!E || !fin || !/^\d{2}\/\d{2}\/\d{4}$/.test(fin)) return
+  const nd2 = v => normalizeDate(safeStr(v))
+  const effLu = nd2(E.date_effet)
+  base.date_effet = (E.statut_date_effet === 'inchangee' || !effLu) ? (prev.date_effet || effLu || base.date_effet) : effLu
+  base.date_fin = fin
+  if (safeStr(E.duree_totale)) base.duree_totale = E.duree_totale
+  if (safeStr(E.duree_ferme)) base.duree_ferme = E.duree_ferme
+  const sorties = (Array.isArray(E.sorties) ? E.sorties : [])
+    .map(x => ({ ...x, date: nd2(x?.date) }))
+    .filter(x => /^\d{2}\/\d{2}\/\d{4}$/.test(x.date))
+  const exitsAvant = Array.isArray(prev.echeances_sortie) ? prev.echeances_sortie : []
+  base.break_options = sorties.map(x => x.date)
+  base.echeances_sortie = sorties.map(x => {
+    // indemnité / compensation de l'échéance correspondante d'avant (même
+    // échéance, éventuellement décalée) reprise telle quelle
+    const avant = exitsAvant.find(z => nd2(z?.date) && (nd2(z.date) === nd2(x.date_avant) || nd2(z.date) === x.date))
+    return {
+      date: x.date, type: avant?.type || (x.statut === 'ajoutee' ? 'autre' : 'triennale'),
+      libelle: safeStr(x.libelle) || avant?.libelle || null,
+      preavis: avant?.preavis || null,
+      indemnite_sortie: avant?.indemnite_sortie || null, montant_indemnite: avant?.montant_indemnite || null,
+      compensation_maintien: avant?.compensation_maintien || null, conditions: avant?.conditions || null,
+      page: x.page || avant?.page || null, _statut_avenant: x.statut || null,
+      _date_lue: true, // date lue dans l'échéancier de l'avenant : jamais recalculée
+    }
+  })
+  base._breaksDonneesParAvenant = true
+  base._breakOptionsFromAvenant = true
+  base._dureeFermeFromAvenant = true
+  base._echeancierLu = true
+  if (base._src) ['date_effet', 'date_fin', 'duree_totale', 'duree_ferme', 'break_options', 'echeances_sortie'].forEach(k => { base._src[k] = av })
 }
 
 // Prochaine sortie possible d'un bail (break ou fin de bail), avenants
@@ -7829,7 +7952,7 @@ const QC_THEMES = [
   { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
   { key: 'avenants', label: 'Avenants', types: ['avenant_anterieur_au_bail', 'avenant_sans_signature', 'avenants_ordre', 'date_effet_avenants_contradictoires'] },
   { key: 'doublons', label: 'Doublons', types: ['doublon_suspect'] },
-  { key: 'extraction', label: 'Extraction à refaire', types: ['json_repare', 'echeances_non_lues'] },
+  { key: 'extraction', label: 'Extraction à refaire', types: ['json_repare', 'echeances_non_lues', 'echeancier_avenant_non_lu'] },
 ]
 const qcThemeOf = type => QC_THEMES.find(t => t.types.includes(type))?.key || 'autres'
 
@@ -8061,8 +8184,8 @@ async function reextractOne(row, onProgress) {
     const base64 = await toBase64(file)
     const mediaType = getMediaType(file)
     let promptToUse = EXTRACTION_PROMPT
+    let parentBailData = null
     if (isAv) {
-      let parentBailData = null
       if (row.parent_id) {
         // Contexte = état du bail juste avant cet avenant (avenants précédents
         // compris), pas le bail d'origine seul.
@@ -8075,6 +8198,7 @@ async function reextractOne(row, onProgress) {
       promptToUse = buildAvenantPrompt(parentBailData)
     }
     const extracted = await callClaude(base64, mediaType, promptToUse)
+    if (isAv) await ajouterEcheancierAvenant(extracted, base64, mediaType, parentBailData)
 
     try {
       if (!isAv) {
@@ -8199,15 +8323,17 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
         setProgress(p => ({ ...p, state: 'loading' }))
         const base64 = await toBase64(prepared)
         const mediaType = getMediaType(prepared)
-        const promptToUse = isAv
+        const ctxAv = isAv
           ? (() => {
               const pb = allRows.find(b => b.id === row.parent_id)
-              if (!pb) return buildAvenantPrompt(null)
+              if (!pb) return null
               const sibs = allRows.filter(a => a.document_type === 'avenant' && a.parent_id === row.parent_id)
-              return buildAvenantPrompt(mergedBailData({ data: pb.data, avenants: sibs }, { beforeAvenantId: row.id }))
+              return mergedBailData({ data: pb.data, avenants: sibs }, { beforeAvenantId: row.id })
             })()
-          : EXTRACTION_PROMPT
+          : null
+        const promptToUse = isAv ? buildAvenantPrompt(ctxAv) : EXTRACTION_PROMPT
         const extracted = await callClaude(base64, mediaType, promptToUse)
+        if (isAv) await ajouterEcheancierAvenant(extracted, base64, mediaType, ctxAv)
 
         try {
           if (!isAv) {
@@ -8847,6 +8973,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         const base64 = await toBase64(prepared)
         const mediaType = getMediaType(prepared)
         const extracted = await callClaude(base64, mediaType, buildAvenantPrompt(mergedBailData(bailRow)))
+        await ajouterEcheancierAvenant(extracted, base64, mediaType, mergedBailData(bailRow))
 
         const { data: saved, error } = await supabase.from('extractions').insert({
           file_name: file.name,
@@ -9063,10 +9190,10 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       setReextractProgress(prev => ({ ...prev, state: 'loading' }))
       const base64 = await toBase64(prepared)
       const mediaType = getMediaType(prepared)
-      const promptToUse = isAv
-        ? (() => { const pb = tree.find(b => b.id === row.parent_id); return buildAvenantPrompt(pb ? mergedBailData(pb, { beforeAvenantId: row.id }) : null) })()
-        : EXTRACTION_PROMPT
+      const ctxAv = isAv ? (() => { const pb = tree.find(b => b.id === row.parent_id); return pb ? mergedBailData(pb, { beforeAvenantId: row.id }) : null })() : null
+      const promptToUse = isAv ? buildAvenantPrompt(ctxAv) : EXTRACTION_PROMPT
       const extracted = await callClaude(base64, mediaType, promptToUse)
+      if (isAv) await ajouterEcheancierAvenant(extracted, base64, mediaType, ctxAv)
 
       // Mêmes appels complémentaires (breaks + financier) qu'à l'extraction initiale.
       try {
@@ -9144,6 +9271,54 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   }
 
   // ─── Réextraction en place (garde l'id, ne touche pas aux avenants) ────────
+  // Relecture en masse des ÉCHÉANCIERS des avenants (lecture dédiée seule —
+  // les autres données des avenants ne sont pas touchées) : avenants sans
+  // échéancier lu, bail par bail, dans l'ordre chronologique — chacun reçoit
+  // le calendrier issu du précédent.
+  async function relireEcheanciersAvenants() {
+    const baux = tree.filter(b => b.document_type === 'bail')
+    const nb = baux.reduce((t, b) => t + (b.avenants || []).filter(a => a.storage_path && !a.data?._archived && !a.data?.echeancier_apres).length, 0)
+    if (!nb) { showToast('success', "Tous les avenants ont déjà leur échéancier lu."); return }
+    if (!window.confirm(`Relire l'échéancier de ${nb} avenant${nb > 1 ? 's' : ''} ?\n\nUne lecture ciblée par avenant (clause de durée et d'échéances, avec raisonnement) — de l'ordre de quelques centimes chacune. Les autres données des avenants ne sont pas modifiées.`)) return
+    let faits = 0, echecs = 0
+    const warn = e => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    try {
+      for (const bail of baux) {
+        const local = { ...bail, avenants: (bail.avenants || []).map(a => ({ ...a, data: { ...(a.data || {}) } })) }
+        const ordonnes = [...local.avenants].sort(compareAvenants)
+        for (const av of ordonnes) {
+          if (!av.storage_path || av.data?._archived || av.data?.echeancier_apres) continue
+          faits++
+          setReextractProgress({ label: `échéancier ${faits}/${nb} — ${safeStr(bail.data?.immeuble) || bail.file_name} · ${av.file_name}`, state: 'loading' })
+          try {
+            const { data: blob, error } = await supabase.storage.from('lease-sources').download(av.storage_path)
+            if (error || !blob) throw new Error('document source introuvable')
+            if (blob.size > 30 * 1024 * 1024) throw new Error('fichier trop volumineux')
+            const base64 = await toBase64(blob)
+            const tmp = {}
+            await ajouterEcheancierAvenant(tmp, base64, blob.type || 'application/pdf', mergedBailData(local, { beforeAvenantId: av.id }))
+            if (!tmp.echeancier_apres) throw new Error(tmp._echeancier_echec || 'lecture incomplète')
+            const { data: fresh } = await supabase.from('extractions').select('data').eq('id', av.id).maybeSingle()
+            const newData = { ...(fresh?.data || av.data), echeancier_apres: tmp.echeancier_apres }
+            delete newData._echeancier_echec
+            const { error: upErr } = await supabase.from('extractions').update({ data: newData }).eq('id', av.id)
+            if (upErr) throw upErr
+            av.data = newData // contexte de l'avenant suivant du même bail
+          } catch (e) {
+            echecs++
+            console.warn('Échéancier non relu', av.file_name, e)
+          }
+        }
+      }
+    } finally {
+      window.removeEventListener('beforeunload', warn)
+      setReextractProgress(null)
+    }
+    await onRefresh?.()
+    showToast(echecs ? 'error' : 'success', `Échéanciers relus : ${faits - echecs}/${faits}${echecs ? ` — ${echecs} échec${echecs > 1 ? 's' : ''} (document absent ou illisible), voir la console` : ''}.`)
+  }
+
   async function handleReextract(row) {
     setConfirmReextract(null)
     const label = row.data?.immeuble || row.data?.adresse || row.file_name
@@ -9623,6 +9798,11 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                     icon: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
                     label: 'Exporter tout',
                     onClick: () => { setShowExcelPicker(true); setShowToolsMenu(false) },
+                  },
+                  {
+                    icon: <><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></>,
+                    label: (() => { const n = tree.filter(b => b.document_type === 'bail').reduce((t, b) => t + (b.avenants || []).filter(a => a.storage_path && !a.data?._archived && !a.data?.echeancier_apres).length, 0); return `Relire les échéanciers des avenants${n ? ` (${n} à lire)` : ''}` })(),
+                    onClick: () => { setShowToolsMenu(false); relireEcheanciersAvenants() },
                   },
                   {
                     icon: <><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></>,
@@ -11124,6 +11304,7 @@ export default function App() {
         const base64 = await toBase64(files[i])
         const mediaType = getMediaType(files[i])
         const extracted = await callClaude(base64, mediaType, buildAvenantPrompt(parentBailForPrompt ? mergedBailData(parentBailForPrompt) : null))
+        await ajouterEcheancierAvenant(extracted, base64, mediaType, parentBailForPrompt ? mergedBailData(parentBailForPrompt) : null)
         // Appel dédié financier pour les avenants
         try {
           const financialResult = await callClaude(base64, mediaType, FINANCIAL_PROMPT).catch(() => null)
