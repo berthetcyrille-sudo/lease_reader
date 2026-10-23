@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · durée ferme après avenant'
+const APP_VERSION = '21.10 · durée ferme avenant 2'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -5603,8 +5603,9 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   // cet avenant (même calcul que le tableau « Ce que cet avenant modifie »),
   // pas le texte brut extrait (vécu : Narval B, « 9 ans » de durée ferme
   // extrait, 6 ans en réalité).
+  const chAvFiche = (isAv && parentRow) ? chronologieAvenants(parentRow).find(c => c.av.id === item.id) : null
   if (isAv && parentRow) {
-    const chAv = chronologieAvenants(parentRow).find(c => c.av.id === item.id)
+    const chAv = chAvFiche
     if (chAv?.apres) {
       if (d.duree_totale != null && chAv.apres.duree_totale?.texte) d.duree_totale = chAv.apres.duree_totale.texte
       if (d.duree_ferme != null && chAv.apres.duree_ferme?.texte) d.duree_ferme = chAv.apres.duree_ferme.texte
@@ -5618,7 +5619,9 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
       d.abattements = parentBailData.abattements || []
       avFranchisesRecalees = true
     }
-    if (d.duree_ferme == null) d.duree_ferme = parentBailData.duree_ferme
+    // Durée ferme absente de l'avenant : celle EN VIGUEUR après lui (déduite
+    // de la première sortie), pas le texte brut du bail
+    if (d.duree_ferme == null) d.duree_ferme = chAvFiche?.apres?.duree_ferme?.texte || parentBailData.duree_ferme
     if (d.conditions_break == null) d.conditions_break = parentBailData.conditions_break
     const changeDates = !!(d.duree_totale || d.date_effet)
     // Date d'effet : celle que l'avenant rappelle dans sa clause de durée
