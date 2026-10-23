@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · correctif raisonnement'
+const APP_VERSION = '19.10 · CQ sans bruit'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4175,17 +4175,6 @@ function auditBail(row) {
       })
     }
     if (e0 && mF && mT && !effR._breakOptionsFromAvenant) {
-      // Breaks EXTRAITES antérieures à la fin de la durée ferme : écartées à
-      // l'affichage, mais leur présence trahit une contradiction entre deux
-      // valeurs extraites (durée ferme ou échéance fausse)
-      const finFerme = addM(e0, Math.min(mF, mT))
-      const brutes = (Array.isArray(effR.break_options) ? effR.break_options : []).map(x => parseFrDate(normalizeDate(safeStr(x)))).filter(Boolean)
-      const masquees = brutes.filter(x => x < new Date(finFerme.getTime() - 5 * 86400000) && x > e0).sort((x, y) => x - y)
-      if (masquees.length) issues.push({
-        type: 'duree_ferme_incoherente',
-        severity: 'high',
-        detail: `Échéance(s) extraite(s) le ${masquees.map(fmtFR).join(', ')}, AVANT la fin de la durée ferme (${safeStr(effR.duree_ferme)}, soit le ${fmtFR(finFerme)}) — écartée(s) à l'affichage. À vérifier : durée ferme ou échéances.`,
-      })
       const sorties = (vvR.break_options || []).map(x => parseFrDate(x)).filter(Boolean).sort((x, y) => x - y)
       if (mF < mT) {
         const attendu = addM(e0, mF)
