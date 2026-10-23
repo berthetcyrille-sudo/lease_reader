@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · durées fiche avenant'
+const APP_VERSION = '21.10 · durée ferme après avenant'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4733,9 +4733,16 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
 function dureeFermeEffective(m) {
   if (!m || m._duree_ferme_manuelle) return null
   const exits = getExitEvents(m)
-  if (!exits || exits.some(e => e.type === 'a_tout_moment')) return null
+  if (exits && exits.some(e => e.type === 'a_tout_moment')) return null
+  // Sorties fiables : échéances lues dans le texte, ou à défaut breaks DONNÉES
+  // par un avenant (vécu : Narval B, avenant redonnant 01/05/2023 sans
+  // échéances détaillées → retombait sur les « 9 ans » extraits)
+  const sources = exits
+    ? exits.map(e => e.date)
+    : (m._breaksDonneesParAvenant ? (Array.isArray(m.break_options) ? m.break_options : []) : null)
+  if (!sources) return null
   const effet = parseFR(normalizeDate(safeStr(m.date_effet)))
-  const dates = exits.map(e => parseFR(normalizeDate(safeStr(e.date)))).filter(Boolean).sort((a, b) => a - b)
+  const dates = sources.map(x => parseFR(normalizeDate(safeStr(x)))).filter(Boolean).sort((a, b) => a - b)
   if (!effet || !dates.length) return null
   const next = new Date(dates[0].getFullYear(), dates[0].getMonth(), dates[0].getDate() + 1)
   if (next.getDate() !== effet.getDate()) return null // première sortie non calée sur un anniversaire : pas de calcul sûr
@@ -4834,19 +4841,45 @@ function etatEcheances(m) {
 // Différences entre deux états : seulement ce qui CHANGE entre deux valeurs
 // connues (une valeur qui passe d'inconnue à connue — prise d'effet fixée par
 // la levée d'une condition suspensive — n'est pas une modification).
-function diffEtats(a, b) {
+// Appariement des sorties AVANT / APRÈS un avenant, PAR DATE (pas par rang) :
+// présentes des deux côtés → inchangées ; disparues et apparues en même nombre
+// → décalées (appariées dans l'ordre) ; sinon disparues → supprimées (sauf si
+// déjà passées à la date de l'avenant : simple historique, pas une
+// modification) et apparues → ajoutées. Vécu : 2021 passée et non reprise,
+// affichée « Break 1 : 2021 → 2024 » et « Break 2 : supprimée ».
+function apparierSorties(avant, apres, dateRef = null) {
+  const proche = (x, y) => { const a = parseFR(x), b = parseFR(y); return a && b && Math.abs(a - b) <= 3 * 86400000 }
+  const ref = dateRef ? parseFR(normalizeDate(safeStr(dateRef))) : null
+  const disparues = avant.filter(x => !apres.some(y => proche(x, y)))
+  const apparues = apres.filter(y => !avant.some(x => proche(x, y)))
+  const lignes = [], carte = {}
+  apres.forEach(y => { const x = avant.find(z => proche(z, y)); if (x) carte[y] = { avant: x, statut: 'inchangee' } })
+  if (disparues.length && disparues.length === apparues.length) {
+    disparues.forEach((x, i) => { lignes.push({ avant: x, apres: apparues[i], statut: 'decalee' }); carte[apparues[i]] = { avant: x, statut: 'decalee' } })
+  } else {
+    disparues.forEach(x => {
+      const t = parseFR(x)
+      if (ref && t && t < ref) return // déjà passée à la date de l'avenant
+      lignes.push({ avant: x, apres: null, statut: 'supprimee' })
+    })
+    apparues.forEach(y => { lignes.push({ avant: null, apres: y, statut: 'ajoutee' }); carte[y] = { avant: null, statut: 'ajoutee' } })
+  }
+  return { lignes, carte }
+}
+
+function diffEtats(a, b, dateRef = null) {
   if (!a || !b) return []
   const rows = []
   if (a.date_effet && b.date_effet && a.date_effet !== b.date_effet) rows.push({ label: "Prise d'effet", avant: a.date_effet, apres: b.date_effet })
   if (a.duree_totale && b.duree_totale && a.duree_totale.cle !== b.duree_totale.cle) rows.push({ label: 'Durée totale', avant: a.duree_totale.texte, apres: b.duree_totale.texte })
   if (a.duree_ferme && b.duree_ferme && a.duree_ferme.cle !== b.duree_ferme.cle) rows.push({ label: 'Durée ferme', avant: a.duree_ferme.texte, apres: b.duree_ferme.texte })
   if (a.date_effet && (a.breaks.length || b.breaks.length) && a.breaks.join() !== b.breaks.join()) {
-    const n = Math.max(a.breaks.length, b.breaks.length)
-    for (let i = 0; i < n; i++) {
-      const x = a.breaks[i] || null, y = b.breaks[i] || null
-      if (x === y) continue
-      rows.push({ label: `Break ${i + 1}`, avant: x || '—', apres: y || 'supprimée', break: true })
-    }
+    apparierSorties(a.breaks, b.breaks, dateRef).lignes.forEach(l => {
+      rows.push({
+        label: l.statut === 'ajoutee' ? 'Break ajoutée' : (l.statut === 'supprimee' ? 'Break supprimée' : 'Break'),
+        avant: l.avant || '—', apres: l.apres || 'supprimée', break: true,
+      })
+    })
   }
   if (a.date_fin && b.date_fin && a.date_fin !== b.date_fin) rows.push({ label: 'Expiration', avant: a.date_fin, apres: b.date_fin })
   return rows
@@ -4870,7 +4903,9 @@ function chronologieAvenants(row) {
       ...(Array.isArray(mods.abattements) ? mods.abattements : []).map(r => ({ type: 'Abattement', debut: safeStr(r.date_debut) || null, fin: safeStr(r.date_fin) || null, duree: null, montant: parseAmount(r.montant_annuel) })),
     ]
     const E = av.data?.echeancier_apres
-    let lignes = diffEtats(avant, apres)
+    const dateRef = normalizeDate(safeStr(av.data?.date_signature_avenant)) || normalizeDate(safeStr(av.data?.date_effet_avenant)) || null
+    let lignes = diffEtats(avant, apres, dateRef)
+    const appariement = (avant && apres) ? apparierSorties(avant.breaks || [], apres.breaks || [], dateRef).carte : {}
     if (E) {
       const supp = Array.isArray(E.sorties_supprimees) ? E.sorties_supprimees : []
       lignes = lignes.map(l => {
@@ -4890,7 +4925,7 @@ function chronologieAvenants(row) {
         ]
       }
     }
-    return { av, numero: avenantNumeroDeclare(av) || (i + 1), avant, apres, lignes, franchises, echeancierLu: !!E }
+    return { av, numero: avenantNumeroDeclare(av) || (i + 1), avant, apres, lignes, franchises, echeancierLu: !!E, appariement }
   })
 }
 
@@ -6057,11 +6092,11 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
         if (!ch) return null
         const th = { textAlign: 'left', padding: '8px 12px', fontSize: '10.5px', letterSpacing: '.08em', color: 'var(--text2)', fontWeight: 700 }
         const ap = ch.apres || {}, av0 = ch.avant || {}
-        const carte = (label, val, avant, accent) => (
+        const carte = (label, val, avant, accent, statut) => (
           <div style={{ border: `1px solid ${accent ? 'var(--border2)' : 'var(--border)'}`, background: accent ? 'var(--accent-bg)' : 'var(--surface)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <span style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '.08em', color: accent ? 'var(--accent)' : 'var(--text2)' }}>{label}</span>
             <span style={{ fontSize: '20px', fontWeight: 700, color: accent ? 'var(--accent)' : 'var(--text)' }}>{val || '—'}</span>
-            <span style={{ fontSize: '11.5px', color: 'var(--text2)' }}>{avant && avant !== val ? `au lieu du ${avant}` : 'inchangée'}</span>
+            <span style={{ fontSize: '11.5px', color: 'var(--text2)' }}>{statut === 'ajoutee' ? 'ajoutée par l\'avenant' : (avant && avant !== val ? `au lieu du ${avant}` : 'inchangée')}</span>
           </div>
         )
         return (
@@ -6098,7 +6133,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
               <div className="sec-hd"><div className="sec-label">Échéances du bail après cet avenant</div></div>
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(2 + (ap.breaks || []).length, 5)}, minmax(0, 1fr))`, gap: '12px' }}>
                 {carte("PRISE D'EFFET", ap.date_effet, av0.date_effet, false)}
-                {(ap.breaks || []).map((b, i) => <React.Fragment key={i}>{carte(`BREAK ${i + 1}`, b, (av0.breaks || [])[i], true)}</React.Fragment>)}
+                {(ap.breaks || []).map((b, i) => { const m = (ch.appariement || {})[b] || {}; return <React.Fragment key={i}>{carte(`BREAK ${i + 1}`, b, m.avant || null, true, m.statut)}</React.Fragment> })}
                 {carte('EXPIRATION', ap.date_fin, av0.date_fin, false)}
               </div>
             </div>
