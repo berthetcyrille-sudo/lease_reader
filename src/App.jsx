@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · CQ loyer retenu'
+const APP_VERSION = '20.10 · échéances à la signature'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4494,7 +4494,15 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
   // antérieur).
   const clauseTxt = stripAccents(String(mods.conditions_break || base.conditions_break || '')).toLowerCase()
   const rythmeTriennalSimple = !!restated && /chaque\s+periode\s+triennale/.test(clauseTxt) && !detectsFullTriennialWaiver(clauseTxt) && !/renonc/.test(clauseTxt)
-  if ((has('break_options') || has('echeances_sortie')) && !rythmeTriennalSimple) return
+  // … mais des breaks de l'avenant ALIGNÉES sur la nouvelle expiration (même
+  // jour, même mois) traduisent un report délibéré des échéances (vécu : Le
+  // Coin du Pain, triennales reportées d'un mois et demi au 15/09, comme la fin)
+  // et font foi — contrairement à des dates recopiées de l'état antérieur
+  // (vécu : Nanterre Delta, breaks au 06/03 pour une fin au 06/01).
+  const finAvenant = parseFR(nd(base.date_fin))
+  const breaksAvenant = (Array.isArray(mods.break_options) ? mods.break_options : []).map(b => parseFR(nd(b))).filter(Boolean)
+  const alignesSurFin = !!finAvenant && breaksAvenant.length > 0 && breaksAvenant.every(b => b.getDate() === finAvenant.getDate() && b.getMonth() === finAvenant.getMonth())
+  if ((has('break_options') || has('echeances_sortie')) && (!rythmeTriennalSimple || alignesSurFin)) return
 
   const newFin = parseFR(nd(base.date_fin))
   const prevEffet = parseFR(nd(prev.date_effet)), newEffet = parseFR(nd(base.date_effet))
@@ -4584,6 +4592,81 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
     base.break_options = list.map(e => e?.date).filter(Boolean)
     base._breakOptionsFromAvenant = true
   }
+}
+
+// Durée lue au jour près pour l'affichage et la comparaison : "neuf (9)
+// années, un (1) mois et quinze (15) jours" → { mois: 109, jours: 15,
+// texte: "9 ans, 1 mois et 15 jours" }.
+function lireDuree(txt) {
+  const mois = parseDureeMonths(txt)
+  if (!mois) return null
+  const t = stripAccents(String(txt || '')).toLowerCase()
+  const mj = t.match(/\(?(\d{1,3})\)?\s*jours?/)
+  const jours = mj ? parseInt(mj[1]) : 0
+  const base = formatDureeMonths(mois)
+  const texte = jours ? `${base.includes(' et ') ? base.replace(' et ', ', ') : base} et ${jours} jour${jours > 1 ? 's' : ''}` : base
+  return { mois, jours, cle: mois * 31 + jours, texte }
+}
+
+// ÉTAT DES ÉCHÉANCES d'un document (bail à la signature, ou état après un
+// avenant) : prise d'effet, durées (en mois), expiration, sorties possibles —
+// mêmes règles que les valeurs en vigueur (échéances lues, sinon breaks
+// filtrées par la durée ferme, jamais le terme).
+function etatEcheances(m) {
+  if (!m) return null
+  const exits = getExitEvents(m)
+  const finN = normalizeDate(safeStr(m.date_fin))
+  const fin = (finN && /^\d{2}\/\d{2}\/\d{4}$/.test(finN)) ? finN : (computeDateFinFromDuree(m.date_effet, m.duree_totale) || null)
+  let breaks = exits
+    ? exits.map(e => e.date).filter(Boolean)
+    : (m._breakOptionsFromAvenant ? sanitizeBreakDates(Array.isArray(m.break_options) ? m.break_options : []) : filterBreaksByDureeFerme(Array.isArray(m.break_options) ? m.break_options : [], m.date_effet, m.duree_ferme))
+  if (!breaks.length && m.date_effet && fin && m.conditions_break) {
+    try { breaks = computeBreaks(m.date_effet, fin, m.conditions_break, [], m.duree_ferme) || [] } catch (_) { breaks = [] }
+  }
+  breaks = [...new Set(dropTermBreaks(breaks, fin).map(b => normalizeDate(safeStr(b))).filter(b => /^\d{2}\/\d{2}\/\d{4}$/.test(b)))]
+    .sort((a, b) => toSortableDateAv(a).localeCompare(toSortableDateAv(b)))
+  return {
+    date_effet: normalizeDate(safeStr(m.date_effet)) || null, date_fin: fin,
+    duree_totale: lireDuree(m.duree_totale), duree_ferme: lireDuree(m.duree_ferme), breaks,
+  }
+}
+
+// Différences entre deux états : seulement ce qui CHANGE entre deux valeurs
+// connues (une valeur qui passe d'inconnue à connue — prise d'effet fixée par
+// la levée d'une condition suspensive — n'est pas une modification).
+function diffEtats(a, b) {
+  if (!a || !b) return []
+  const rows = []
+  if (a.date_effet && b.date_effet && a.date_effet !== b.date_effet) rows.push({ label: "Prise d'effet", avant: a.date_effet, apres: b.date_effet })
+  if (a.duree_totale && b.duree_totale && a.duree_totale.cle !== b.duree_totale.cle) rows.push({ label: 'Durée totale', avant: a.duree_totale.texte, apres: b.duree_totale.texte })
+  if (a.duree_ferme && b.duree_ferme && a.duree_ferme.cle !== b.duree_ferme.cle) rows.push({ label: 'Durée ferme', avant: a.duree_ferme.texte, apres: b.duree_ferme.texte })
+  if (a.date_effet && (a.breaks.length || b.breaks.length) && a.breaks.join() !== b.breaks.join()) {
+    const n = Math.max(a.breaks.length, b.breaks.length)
+    for (let i = 0; i < n; i++) {
+      const x = a.breaks[i] || null, y = b.breaks[i] || null
+      if (x === y) continue
+      rows.push({ label: `Break ${i + 1}`, avant: x || '—', apres: y || 'supprimée', break: true })
+    }
+  }
+  if (a.date_fin && b.date_fin && a.date_fin !== b.date_fin) rows.push({ label: 'Expiration', avant: a.date_fin, apres: b.date_fin })
+  return rows
+}
+
+// CHRONOLOGIE DES MODIFICATIONS PAR AVENANT d'un bail : pour chaque avenant,
+// dans l'ordre, l'état avant lui, l'état après lui, les différences, et les
+// franchises / abattements qu'il accorde.
+function chronologieAvenants(row) {
+  const avs = (Array.isArray(row?.avenants) ? row.avenants : []).filter(a => !a.data?._archived).sort(compareAvenants)
+  return avs.map((av, i) => {
+    const avant = etatEcheances(mergedBailData(row, { beforeAvenantId: av.id }))
+    const apres = etatEcheances(mergedBailData(row, { throughAvenantId: av.id }))
+    const mods = av.data?.champs_modifies || {}
+    const franchises = [
+      ...(Array.isArray(mods.franchise_periodes) ? mods.franchise_periodes : []).map(r => ({ type: isConditionalFranchise(r) ? 'Franchise conditionnelle' : 'Franchise', debut: safeStr(r.date_debut) || null, fin: safeStr(r.date_fin) || null, duree: safeStr(r.duree) || null, montant: parseAmount(r.montant) })),
+      ...(Array.isArray(mods.abattements) ? mods.abattements : []).map(r => ({ type: 'Abattement', debut: safeStr(r.date_debut) || null, fin: safeStr(r.date_fin) || null, duree: null, montant: parseAmount(r.montant_annuel) })),
+    ]
+    return { av, numero: avenantNumeroDeclare(av) || (i + 1), avant, apres, lignes: diffEtats(avant, apres), franchises }
+  })
 }
 
 // CONFUSION FRÉQUENTE À L'EXTRACTION : la date à partir de laquelle un
@@ -5199,7 +5282,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
   )
 }
 
-function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme, onSaveManualPreneurSub, exitsRecalc }) {
+function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null, onSaveManualDateEffet, onSaveManualDateEffetAvenant, onSaveManualSurface, onSaveManualParking, onSaveManualDureeFerme, onSaveManualPreneurSub, exitsRecalc }) {
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
@@ -5302,6 +5385,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
   let renouvellement = null // { av, date } quand un avenant fixe une nouvelle période sur un bail déjà daté
   let dateSrc = {} // champ → avenant d'où vient la valeur affichée (voir mergedBailData)
   let franchisesRecalees = null // avenant ayant décalé la prise d'effet (franchises recalées)
+  let chronoAvenants = null // modifications par avenant (fiche du bail, vue « à la signature »)
   if (!isAv && Array.isArray(item.avenants) && item.avenants.length > 0) {
     const merged = mergedBailData(item)
     dateSrc = merged._src || {}
@@ -5309,46 +5393,32 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
     ;[...item.avenants].sort((a, b) =>
       compareAvenants(a, b))
       .forEach(av => { if (filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, item.data || {}).date_effet) effetConfirmePar = av })
-    // Date d'effet : un avenant ne REMPLIT la date d'effet du bail que si elle
-    // était inconnue (bail sous condition suspensive, BEFA). Si le bail avait
-    // déjà une date, un avenant qui en fixe une nouvelle (renouvellement) ouvre
-    // une nouvelle période : la date affichée reste celle du bail d'origine,
-    // mais les calculs de la période en cours (breaks, fin, durée ferme)
-    // partent bien de la date du renouvellement (d.date_effet).
+    // VUE « À LA SIGNATURE » : la fiche du bail montre les échéances telles
+    // que fixées par le bail ; les modifications apportées par les avenants
+    // sont présentées dessous (chronologieAvenants), avec les échéances en
+    // vigueur. Seule exception : une prise d'effet inconnue au bail (condition
+    // suspensive, BEFA) et FIXÉE par un avenant remplit la prise d'effet, pour
+    // que les échéances initiales se calculent.
     const ownEffet = normalizeDate(safeStr(d.date_effet))
-    const mergedEffet = normalizeDate(safeStr(merged.date_effet))
-    if (ownEffet && mergedEffet && ownEffet !== mergedEffet) {
-      d._dateEffetAffichee = d.date_effet
-      renouvellement = { av: effetConfirmePar, date: merged.date_effet }
+    dateSrc = {}
+    if (!ownEffet) {
+      const csAv = [...item.avenants].sort(compareAvenants).find(av => filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, item.data || {}).date_effet)
+      const csDate = csAv ? normalizeDate(safeStr(csAv.data.champs_modifies.date_effet)) : null
+      if (csDate) {
+        d.date_effet = csDate
+        dateSrc = { date_effet: csAv }
+        effetConfirmePar = csAv
+        if (!normalizeDate(safeStr(d.date_fin))) { const f = computeDateFinFromDuree(csDate, d.duree_totale); if (f) d.date_fin = f }
+      }
+    } else {
+      effetConfirmePar = null
     }
-    ;['date_effet', 'date_fin', 'duree_totale', 'duree_ferme', 'break_options'].forEach(k => {
-      const before = d[k], after = merged[k]
-      if (k === 'duree_totale' || k === 'duree_ferme') {
-        // Durées : comparées en MOIS, pas en texte — un avenant qui reformule
-        // la même durée ("9 années entières et consécutives, dont 6 fermes, du
-        // 1er mars 2021 au 28 février 2030") ne la modifie pas. Si elle change,
-        // affichage court ("12 ans") ; le texte complet reste en base (il sert
-        // au recalcul : date de départ rappelée).
-        const mb = parseDureeMonths(before), ma = parseDureeMonths(after)
-        if (!ma || ma === mb) return
-        if (before != null) dateChanges[k] = mb ? formatDureeMonths(mb) : before
-        d[k] = formatDureeMonths(ma)
-        return
-      }
-      if (JSON.stringify(after ?? null) !== JSON.stringify(before ?? null)) {
-        if (before != null && !(Array.isArray(before) && before.length === 0)) dateChanges[k] = before
-        d[k] = after
-      }
-    })
-    if (Array.isArray(merged.echeances_sortie)) d.echeances_sortie = merged.echeances_sortie
-    else delete d.echeances_sortie
+    chronoAvenants = chronologieAvenants(item)
     // Franchises / abattements recalés suite à un décalage de la prise d'effet
     // (seulement des lignes RECALÉES — des franchises accordées par un avenant
     // restent présentées sur la fiche de cet avenant, comme aujourd'hui)
-    if (Array.isArray(merged.franchise_periodes) && merged.franchise_periodes.some(r => r?._recale)) { d.franchise_periodes = merged.franchise_periodes; franchisesRecalees = dateSrc.franchise_periodes || null }
-    if (Array.isArray(merged.abattements) && merged.abattements.some(r => r?._recale)) { d.abattements = merged.abattements; franchisesRecalees = franchisesRecalees || dateSrc.abattements || null }
-    breaksFromAvenant = !!merged._breakOptionsFromAvenant
-    breaksFromAvenantSansFerme = breaksFromAvenant && !merged._dureeFermeFromAvenant
+    if (Array.isArray(merged.franchise_periodes) && merged.franchise_periodes.some(r => r?._recale)) { d.franchise_periodes = merged.franchise_periodes; franchisesRecalees = (merged._src || {}).franchise_periodes || null }
+    if (Array.isArray(merged.abattements) && merged.abattements.some(r => r?._recale)) { d.abattements = merged.abattements; franchisesRecalees = franchisesRecalees || (merged._src || {}).abattements || null }
   }
 
   // Enrichir les breaks à l'affichage aussi (données déjà en base non recalculées)
@@ -5706,10 +5776,65 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
           <strong>Extraction à vérifier :</strong> la réponse de l'IA était mal formée lors de cette extraction et a été réparée automatiquement — certaines données peuvent manquer ou être altérées. Relancez la réextraction.
         </div>
       )}
+      {/* Fiche d'avenant : ce qu'il modifie, et les échéances du bail après lui */}
+      {isAv && parentRow && (() => {
+        const ch = chronologieAvenants(parentRow).find(c => c.av.id === item.id)
+        if (!ch) return null
+        const th = { textAlign: 'left', padding: '8px 12px', fontSize: '10.5px', letterSpacing: '.08em', color: 'var(--text2)', fontWeight: 700 }
+        const ap = ch.apres || {}, av0 = ch.avant || {}
+        const carte = (label, val, avant, accent) => (
+          <div style={{ border: `1px solid ${accent ? 'var(--border2)' : 'var(--border)'}`, background: accent ? 'var(--accent-bg)' : 'var(--surface)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <span style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '.08em', color: accent ? 'var(--accent)' : 'var(--text2)' }}>{label}</span>
+            <span style={{ fontSize: '20px', fontWeight: 700, color: accent ? 'var(--accent)' : 'var(--text)' }}>{val || '—'}</span>
+            <span style={{ fontSize: '11.5px', color: 'var(--text2)' }}>{avant && avant !== val ? `au lieu du ${avant}` : 'inchangée'}</span>
+          </div>
+        )
+        return (
+          <>
+            <div className="sec">
+              <div className="sec-hd"><div className="sec-label">Ce que cet avenant modifie</div></div>
+              {(ch.lignes.length || ch.franchises.length) ? (
+                <div className="table-wrap">
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead><tr style={{ background: 'var(--surface2)' }}><th style={th}>ÉLÉMENT</th><th style={th}>AVANT</th><th style={th}>APRÈS</th></tr></thead>
+                    <tbody>
+                      {ch.lignes.map((l, i) => (
+                        <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                          <td style={{ padding: '8px 12px' }}>{l.label}</td>
+                          <td style={{ padding: '8px 12px', color: 'var(--text2)', textDecoration: l.avant !== '—' ? 'line-through' : 'none' }}>{l.avant}</td>
+                          <td style={{ padding: '8px 12px', fontWeight: 600, color: l.break ? 'var(--accent)' : 'var(--text)' }}>{l.apres}</td>
+                        </tr>
+                      ))}
+                      {ch.franchises.map((f, i) => (
+                        <tr key={`f${i}`} style={{ borderTop: '1px solid var(--border)' }}>
+                          <td style={{ padding: '8px 12px' }}>{f.type} ajoutée</td>
+                          <td style={{ padding: '8px 12px', color: 'var(--text2)' }}>—</td>
+                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{[f.duree, f.debut && f.fin ? `du ${f.debut} au ${f.fin}` : (f.debut ? `à partir du ${f.debut}` : null), f.montant ? fmtEur(f.montant) : null].filter(Boolean).join(' · ') || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ fontSize: '13px', color: 'var(--text2)' }}>Cet avenant ne modifie ni la prise d'effet, ni les durées, ni les échéances du bail.</div>
+              )}
+            </div>
+            <div className="sec">
+              <div className="sec-hd"><div className="sec-label">Échéances du bail après cet avenant</div></div>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(2 + (ap.breaks || []).length, 5)}, minmax(0, 1fr))`, gap: '12px' }}>
+                {carte("PRISE D'EFFET", ap.date_effet, av0.date_effet, false)}
+                {(ap.breaks || []).map((b, i) => <React.Fragment key={i}>{carte(`BREAK ${i + 1}`, b, (av0.breaks || [])[i], true)}</React.Fragment>)}
+                {carte('EXPIRATION', ap.date_fin, av0.date_fin, false)}
+              </div>
+            </div>
+          </>
+        )
+      })()}
+
       {/* Dates */}
       {(primaryDates.length > 0 || secondaryDates.length > 0 || show('conditions_break')) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Dates clés</div></div>
+          <div className="sec-hd"><div className="sec-label">{(!isAv && chronoAvenants && chronoAvenants.some(c => c.lignes.length || c.franchises.length)) ? 'Dates clés — à la signature du bail' : 'Dates clés'}</div></div>
           {exitsRecalc && (
             <div style={{
               fontSize: '12px', marginBottom: '10px', padding: '7px 11px', borderRadius: '8px',
@@ -5722,7 +5847,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
             </div>
           )}
           {/* Rangée principale : effet — breaks — expiration */}
-          {primaryDates.length > 0 && (
+          {primaryDates.length > 0 && !(isAv && parentRow) && (
             <div className="date-strip" style={{ gridTemplateColumns: `repeat(${Math.min(primaryDates.length, 5)}, 1fr)`, marginBottom: '12px' }}>
               {primaryDates.map(f => {
                 const isCondBreak = f.type === 'break_conditionnel'
@@ -5897,6 +6022,73 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
               </span>
             </div>
           )}
+          {/* Modifications apportées par avenant (fiche du bail) + échéances en vigueur */}
+          {!isAv && chronoAvenants && chronoAvenants.some(c => c.lignes.length || c.franchises.length) && (() => {
+            const cartes = chronoAvenants.filter(c => c.lignes.length || c.franchises.length)
+            const vvB = computeValeursEnVigueur(item, null)
+            const today = new Date()
+            const puces = [...(vvB.break_options || []).map(b => ({ texte: `Break ${b}`, date: b })), ...(vvB.date_fin ? [{ texte: `Expiration ${vvB.date_fin}`, date: vvB.date_fin }] : [])]
+            const iNext = puces.findIndex(p => { const t = parseFR(p.date); return t && t >= today })
+            const th = { textAlign: 'left', padding: '8px 12px', fontSize: '10.5px', letterSpacing: '.08em', color: 'var(--text2)', fontWeight: 700 }
+            return (
+              <div style={{ marginTop: '16px', background: 'var(--surface2)', border: '1px solid var(--border2)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)' }}>Modifications apportées par avenant</span>
+                  <span style={{ fontSize: '11.5px', fontWeight: 600, color: '#fff', background: 'var(--accent)', borderRadius: '999px', padding: '2px 9px' }}>{cartes.length} avenant{cartes.length > 1 ? 's' : ''}</span>
+                </div>
+                {cartes.map(c => (
+                  <div key={c.av.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                        <span style={{ fontSize: '13.5px', fontWeight: 700 }}>
+                          Avenant n°{c.numero}{c.av.data?.date_signature_avenant ? ` — signé le ${normalizeDate(safeStr(c.av.data.date_signature_avenant))}` : ''}{c.av.data?.date_effet_avenant ? `, effet ${normalizeDate(safeStr(c.av.data.date_effet_avenant))}` : ''}
+                        </span>
+                        {c.av.data?.objet_avenant && <span style={{ fontSize: '12.5px', color: 'var(--text2)' }}>{safeStr(c.av.data.objet_avenant)}</span>}
+                      </div>
+                      {onOpenItem && <button type="button" className="btn" onClick={() => onOpenItem(c.av)} style={{ fontSize: '12.5px' }}>Ouvrir l'avenant</button>}
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead><tr style={{ background: 'var(--surface2)' }}><th style={th}>ÉLÉMENT</th><th style={th}>AVANT</th><th style={th}>APRÈS L'AVENANT N°{c.numero}</th></tr></thead>
+                        <tbody>
+                          {c.lignes.map((l, i) => (
+                            <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                              <td style={{ padding: '8px 12px' }}>{l.label}</td>
+                              <td style={{ padding: '8px 12px', color: 'var(--text2)', textDecoration: l.avant !== '—' ? 'line-through' : 'none' }}>{l.avant}</td>
+                              <td style={{ padding: '8px 12px', fontWeight: 600, color: l.break ? 'var(--accent)' : 'var(--text)' }}>{l.apres}</td>
+                            </tr>
+                          ))}
+                          {c.franchises.map((f, i) => (
+                            <tr key={`f${i}`} style={{ borderTop: '1px solid var(--border)' }}>
+                              <td style={{ padding: '8px 12px' }}>{f.type} ajoutée</td>
+                              <td style={{ padding: '8px 12px', color: 'var(--text2)' }}>—</td>
+                              <td style={{ padding: '8px 12px', fontWeight: 600 }}>{[f.duree, f.debut && f.fin ? `du ${f.debut} au ${f.fin}` : (f.debut ? `à partir du ${f.debut}` : null), f.montant ? fmtEur(f.montant) : null].filter(Boolean).join(' · ') || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+                {puces.length > 0 && (
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.08em', color: 'var(--text2)' }}>ÉCHÉANCES EN VIGUEUR AUJOURD'HUI (APRÈS AVENANTS)</span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {puces.map((p, i) => {
+                        const passee = iNext === -1 || i < iNext
+                        return (
+                          <span key={i} style={{ fontSize: '12.5px', padding: '5px 10px', borderRadius: '8px',
+                            ...(i === iNext ? { fontWeight: 600, color: 'var(--text)', background: 'var(--accent-bg)', border: '1px solid var(--border2)' } : { color: 'var(--text2)', border: '1px dashed var(--border2)' }) }}>
+                            {p.texte}{i === iNext ? ' · prochaine échéance' : (passee ? ' · passée' : '')}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </div>
       )}
 
@@ -11464,6 +11656,8 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
               <ResultsView
                 item={activeItem}
                 parentBailData={activeItem?.document_type === 'avenant' ? (() => { const pb = history.find(b => b.id === activeItem.parent_id); return pb ? mergedBailData(pb, { throughAvenantId: activeItem.id }) : null })() : null}
+                parentRow={activeItem?.document_type === 'avenant' ? (history.find(b => b.id === activeItem.parent_id) || null) : null}
+                onOpenItem={it => { setActiveItem(it); navigate(`/bail/${it.id}`) }}
                 onSaveManualDateEffet={handleManualDateEffet}
                 onSaveManualDateEffetAvenant={handleManualDateEffetAvenant}
                 onSaveManualSurface={handleManualSurface}
