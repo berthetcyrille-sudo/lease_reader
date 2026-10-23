@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '20.10 · renonciation durée ferme'
+const APP_VERSION = '20.10 · durée ferme effective'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -802,6 +802,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
   const finNorm = normalizeDate(safeStr(eff.date_fin))
   const dateFin = (finNorm && /^\d{2}\/\d{2}\/\d{4}$/.test(finNorm)) ? finNorm : (computeDateFinFromDuree(eff.date_effet, eff.duree_totale) || finNorm || null)
   const duree = k => {
+    if (k === 'duree_ferme' && !isAv) { const dfe = dureeFermeEffective(eff); if (dfe) return dfe.texte }
     if (isAv || eff === raw) return safeStr(d[k]) || null
     const mb = parseDureeMonths(raw[k]), ma = parseDureeMonths(eff[k])
     if (!ma || ma === mb) return safeStr(raw[k]) || null
@@ -4200,7 +4201,7 @@ function auditBail(row) {
     const vvR = computeValeursEnVigueur(row, null)
     const e0 = parseFrDate(normalizeDate(safeStr(effR.date_effet)))
     const f0 = parseFrDate(vvR.date_fin)
-    const mT = parseDureeMonths(effR.duree_totale), mF = parseDureeMonths(effR.duree_ferme)
+    const mT = parseDureeMonths(effR.duree_totale), mF = (dureeFermeEffective(effR)?.mois) || parseDureeMonths(effR.duree_ferme)
     const addM = (dt, m) => new Date(dt.getFullYear(), dt.getMonth() + m, dt.getDate() - 1)
     const ecartTxt = (x, y) => { const j = Math.round(Math.abs(x - y) / 86400000); return j >= 45 ? `${Math.round(j / 30.44)} mois` : `${j} jours` }
     if (e0 && f0 && mT) {
@@ -4662,6 +4663,27 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
   }
 }
 
+// DURÉE FERME EFFECTIVE : quand les échéances ont été lues dans le texte
+// (datées), la durée ferme est le temps qui sépare la prise d'effet de la
+// PREMIÈRE sortie possible — elle prime sur une valeur extraite contradictoire
+// (vécu : Narval B, renonciation à la seule 1re triennale, sorties à 6 et 9
+// ans, durée ferme extraite « 9 ans » au lieu de 6). Jamais contre une saisie
+// manuelle. null si rien à corriger.
+function dureeFermeEffective(m) {
+  if (!m || m._duree_ferme_manuelle) return null
+  const exits = getExitEvents(m)
+  if (!exits || exits.some(e => e.type === 'a_tout_moment')) return null
+  const effet = parseFR(normalizeDate(safeStr(m.date_effet)))
+  const dates = exits.map(e => parseFR(normalizeDate(safeStr(e.date)))).filter(Boolean).sort((a, b) => a - b)
+  if (!effet || !dates.length) return null
+  const next = new Date(dates[0].getFullYear(), dates[0].getMonth(), dates[0].getDate() + 1)
+  if (next.getDate() !== effet.getDate()) return null // première sortie non calée sur un anniversaire : pas de calcul sûr
+  const mois = (next.getFullYear() - effet.getFullYear()) * 12 + (next.getMonth() - effet.getMonth())
+  const extrait = parseDureeMonths(m.duree_ferme)
+  if (!(mois > 0) || mois === extrait) return null
+  return { mois, texte: formatDureeMonths(mois), extrait: safeStr(m.duree_ferme) || null }
+}
+
 // Breaks d'un état (bail ou état après avenants), hors échéances lues : le
 // filtre de la durée ferme (qui écarte les triennales renoncées) n'est levé que
 // si un avenant a DONNÉ lui-même les échéances — pas quand elles ont été
@@ -4744,7 +4766,7 @@ function etatEcheances(m) {
     .sort((a, b) => toSortableDateAv(a).localeCompare(toSortableDateAv(b)))
   return {
     date_effet: normalizeDate(safeStr(m.date_effet)) || null, date_fin: fin,
-    duree_totale: lireDuree(m.duree_totale), duree_ferme: lireDuree(m.duree_ferme), breaks,
+    duree_totale: lireDuree(m.duree_totale), duree_ferme: (() => { const dfe = dureeFermeEffective(m); return dfe ? lireDuree(dfe.texte) : lireDuree(m.duree_ferme) })(), breaks,
   }
 }
 
@@ -5835,7 +5857,8 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                   if (f) computedFerme = `${f} (jusqu'au 1er break, ${firstExit})`
                 }
               }
-              const displayValue = d.duree_ferme || computedFerme || legalDefault
+              const dfe = !isAv ? dureeFermeEffective(d) : null
+              const displayValue = dfe ? dfe.texte : (d.duree_ferme || computedFerme || legalDefault)
               return (
                 <div className="field">
                   <div className="field-lbl">Durée ferme</div>
@@ -5868,9 +5891,9 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                     </div>
                   ) : (
                     <div className={`field-val${!displayValue ? ' empty' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {displayValue || 'Non renseigné'}
+                      <span title={dfe ? `Déduite de la première sortie possible (${firstExit || '—'}) — valeur extraite : ${dfe.extrait || '—'}` : undefined}>{displayValue || 'Non renseigné'}</span>
                       {d.duree_ferme
-                        ? <PageJumpIcon item={item} pages={pages} field="duree_ferme" />
+                        ? <PageJumpIcon item={item} pages={pages} field={dfe ? 'conditions_break' : 'duree_ferme'} />
                         : ((computedFerme || legalDefault) && pages?.conditions_break && <PageJumpIcon item={item} pages={pages} field="conditions_break" />)}
                       {onSaveManualDureeFerme && !isAv && (
                         <button
@@ -11297,7 +11320,7 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
   // elle se déduit d'une clause de renonciation (échéances triennales nommées)
   // que l'extraction n'a pas su chiffrer correctement.
   async function handleManualDureeFerme(row, newDureeFermeStr) {
-    const newData = { ...row.data, duree_ferme: newDureeFermeStr }
+    const newData = { ...row.data, duree_ferme: newDureeFermeStr, _duree_ferme_manuelle: true }
     const { error: err4 } = await supabase.from('extractions').update({ data: newData }).eq('id', row.id)
     if (err4) { console.error('Mise à jour de la durée ferme échouée', err4); return false }
     setHistory(prev => prev.map(b => b.id === row.id
