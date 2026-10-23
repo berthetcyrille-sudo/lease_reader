@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '19.10 · clause recette'
+const APP_VERSION = '19.10 · structure du loyer'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -749,7 +749,7 @@ function buildExcelColumnGroups() {
     { label: 'Dates clés', cols: ['Date effet', 'Date signature', 'Date fin', 'Date conge limite', 'Preavis', 'Date limite travaux preneur'] },
     { label: 'Break options', cols: [...breakCols, 'Conditions break'] },
     { label: 'Surfaces et parking', cols: ['Surface totale m2', 'Parking nb places', 'Parking loyer unitaire (€/place/an)', 'RIE', ...surfCols] },
-    { label: 'Loyer', cols: ['Loyer HT/HC annuel signature', 'Loyer de base annuel', 'Indexation', 'Indice base - Code', 'Indice base - Trimestre', 'Indice base - Valeur', 'Indice base - Source', 'Loyer signature detail'] },
+    { label: 'Loyer', cols: ['Loyer HT/HC annuel signature', 'Loyer de base (régime de croisière)', 'Structure du loyer', 'Loyer de base annuel', 'Indexation', 'Indice base - Code', 'Indice base - Trimestre', 'Indice base - Valeur', 'Indice base - Source', 'Loyer signature detail'] },
     { label: 'Franchises', cols: [...franchiseCols, 'Franchise modalites'] },
     { label: 'Charges', cols: ['Charges TEOM'] },
     { label: 'Garanties', cols: ['Depot garantie montant', 'Depot garantie duree mois', 'Depot garantie modalites', 'GAPD montant', 'GAPD duree mois', 'GAPD modalites'] },
@@ -895,16 +895,9 @@ function computeValeursEnVigueur(item, parentRow = null) {
         ...(ec ? { ecart_ventilation: ec.diff } : {}),
       }
     })(),
-    loyer_variable: (() => {
-      const LV = loyerVariableInfo(d)
-      if (!LV) return null
-      const lf = loyerFacial(d)
-      return {
-        sans_lmg: LV.sansLmg, lmg: LV.lmg, taux: safeStr(LV.lv.taux) || null, assiette: safeStr(LV.lv.assiette) || null,
-        montants_par_periode: LV.periodes.length ? LV.periodes : (lf.variableSeul && lf.extrait ? [{ periode: 'Première année', montant: lf.extrait, nature: 'provision', a_confirmer: true }] : []),
-        plancher: parseAmount(LV.lv.plancher), plafond: parseAmount(LV.lv.plafond), regles: safeStr(LV.lv.regles) || null,
-      }
-    })(),
+    // Structure du loyer (mode, loyer de base en régime de croisière,
+    // échéancier unique, part variable) — mêmes valeurs que la fiche
+    structure_loyer: (() => { const SL = structureLoyer(d); return { mode: SL.mode, loyer_base: SL.loyer_base, mention: SL.mention, echeancier: SL.echeancier, variable: SL.variable } })(),
     ventilation_loyer: ventilation,
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
@@ -1055,7 +1048,9 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
     v(d.conditions_break),
     surf(d.surface_totale_m2), parseParkingShort(d.parking_nb_places) || '', pkUnit || '', v(d.rie),
     ...surfVals,
-    (VV.loyer_facial?.montant ?? amt(d.loyer_signature_montant)), amt(d.loyer_cours), v(d.indexation),
+    (VV.loyer_facial?.montant ?? amt(d.loyer_signature_montant)),
+    (VV.structure_loyer?.loyer_base ?? ''), (MODE_LOYER_LABEL[VV.structure_loyer?.mode] || ''),
+    amt(d.loyer_cours), v(d.indexation),
     // Indice base — 4 colonnes (code, trimestre, valeur, source) : le tableau
     // renvoyé DOIT être déplié (...), sinon il tient une seule cellule et toutes
     // les colonnes suivantes sont décalées de 3 cases par rapport à leur en-tête.
@@ -1202,16 +1197,17 @@ function exportControlesToExcel(tree) {
   const nInd = maxOf(v => (v.indemnites_terme || []).length)
   const nAut = maxOf(v => (v.indemnites_autres || []).length)
   const nTrav = maxOf(v => (v.participations_travaux || []).length)
-  const hasVar = rows.some(r => r.vv.loyer_variable)
-  const nVarPer = maxOf(v => (v.loyer_variable?.montants_par_periode || []).length)
+  const hasVar = rows.some(r => r.vv.structure_loyer?.variable)
+  const nEch = maxOf(v => (v.structure_loyer?.echeancier || []).length)
   const typos = [...new Set(rows.flatMap(r => Object.keys(r.vv.loyer_facial?.par_typologie || {})))]
     .sort((a, b) => (a === 'Stationnement') - (b === 'Stationnement') || (a === 'RIE') - (b === 'RIE') || a.localeCompare(b))
   const rep = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1)).flat()
   const headers = [
     'ID', 'Type', 'Bail lié (ID)', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur', 'Fichier', 'Avenant n°', 'Date de signature',
     "Date d'effet", ...rep(nBreaks, i => [`Break ${i}`]), 'Date de fin',
-    'Loyer facial retenu', 'Loyer extrait', 'Total calcul par typologie', 'Écart (calcul − retenu)', ...typos.map(t => `Loyer ${t}`),
-    ...(hasVar ? ['Loyer variable - LMG', 'Loyer variable - Taux', 'Loyer variable - Assiette', ...rep(nVarPer, i => [`Loyer variable ${i} - Période`, `Loyer variable ${i} - Nature`, `Loyer variable ${i} - Montant`])] : []),
+    'Loyer de base (régime de croisière)', 'Structure du loyer', 'Loyer à la signature (facial)', 'Loyer extrait', 'Total calcul par typologie', 'Écart (calcul − facial)', ...typos.map(t => `Loyer ${t}`),
+    ...(hasVar ? ['Loyer variable - Taux', 'Loyer variable - Assiette'] : []),
+    ...rep(nEch, i => [`Échéancier ${i} - Période`, `Échéancier ${i} - Nature`, `Échéancier ${i} - Montant annuel`]),
     'Franchises acquises (mois de loyer)', 'Franchises et abattements acquis (€)', 'Franchises conditionnelles (mois de loyer)', 'Franchises et abattements conditionnels (€)',
     ...rep(nRed, i => [`Réduction ${i} - Type`, `Réduction ${i} - Début`, `Réduction ${i} - Fin`, `Réduction ${i} - Durée`, `Réduction ${i} - Mois de loyer`, `Réduction ${i} - Montant`, `Réduction ${i} - Assiette`, `Réduction ${i} - Condition`]),
     ...rep(nInd, i => [`Indemnité ${i} - Terme`, `Indemnité ${i} - Due par`, `Indemnité ${i} - Motif`, `Indemnité ${i} - Montant`, `Indemnité ${i} - Calcul`]),
@@ -1231,13 +1227,10 @@ function exportControlesToExcel(tree) {
       safeStr(id.preneur_substitution) || shortPartyName(id.preneur) || '', shortPartyName(id.bailleur) || '', item.file_name || '',
       isAv ? val(avenantNumeroDeclare(item)) : '', isAv ? (safeStr(dd.date_signature_avenant) || '') : (safeStr(dd.date_signature) || ''),
       val(vv.date_effet), ...rep(nBreaks, i => [val((vv.break_options || [])[i - 1])]), val(vv.date_fin),
+      val(vv.structure_loyer?.loyer_base), MODE_LOYER_LABEL[vv.structure_loyer?.mode] || '',
       val(lf.montant), val(lf.montant_extrait), val(lf.total_ventilation), ecart, ...typos.map(t => val((lf.par_typologie || {})[t])),
-      ...(hasVar ? (() => {
-        const lvv = vv.loyer_variable
-        if (!lvv) return ['', '', '', ...rep(nVarPer, () => ['', '', ''])]
-        return [lvv.lmg != null ? lvv.lmg : (lvv.sans_lmg ? 'Aucun (loyer exclusivement variable)' : ''), val(lvv.taux), val(lvv.assiette),
-          ...rep(nVarPer, i => { const m = (lvv.montants_par_periode || [])[i - 1]; return m ? [val(m.periode), m.nature === 'provision' ? 'Provision (régularisable)' : 'Minimum garanti', val(m.montant)] : ['', '', ''] })]
-      })() : []),
+      ...(hasVar ? [val(vv.structure_loyer?.variable?.taux), val(vv.structure_loyer?.variable?.assiette)] : []),
+      ...rep(nEch, i => { const e = (vv.structure_loyer?.echeancier || [])[i - 1]; return e ? [val(e.periode || [e.debut && `à partir du ${e.debut}`, e.fin && `jusqu'au ${e.fin}`].filter(Boolean).join(' ')), (NATURE_ECHEANCE_LABEL[e.nature] || e.nature) + (e.a_confirmer ? ' (à confirmer)' : ''), val(e.montant)] : ['', '', ''] }),
       val(vv.franchise_totale_acquise?.mois || ''), val(vv.franchise_totale_acquise?.montant || ''), val(vv.franchise_totale_conditionnelle?.mois || ''), val(vv.franchise_totale_conditionnelle?.montant || ''),
       ...rep(nRed, i => { const r = (vv.reductions || [])[i - 1]; return r ? [r.type, val(r.date_debut), val(r.date_fin) + (r.date_fin_calculee ? ' (calculée)' : ''), val(r.duree), val(r.mois_de_loyer), val(r.montant), val(r.surface_assiette), (val(r.condition) + (r.recalee ? ' [dates recalées]' : '')).trim()] : ['', '', '', '', '', '', '', ''] }),
       ...rep(nInd, i => { const r = (vv.indemnites_terme || [])[i - 1]; return r ? [val(r.terme), val(r.due_par), val(r.motif), val(r.montant), val(r.calcul)] : ['', '', '', '', ''] }),
@@ -2927,6 +2920,10 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   // Colonne Bâtiment affichée seulement si le bail porte sur plusieurs
   // bâtiments (au moins une ligne renseignée) — invisible sinon.
   const hasBat = safe.some(r => safeStr(r.batiment))
+  // Colonnes prix / loyer affichées seulement si au moins une ligne en porte —
+  // sinon le tableau ne montre que les surfaces (pas de colonnes de « — », ni
+  // de total reprenant le loyer global, déjà affiché dans le bandeau)
+  const showRent = [...mainComputed, ...parkComputed].some(x => x.loyer || x.unit)
   const totalLoyer = mainLoyerDisplay + parkTotalLoyer
   // Écart entre la somme du détail et la surface totale déclarée du bail —
   // typiquement une quote-part de parties communes (« Surface Exploitée »,
@@ -2944,8 +2941,8 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
               <tr>
                 <th>Catégorie</th>{hasBat && <th>Bâtiment</th>}<th>Niveau / Localisation</th>
                 <th style={{ textAlign: 'right' }}>Surface (m²)</th>
-                <th style={{ textAlign: 'right' }}>Prix (€/m²/an)</th>
-                <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
+                {showRent && <th style={{ textAlign: 'right' }}>Prix (€/m²/an)</th>}
+                {showRent && <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>}
               </tr>
             </thead>
             <tbody>
@@ -2963,12 +2960,12 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                     {hasBat && <td style={{ fontWeight: 500 }}>{safeStr(row.batiment) || '—'}</td>}
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
                     <td style={{ textAlign: 'right', fontWeight: 500 }}>{fmtSurface(row.surface_m2) || '—'}</td>
-                    <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
+                    {showRent && <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
                       {unit ? `${unit.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} €` : '—'}{unit && mark(unitSrc)}
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                    </td>}
+                    {showRent && <td style={{ textAlign: 'right', fontWeight: 500 }}>
                       {loyer ? fmtEur(loyer) : '—'}{loyer && mark(loyerSrc)}
-                    </td>
+                    </td>}
                   </tr>
                 )
               })}
@@ -2978,22 +2975,22 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                 <tr style={{ borderTop: '1px solid var(--border2)' }}>
                   <td colSpan={hasBat ? 3 : 2} style={{ fontWeight: 600, padding: '8px 10px' }}>Total bureaux / locaux</td>
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{total.toLocaleString('fr-FR')} m²</td>
-                  <td />
-                  <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>
+                  {showRent && <td />}
+                  {showRent && <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>
                     {mainLoyerDisplay > 0 ? fmtEur(mainLoyerDisplay) : '—'}
                     {mainLoyerIsFallback && <span title="Loyer global du bail — non ventilé par composante dans le document" style={{ fontSize: '10px', marginLeft: '3px', fontWeight: 400, fontStyle: 'italic', color: 'var(--text3)' }}>*</span>}
-                  </td>
+                  </td>}
                 </tr>
                 {safe.some(isRie) && (
                   <tr>
-                    <td colSpan={hasBat ? 6 : 5} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
+                    <td colSpan={(hasBat ? 6 : 5) - (showRent ? 0 : 2)} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
                       † RIE : redevance calculée sur la surface de bureaux, non ajoutée au total de surface (même surface, pas une surface en plus)
                     </td>
                   </tr>
                 )}
                 {hasNotableGap && (
                   <tr>
-                    <td colSpan={hasBat ? 6 : 5} style={{ padding: '6px 10px 8px', fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
+                    <td colSpan={(hasBat ? 6 : 5) - (showRent ? 0 : 2)} style={{ padding: '6px 10px 8px', fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
                       {commonAreaGap > 0
                         ? <>Écart de <strong>+{commonAreaGap.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m²</strong> avec la surface totale louée ({declared.toLocaleString('fr-FR')} m²) — probablement une quote-part de parties communes non ventilée (bail parlant de « Surface Exploitée », SUBL, ou surface utile).</>
                         : <>La surface totale louée déclarée ({declared.toLocaleString('fr-FR')} m²) est inférieure de {Math.abs(commonAreaGap).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m² à la somme du détail ci-dessus — à vérifier.</>
@@ -3003,7 +3000,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                 )}
                 {mainLoyerIsFallback && (
                   <tr>
-                    <td colSpan={hasBat ? 6 : 5} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
+                    <td colSpan={(hasBat ? 6 : 5) - (showRent ? 0 : 2)} style={{ padding: '2px 10px 8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', borderTop: 'none' }}>
                       * loyer global du bail{parkTotalLoyer > 0 ? ', stationnement déduit' : ''}, non ventilé par composante dans le document source
                     </td>
                   </tr>
@@ -3020,8 +3017,8 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
               <tr>
                 <th>Stationnement</th>{hasBat && <th>Bâtiment</th>}<th>Localisation</th>
                 <th style={{ textAlign: 'right' }}>Nb places</th>
-                <th style={{ textAlign: 'right' }}>Prix (€/place/an)</th>
-                <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>
+                {showRent && <th style={{ textAlign: 'right' }}>Prix (€/place/an)</th>}
+                {showRent && <th style={{ textAlign: 'right' }}>Loyer annuel (€)</th>}
               </tr>
             </thead>
             <tbody>
@@ -3037,10 +3034,10 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                     {hasBat && <td style={{ fontWeight: 500 }}>{safeStr(row.batiment) || '—'}</td>}
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
                     <td style={{ textAlign: 'right' }}>{nb > 0 ? `${nb} pl.` : '—'}</td>
-                    <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
+                    {showRent && <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
                       {unit ? `${unit.toLocaleString('fr-FR')} €` : '—'}{unit && mark(unitSrc)}
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{loyer ? fmtEur(loyer) : '—'}{loyer && mark(loyerSrc)}</td>
+                    </td>}
+                    {showRent && <td style={{ textAlign: 'right', fontWeight: 500 }}>{loyer ? fmtEur(loyer) : '—'}{loyer && mark(loyerSrc)}</td>}
                   </tr>
                 )
               })}
@@ -3048,20 +3045,20 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
             {parkTotalLoyer > 0 && (
               <tfoot>
                 <tr style={{ borderTop: '1px solid var(--border2)' }}>
-                  <td colSpan={hasBat ? 5 : 4} style={{ fontWeight: 600, padding: '8px 10px' }}>Total stationnement</td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{fmtEur(parkTotalLoyer)}</td>
+                  <td colSpan={(hasBat ? 5 : 4) - (showRent ? 0 : 2)} style={{ fontWeight: 600, padding: '8px 10px' }}>Total stationnement</td>
+                  {showRent && <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{fmtEur(parkTotalLoyer)}</td>}
                 </tr>
               </tfoot>
             )}
           </table>
         </div>
       )}
-      {totalLoyer > 0 && (mainRows.length > 0 && parkRows.length > 0) && (
+      {showRent && totalLoyer > 0 && (mainRows.length > 0 && parkRows.length > 0) && (
         <div style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 700, fontSize: '13px', borderTop: '2px solid var(--border2)', marginTop: '2px' }}>
           Total général : {fmtEur(totalLoyer)}
         </div>
       )}
-      {(mainRows.length > 0 || parkRows.length > 0) && (
+      {showRent && (mainRows.length > 0 || parkRows.length > 0) && (
         <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px' }}>* Prix unitaire calculé (loyer annuel ÷ surface/places)</div>
       )}
     </div>
@@ -3207,6 +3204,53 @@ function loyerVariableInfo(d) {
   })).filter(m => m.montant)
   return { lv, sansLmg, lmg, periodes }
 }
+
+// STRUCTURE DU LOYER — source unique (fiche, dashboard, État locatif, base,
+// exports). Quatre modes :
+//  - fixe            : loyer de base = loyer facial
+//  - paliers         : loyer fixe évoluant par étapes → loyer de base = régime
+//                      de croisière (dernier palier), échéancier = paliers
+//  - variable_lmg    : clause recette + loyer minimum garanti → loyer de base =
+//                      LMG en régime de croisière, échéancier = LMG par période
+//  - variable_seul   : clause recette sans minimum → loyer de base = 0,
+//                      échéancier = provisions éventuelles
+// L'échéancier est la SEULE liste de montants par période (il fusionne les
+// paliers et les montants par période de la clause recette : pas de doublon).
+function structureLoyer(d) {
+  const LV = loyerVariableInfo(d)
+  const lf = loyerFacial(d)
+  const paliers = (Array.isArray(d?.paliers_loyer) ? d.paliers_loyer : [])
+    .map(p => ({ periode: safeStr(p.description) || null, debut: normalizeDate(safeStr(p.date_debut)) || null, fin: normalizeDate(safeStr(p.date_fin)) || null, montant: parseAmount(p.montant ?? p.montant_annuel) }))
+    .filter(p => p.montant)
+    .sort((a, b) => toSortableDateAv(a.debut || '').localeCompare(toSortableDateAv(b.debut || '')))
+  const croisiere = list => { const l = list.filter(e => e.montant); return l.length ? l[l.length - 1].montant : null }
+  if (LV) {
+    const variable = {
+      taux: safeStr(LV.lv.taux) || null, assiette: safeStr(LV.lv.assiette) || null,
+      plancher: parseAmount(LV.lv.plancher), plafond: parseAmount(LV.lv.plafond), regles: safeStr(LV.lv.regles) || null,
+    }
+    if (LV.sansLmg) {
+      const ech = LV.periodes.length
+        ? LV.periodes.map(m => ({ periode: m.periode, debut: null, fin: null, montant: m.montant, nature: m.nature }))
+        : (lf.extrait ? [{ periode: 'Première année', debut: null, fin: null, montant: lf.extrait, nature: 'provision', a_confirmer: true }] : [])
+      return { mode: 'variable_seul', loyer_base: 0, mention: 'cf. section Loyer variable', echeancier: ech, variable }
+    }
+    const per = LV.periodes
+    const sameAmounts = (a, b) => a.length === b.length && a.map(x => Math.round(x.montant)).sort().join() === b.map(x => Math.round(x.montant)).sort().join()
+    let ech
+    if (paliers.length && (!per.length || sameAmounts(paliers, per))) ech = paliers.map(p => ({ ...p, nature: 'minimum' }))
+    else if (per.length) ech = per.map(m => ({ periode: m.periode, debut: null, fin: null, montant: m.montant, nature: m.nature }))
+    else ech = LV.lmg ? [{ periode: null, debut: null, fin: null, montant: LV.lmg, nature: 'minimum' }] : []
+    const base = croisiere(ech.filter(e => e.nature !== 'provision')) || LV.lmg || lf.montant
+    return { mode: 'variable_lmg', loyer_base: base, mention: 'cf. section Loyer variable', echeancier: ech.length > 1 ? ech : (ech.length === 1 && ech[0].periode ? ech : []), variable }
+  }
+  if (paliers.length >= 2) {
+    return { mode: 'paliers', loyer_base: croisiere(paliers), mention: 'régime de croisière — cf. échéancier', echeancier: paliers.map(p => ({ ...p, nature: 'loyer' })), variable: null }
+  }
+  return { mode: 'fixe', loyer_base: lf.montant, mention: null, echeancier: [], variable: null }
+}
+const MODE_LOYER_LABEL = { fixe: 'Loyer fixe', paliers: 'Loyer fixe à paliers', variable_lmg: 'Loyer variable avec minimum garanti', variable_seul: 'Loyer exclusivement variable' }
+const NATURE_ECHEANCE_LABEL = { loyer: 'Loyer', minimum: 'Minimum garanti', provision: 'Provision (régularisable)' }
 
 // LOYER FACIAL retenu — fonction commune (fiche, dashboard, État locatif,
 // valeurs en base, export). Garde-fou : si le loyer extrait est égal à la
@@ -4698,7 +4742,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
           renewalSignature: d._src?.date_effet?.data?.date_signature_avenant || null,
           breaks: mergedBreaks.map(parseFrDate).filter(Boolean),
           conditionalBreaks: conditionalBreaksRaw,
-          loyer: loyerFacial(d).montant,
+          loyer: structureLoyer(d).loyer_base,
           reconductionTacite: d.reconduction_tacite?.applicable ? {
             preavis: d.reconduction_tacite.preavis || null,
             periodicite: d.reconduction_tacite.periodicite || null,
@@ -6009,14 +6053,19 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
           {(d.loyer_signature_montant || d.loyer_variable) && (
             <div className="loyer-hero">
               <div>
-                <div className="loyer-lbl" style={{ display: "flex", alignItems: "center", gap: "4px" }}>Loyer HT/HC annuel à la signature{src.loyer_signature_montant && <span title={src.loyer_signature_montant} style={{ cursor: "help", fontSize: "10px", color: "var(--text3)", border: "1px solid var(--border2)", borderRadius: "50%", width: "13px", height: "13px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>i</span>}</div>
+                <div className="loyer-lbl" style={{ display: "flex", alignItems: "center", gap: "4px" }}>{structureLoyer(d).mode === 'fixe' ? 'Loyer HT/HC annuel à la signature' : 'Loyer de base HT/HC annuel'}{src.loyer_signature_montant && <span title={src.loyer_signature_montant} style={{ cursor: "help", fontSize: "10px", color: "var(--text3)", border: "1px solid var(--border2)", borderRadius: "50%", width: "13px", height: "13px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>i</span>}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
                   {(() => {
                     const lf = loyerFacial(d)
                     return (
                       <div className="loyer-amount" title={lf.corrige ? `Montant extrait : ${fmtEur(lf.extrait)} — ${lf.raison}` : undefined}>
-                        {lf.variableSeul ? '0 €' : (fmtEur(lf.montant ?? d.loyer_signature_montant) || d.loyer_signature_montant)}
-                        {d.loyer_variable && <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text2)', marginLeft: '10px', verticalAlign: 'middle' }}>{lf.variableSeul ? 'loyer exclusivement variable — cf. clause recette' : 'cf. clause recette'}</span>}
+                        {(() => {
+                          const SL = structureLoyer(d)
+                          return <>
+                            {SL.mode === 'variable_seul' ? '0 €' : (fmtEur(SL.loyer_base ?? lf.montant ?? d.loyer_signature_montant) || d.loyer_signature_montant)}
+                            {SL.mention && <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text2)', marginLeft: '10px', verticalAlign: 'middle' }}>{SL.mode !== 'fixe' && <strong style={{ fontWeight: 600 }}>{MODE_LOYER_LABEL[SL.mode]}</strong>}{SL.mode !== 'fixe' ? ' — ' : ''}{SL.mention}</span>}
+                          </>
+                        })()}
                         {(() => { const ec = loyerEcartVentilation(d); return ec ? <span title={ec.texte} style={{ marginLeft: '10px', fontSize: '20px', color: 'var(--danger)', cursor: 'help', verticalAlign: 'middle' }}>⚠</span> : null })()}
                       </div>
                     )
@@ -6073,7 +6122,7 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
 
           </div>
           {show('indexation') && <Field label="Indexation / indice" value={d.indexation} verbose full />}
-          {show('loyer_signature') && d.loyer_signature && (
+          {show('loyer_signature') && d.loyer_signature && !loyerVariableInfo(d) && (
             <div style={{ marginBottom: '8px' }}>
               <Field label="Loyer à la signature — détail complet" value={d.loyer_signature} verbose />
             </div>
@@ -6271,81 +6320,77 @@ function ResultsView({ item, parentBailData, onSaveManualDateEffet, onSaveManual
         </div>
       )}
 
-      {/* Paliers de loyer */}
-      {d.paliers_loyer?.length > 0 && (
-        <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Paliers de loyer</div></div>
-          <div className="table-wrap">
-            <table className="indemnites-table">
-              <thead><tr>
-                <th>Date début</th><th>Date fin</th>
-                <th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th>
-                <th>Description</th>
-              </tr></thead>
-              <tbody>
-                {d.paliers_loyer.map((row, i) => (
-                  <tr key={i}>
-                    <td>{safeStr(row.date_debut) || '—'}</td>
-                    <td>{safeStr(row.date_fin) || '—'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{row.montant ? fmtEur(row.montant) : '—'}</td>
-                    <td style={{ color: 'var(--text2)' }}>{safeStr(row.description) || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* Échéancier du loyer (loyer fixe à paliers) — pour un loyer variable,
+          l'échéancier est présenté dans la section Loyer variable */}
+      {(() => {
+        const SL = structureLoyer(d)
+        if (SL.mode !== 'paliers' || !SL.echeancier.length) return null
+        return (
+          <div className="sec">
+            <div className="sec-hd"><div className="sec-label">Échéancier du loyer</div></div>
+            <div className="table-wrap">
+              <table className="indemnites-table">
+                <thead><tr><th>Du</th><th>Au</th><th style={{ textAlign: 'right' }}>Loyer annuel HT/HC</th><th>Description</th></tr></thead>
+                <tbody>
+                  {SL.echeancier.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.debut || '—'}</td><td>{r.fin || '—'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtEur(r.montant)}{i === SL.echeancier.length - 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}</td>
+                      <td style={{ color: 'var(--text2)' }}>{r.periode || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
-      {/* Loyer variable */}
-      {d.loyer_variable && (
-        <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Loyer variable</div></div>
-          <div className="gx" style={{ marginBottom: '8px' }}>
-            {(() => {
-              const LV = loyerVariableInfo(d), lf = loyerFacial(d)
-              return (
-                <Field label="Loyer minimum garanti (LMG)"
-                  value={LV?.lmg ? fmtEur(LV.lmg) : (LV?.sansLmg ? 'Aucun — loyer exclusivement variable' : (parseAmount(d.loyer_signature_montant) ? `${fmtEur(d.loyer_signature_montant)} (loyer de base)` : '—'))} />
-              )
-            })()}
-            {d.loyer_variable.type && <Field label="Type" value={safeStr(d.loyer_variable.type)} />}
-            {d.loyer_variable.taux && <Field label="Taux" value={safeStr(d.loyer_variable.taux)} />}
-            {d.loyer_variable.assiette && <Field label="Assiette de calcul" value={safeStr(d.loyer_variable.assiette)} />}
-            {d.loyer_variable.plancher && <Field label="Plancher" value={fmtEur(d.loyer_variable.plancher) || safeStr(d.loyer_variable.plancher)} />}
-            {d.loyer_variable.plafond && <Field label="Plafond" value={fmtEur(d.loyer_variable.plafond) || safeStr(d.loyer_variable.plafond)} />}
-          </div>
-          {(() => {
-            // Provisions et minimums par période (année 1, 2…) — à défaut, pour
-            // une extraction antérieure, le montant extrait comme loyer de base
-            // d'un loyer exclusivement variable (provision ou 1re année)
-            const LV = loyerVariableInfo(d), lf = loyerFacial(d)
-            const rows = LV?.periodes?.length ? LV.periodes : (lf.variableSeul && lf.extrait ? [{ periode: 'Première année', montant: lf.extrait, nature: 'provision', ancien: true }] : [])
-            if (!rows.length) return null
-            return (
+      {/* Loyer variable (clause recette) — mode, taux, assiette, échéancier
+          (LMG / provisions par période), plancher/plafond, texte intégral replié */}
+      {d.loyer_variable && (() => {
+        const SL = structureLoyer(d)
+        const V = SL.variable || {}
+        return (
+          <div className="sec">
+            <div className="sec-hd"><div className="sec-label">Loyer variable</div></div>
+            <div className="gx" style={{ marginBottom: '10px' }}>
+              <Field label="Structure" value={MODE_LOYER_LABEL[SL.mode] || '—'} />
+              {V.taux && <Field label="Taux" value={V.taux} />}
+              {V.assiette && <Field label="Assiette" value={V.assiette} />}
+              {V.plancher && <Field label="Plancher" value={fmtEur(V.plancher)} />}
+              {V.plafond && <Field label="Plafond" value={fmtEur(V.plafond)} />}
+            </div>
+            {SL.echeancier.length > 0 && (
               <div className="table-wrap" style={{ marginBottom: '10px' }}>
                 <table className="indemnites-table">
                   <thead><tr><th>Période</th><th>Nature</th><th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th></tr></thead>
                   <tbody>
-                    {rows.map((r, i) => (
+                    {SL.echeancier.map((r, i) => (
                       <tr key={i}>
-                        <td style={{ fontWeight: 500 }}>{r.periode || '—'}</td>
-                        <td title={r.nature === 'provision' ? 'Acompte versé dans l\'attente du loyer définitif, puis régularisé' : 'Montant dû quel que soit le chiffre d\'affaires'}>
-                          {r.nature === 'provision' ? 'Provision (régularisable)' : 'Minimum garanti'}{r.ancien ? ' — à confirmer par réextraction' : ''}
+                        <td style={{ fontWeight: 500 }}>{r.periode || [r.debut && `à partir du ${r.debut}`, r.fin && `jusqu'au ${r.fin}`].filter(Boolean).join(' ') || '—'}</td>
+                        <td title={r.nature === 'provision' ? "Acompte versé dans l'attente du loyer définitif, puis régularisé" : (r.nature === 'minimum' ? "Montant dû quel que soit le chiffre d'affaires" : undefined)}>
+                          {NATURE_ECHEANCE_LABEL[r.nature] || r.nature}{r.a_confirmer ? ' — à confirmer par réextraction' : ''}
                         </td>
-                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtEur(r.montant)}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                          {fmtEur(r.montant)}
+                          {SL.mode === 'variable_lmg' && i === SL.echeancier.length - 1 && SL.echeancier.length > 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            )
-          })()}
-          {d.loyer_variable.regles && (
-            <Field label="Formule et règles de déclenchement" value={safeStr(d.loyer_variable.regles)} verbose />
-          )}
-        </div>
-      )}
+            )}
+            {V.regles && (
+              <details>
+                <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--accent)', fontWeight: 600 }}>Texte intégral de la clause</summary>
+                <div style={{ fontSize: '13px', color: 'var(--text2)', lineHeight: 1.55, marginTop: '6px' }}>{V.regles}</div>
+              </details>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Indemnités par terme de bail — fusionne les indemnités forfaitaires
           de remise en état (indemnites_restitution) ET les indemnités dues à
@@ -8774,7 +8819,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // Loyer affiché dans la colonne "Loyer base" (HT/HC à la signature) — le tri suit
   // exactement les montants visibles. Les baux sans loyer restent en fin de
   // liste quel que soit le sens du tri.
-  const getLoyer = row => { const v = loyerFacial(row.data || {}).montant; return v && v > 0 ? v : null }
+  const getLoyer = row => { const v = structureLoyer(row.data || {}).loyer_base; return v && v > 0 ? v : null }
   // Date de dernière extraction (horodatage enregistré à chaque extraction),
   // à défaut date de création de la ligne.
   const getExtractedAt = row => row.data?._extracted_at || row.created_at || ''
@@ -9608,8 +9653,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }} title="Loyer exclusivement variable — cf. clause recette">0 € <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)' }}>variable</span></span>
                   ) : d.loyer_signature_montant ? (
                     <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.01em' }}
-                      title={loyerFacial(d).corrige ? `Corrigé — montant extrait ${fmtEur(loyerFacial(d).extrait)} (RIE comptée deux fois)` : undefined}>
-                      {fmtEur(loyerFacial(d).montant ?? d.loyer_signature_montant)}
+                      title={!isAv && structureLoyer(d).mode !== 'fixe' ? `${MODE_LOYER_LABEL[structureLoyer(d).mode]} — ${structureLoyer(d).mention}` : (loyerFacial(d).corrige ? `Corrigé — montant extrait ${fmtEur(loyerFacial(d).extrait)} (RIE comptée deux fois)` : undefined)}>
+                      {fmtEur(!isAv ? (structureLoyer(d).loyer_base ?? loyerFacial(d).montant ?? d.loyer_signature_montant) : (loyerFacial(d).montant ?? d.loyer_signature_montant))}
+                      {!isAv && ['paliers', 'variable_lmg'].includes(structureLoyer(d).mode) && <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)', marginLeft: '3px' }}>{structureLoyer(d).mode === 'paliers' ? 'paliers' : 'LMG'}</span>}
                       {(() => { const ec = !isAv ? loyerEcartVentilation(d) : null; return ec ? <span title={ec.texte} style={{ marginLeft: '4px', color: 'var(--danger)', cursor: 'help' }}>⚠</span> : null })()}
                       <OverrideMark field="loyer_signature_montant" formatValue={v => fmtEur(v)} />
                     </span>
