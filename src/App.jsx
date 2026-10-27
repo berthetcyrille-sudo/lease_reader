@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · lecture des surfaces'
+const APP_VERSION = '21.10 · paliers en abattements'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -890,7 +890,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
     return modsList.length ? modsList : (vig.some(r => r?._recale) ? vig : [])
   }
   const frSrc = expandFranchisesEtalees(pickList('franchise_periodes'), eff.date_effet)
-  const abSrc = pickList('abattements')
+  const abSrc = isAv ? pickList('abattements') : [...(pickList('abattements') || []), ...abattementsDesPaliers(d)]
   const rieAn = V.mainComputed.filter(x => V.isRie(x.row)).reduce((t, x) => t + (x.loyer || 0), 0)
   const franchises = frSrc.map(r => {
     const q = franchiseEquivalence(r, loyerAnnuel, rieAn)
@@ -3320,6 +3320,32 @@ function loyerVariableInfo(d) {
   return { lv, sansLmg, lmg, periodes }
 }
 
+// PALIERS → ABATTEMENTS : quand le bail fixe un LOYER DE RÉFÉRENCE et des
+// loyers inférieurs les premières années (dernier palier = loyer de base,
+// paliers précédents inférieurs), ces paliers sont des avantages consentis :
+// présentés comme abattements (écart au loyer de base), dans le tableau des
+// franchises et abattements. Vécu : 65 645 € de loyer, 56 662 € la 1re année
+// et 61 153,50 € la 2e → abattements de 8 983 € et 4 491,50 €. Une vraie
+// progression sans loyer de référence garde son échéancier.
+function abattementsDesPaliers(d) {
+  const pal = (Array.isArray(d?.paliers_loyer) ? d.paliers_loyer : [])
+    .map(p => ({ periode: safeStr(p.description) || null, debut: normalizeDate(safeStr(p.date_debut)) || null, fin: normalizeDate(safeStr(p.date_fin)) || null, montant: parseAmount(p.montant ?? p.montant_annuel) }))
+    .filter(p => p.montant)
+    .sort((a, b) => toSortableDateAv(a.debut || '').localeCompare(toSortableDateAv(b.debut || '')))
+  if (pal.length < 2) return []
+  const R = loyerFacial(d).montant
+  const dernier = pal[pal.length - 1].montant
+  if (!R || Math.abs(dernier - R) > 1) return []
+  const avant = pal.slice(0, -1)
+  if (!avant.every(p => p.montant < R && p.debut)) return []
+  return avant.map(p => ({
+    date_debut: p.debut, date_fin: p.fin,
+    montant_annuel: String(Math.round((R - p.montant) * 100) / 100),
+    description: `Loyer progressif : ${fmtEur(p.montant)} au lieu de ${fmtEur(R)}${p.periode ? ` (${p.periode})` : ''}`,
+    _issu_palier: true,
+  }))
+}
+
 // STRUCTURE DU LOYER — source unique (fiche, dashboard, État locatif, base,
 // exports). Quatre modes :
 //  - fixe            : loyer de base = loyer facial
@@ -3358,6 +3384,9 @@ function structureLoyer(d) {
     else ech = LV.lmg ? [{ periode: null, debut: null, fin: null, montant: LV.lmg, nature: 'minimum' }] : []
     const base = croisiere(ech.filter(e => e.nature !== 'provision')) || LV.lmg || lf.montant
     return { mode: 'variable_lmg', loyer_base: base, mention: 'cf. section Loyer variable', echeancier: ech.length > 1 ? ech : (ech.length === 1 && ech[0].periode ? ech : []), variable }
+  }
+  if (paliers.length >= 2 && abattementsDesPaliers(d).length) {
+    return { mode: 'fixe', loyer_base: lf.montant, mention: null, echeancier: [], variable: null, paliersEnAbattements: true }
   }
   if (paliers.length >= 2) {
     return { mode: 'paliers', loyer_base: croisiere(paliers), mention: 'régime de croisière — cf. échéancier', echeancier: paliers.map(p => ({ ...p, nature: 'loyer' })), variable: null }
@@ -5796,6 +5825,10 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   // cet avenant (même calcul que le tableau « Ce que cet avenant modifie »),
   // pas le texte brut extrait (vécu : Narval B, « 9 ans » de durée ferme
   // extrait, 6 ans en réalité).
+  if (!isAv) {
+    const abPal = abattementsDesPaliers(d)
+    if (abPal.length && !(Array.isArray(d.abattements) && d.abattements.some(a => a?._issu_palier))) d.abattements = [...(Array.isArray(d.abattements) ? d.abattements : []), ...abPal]
+  }
   const chAvFiche = (isAv && parentRow) ? chronologieAvenants(parentRow).find(c => c.av.id === item.id) : null
   if (isAv && parentRow) {
     const chAv = chAvFiche
