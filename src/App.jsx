@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · paliers en abattements'
+const APP_VERSION = '21.10 · montants au centime'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -724,6 +724,16 @@ function parseParkingShort(val) {
 }
 
 // Format for display
+// Montant au centime (tableaux de loyer, franchises et abattements : la somme
+// des lignes affichées doit retomber exactement sur le total)
+function fmtEur2(val) {
+  if (typeof val === 'string' && /recalcul\s*=/i.test(val)) return val
+  const n = typeof val === 'number' ? val : parseAmount(val)
+  if (n === null || n === undefined || isNaN(n)) return val || null
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+}
+const arrondi2 = x => Math.round(x * 100) / 100
+
 function fmtEur(val) {
   // Un montant marqué "recalcul = ..." (déduit, pas écrit tel quel dans le
   // bail) doit rester visible tel quel — le reformater via parseAmount
@@ -1007,8 +1017,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
       libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: safeStr(r.date_limite) || null, remarque: cleanTxt(r.remarque) || null,
     })),
     travaux_montant: parseAmount((isAv ? mods : raw).travaux_montant),
-    franchise_totale_acquise: { mois: fTot.acquise.mois, montant: Math.round(fTot.acquise.montant) },
-    franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: Math.round(fTot.conditionnelle.montant) },
+    franchise_totale_acquise: { mois: fTot.acquise.mois, montant: arrondi2(fTot.acquise.montant) },
+    franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: arrondi2(fTot.conditionnelle.montant) },
   }
 }
 
@@ -2883,7 +2893,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
     const loyer = parseAmount(r.loyer_annuel)
     const surf  = parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0
     // Only calculate if BOTH are explicitly provided
-    if (loyer !== null && loyer > 0 && surf > 0) return Math.round(loyer / surf)
+    if (loyer !== null && loyer > 0 && surf > 0) return arrondi2(loyer / surf)
     return null // Cannot calculate - don't show
   }
   const rowLoyerAnnuel = r => {
@@ -2917,7 +2927,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
     const nb = lireNombreSurface(row.surface_m2 || fallbackNb || '')
     let loyer = parseAmount(row.loyer_annuel), loyerSrc = loyer ? 'extrait' : null
     let unit = parseAmount(row.prix_unitaire), unitSrc = unit ? 'extrait' : null
-    if (!unit && loyer && nb > 0) { unit = Math.round(loyer / nb); unitSrc = 'calcule' }
+    if (!unit && loyer && nb > 0) { unit = arrondi2(loyer / nb); unitSrc = 'calcule' }
     if (!loyer && unit && nb > 0) { loyer = unit * nb; loyerSrc = 'calcule' }
     return { row, nb, qty: nb, loyer: loyer || null, loyerSrc, unit: unit || null, unitSrc }
   })
@@ -2927,7 +2937,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   mainComputed.forEach(x => {
     if (!isRie(x.row) || x.qty > 0 || !othersSurf) return
     if (x.loyer && !x.unit) Object.assign(x, { unit: Math.round(x.loyer / othersSurf * 100) / 100, unitSrc: 'calcule' })
-    else if (x.unit && !x.loyer) Object.assign(x, { loyer: Math.round(x.unit * othersSurf), loyerSrc: 'calcule' })
+    else if (x.unit && !x.loyer) Object.assign(x, { loyer: arrondi2(x.unit * othersSurf), loyerSrc: 'calcule' })
   })
   // Loyer global d'une CATÉGORIE collé sur un seul de ses lots (vécu : "loyer
   // surface bureaux : 1 010 385 €" pour 11 lots de bureaux, affecté au dernier
@@ -2945,7 +2955,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
       const sumQ = g.reduce((t, x) => t + (x.qty || 0), 0)
       if (!sumQ || g.some(x => !x.qty)) return
       const total = withLoyer[0].loyer, unit = total / sumQ
-      g.forEach(x => Object.assign(x, { loyer: Math.round(unit * x.qty), loyerSrc: 'reparti', unit: Math.round(unit * 100) / 100, unitSrc: 'reparti' }))
+      g.forEach(x => Object.assign(x, { loyer: arrondi2(unit * x.qty), loyerSrc: 'reparti', unit: Math.round(unit * 100) / 100, unitSrc: 'reparti' }))
     })
   }
   const declaredTotal = parseAmount(totalLoyerDeclared) || 0
@@ -2969,7 +2979,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
       if (sameCat && allLocaux && sumQ > 0) {
         const gap = declaredTotal - knownSum
         const u = gap / sumQ
-        if (u > 0 && u <= 100000) unknown.forEach(x => Object.assign(x, { loyer: Math.round(u * x.qty), loyerSrc: 'ecart', unit: Math.round(u * 100) / 100, unitSrc: 'ecart' }))
+        if (u > 0 && u <= 100000) unknown.forEach(x => Object.assign(x, { loyer: arrondi2(u * x.qty), loyerSrc: 'ecart', unit: Math.round(u * 100) / 100, unitSrc: 'ecart' }))
       }
     }
   }
@@ -3036,10 +3046,10 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
                     <td style={{ textAlign: 'right', fontWeight: 500 }}>{fmtSurface(row.surface_m2) || '—'}</td>
                     {showRent && <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
-                      {unit ? `${unit.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} €` : '—'}{unit && mark(unitSrc)}
+                      {unit ? `${unit.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : '—'}{unit && mark(unitSrc)}
                     </td>}
                     {showRent && <td style={{ textAlign: 'right', fontWeight: 500 }}>
-                      {loyer ? fmtEur(loyer) : '—'}{loyer && mark(loyerSrc)}
+                      {loyer ? fmtEur2(loyer) : '—'}{loyer && mark(loyerSrc)}
                     </td>}
                   </tr>
                 )
@@ -3052,7 +3062,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{total.toLocaleString('fr-FR')} m²</td>
                   {showRent && <td />}
                   {showRent && <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>
-                    {mainLoyerDisplay > 0 ? fmtEur(mainLoyerDisplay) : '—'}
+                    {mainLoyerDisplay > 0 ? fmtEur2(mainLoyerDisplay) : '—'}
                     {mainLoyerIsFallback && <span title="Loyer global du bail — non ventilé par composante dans le document" style={{ fontSize: '10px', marginLeft: '3px', fontWeight: 400, fontStyle: 'italic', color: 'var(--text3)' }}>*</span>}
                   </td>}
                 </tr>
@@ -3110,9 +3120,9 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
                     <td style={{ textAlign: 'right' }}>{nb > 0 ? `${nb} pl.` : '—'}</td>
                     {showRent && <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
-                      {unit ? `${unit.toLocaleString('fr-FR')} €` : '—'}{unit && mark(unitSrc)}
+                      {unit ? `${unit.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : '—'}{unit && mark(unitSrc)}
                     </td>}
-                    {showRent && <td style={{ textAlign: 'right', fontWeight: 500 }}>{loyer ? fmtEur(loyer) : '—'}{loyer && mark(loyerSrc)}</td>}
+                    {showRent && <td style={{ textAlign: 'right', fontWeight: 500 }}>{loyer ? fmtEur2(loyer) : '—'}{loyer && mark(loyerSrc)}</td>}
                   </tr>
                 )
               })}
@@ -3121,7 +3131,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
               <tfoot>
                 <tr style={{ borderTop: '1px solid var(--border2)' }}>
                   <td colSpan={(hasBat ? 5 : 4) - (showRent ? 0 : 2)} style={{ fontWeight: 600, padding: '8px 10px' }}>Total stationnement</td>
-                  {showRent && <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{fmtEur(parkTotalLoyer)}</td>}
+                  {showRent && <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{fmtEur2(parkTotalLoyer)}</td>}
                 </tr>
               </tfoot>
             )}
@@ -3130,7 +3140,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
       )}
       {showRent && totalLoyer > 0 && (mainRows.length > 0 && parkRows.length > 0) && (
         <div style={{ textAlign: 'right', padding: '6px 10px', fontWeight: 700, fontSize: '13px', borderTop: '2px solid var(--border2)', marginTop: '2px' }}>
-          Total général : {fmtEur(totalLoyer)}
+          Total général : {fmtEur2(totalLoyer)}
         </div>
       )}
       {showRent && (mainRows.length > 0 || parkRows.length > 0) && (
@@ -3222,7 +3232,7 @@ function mergeLoyerReductions(franchisePeriodes, abattements, dateEffet = null) 
     // sinon une courte période transitoire afficherait le montant d'une
     // année entière (fortement surestimé).
     const annualRate = parseAmount(r.montant_annuel)
-    const proratedMontant = (annualRate !== null && months) ? Math.round(annualRate * months / 12) : r.montant_annuel
+    const proratedMontant = (annualRate !== null && months) ? arrondi2(annualRate * months / 12) : r.montant_annuel
     return {
       date_debut: r.date_debut,
       date_fin: r.date_fin,
@@ -3527,7 +3537,7 @@ function montantFranchise(row, loyerAnnuel, rieLoyer = 0) {
     if (mois) { montant = base * mois / 12; methode = `${String(mois).replace('.', ',')} mois × loyer annuel ÷ 12` }
     else if (sem) { const n = parseFloat(sem.replace(',', '.')); montant = base * n * 7 / 365; methode = `${n} semaine(s) × 7 jours × loyer annuel ÷ 365` }
   }
-  return { montant: montant ? Math.round(montant) : parseAmount(brut), calcule: true, methode, chargesNonChiffrees }
+  return { montant: montant ? arrondi2(montant) : parseAmount(brut), calcule: true, methode, chargesNonChiffrees }
 }
 
 // rieLoyer : redevance RIE annuelle du bail — retirée de la base quand la
@@ -3689,7 +3699,7 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
         {g.mois > 0 ? `${T.approx ? '≈ ' : ''}${fmtMoisFranchise(g.mois)}` : '—'}
       </td>
       <td />
-      <td style={{ textAlign: 'right', fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', color: cond ? '#9A6B00' : undefined }}>{g.montant > 0 ? fmtEur(g.montant) : '—'}</td>
+      <td style={{ textAlign: 'right', fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', color: cond ? '#9A6B00' : undefined }}>{g.montant > 0 ? fmtEur2(g.montant) : '—'}</td>
       <td colSpan={2} />
     </tr>
   )
@@ -3745,13 +3755,13 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
               <td style={{ textAlign: 'right', fontWeight: 500 }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
                   {(() => {
-                    if (row._type === 'abattement') return row.montant ? fmtEur(row.montant) : '—'
+                    if (row._type === 'abattement') return row.montant ? fmtEur2(row.montant) : '—'
                     const mf = montantFranchise(row, loyerAnnuel, rieLoyer)
                     if (!mf.montant) return '—'
                     const info = [mf.calcule ? `Montant non écrit dans le bail — calculé : ${mf.methode || 'à partir de la durée'}` : null, mf.chargesNonChiffrees ? 'Loyer seul : la franchise porte aussi sur des charges, impôts ou taxes, non chiffrés' : null].filter(Boolean).join(' · ')
                     return (
                       <span title={info || undefined} style={{ cursor: info ? 'help' : 'default', fontStyle: mf.calcule ? 'italic' : 'normal' }}>
-                        {mf.calcule ? '≈ ' : ''}{fmtEur(mf.montant)}{mf.chargesNonChiffrees ? <span style={{ fontSize: '10.5px', fontWeight: 400, color: 'var(--text3)', marginLeft: '4px' }}>loyer seul</span> : null}
+                        {mf.calcule ? '≈ ' : ''}{fmtEur2(mf.montant)}{mf.chargesNonChiffrees ? <span style={{ fontSize: '10.5px', fontWeight: 400, color: 'var(--text3)', marginLeft: '4px' }}>loyer seul</span> : null}
                       </span>
                     )
                   })()}
@@ -3785,7 +3795,7 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
                   {sub}
                 </td>
                 <td />
-                <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{montant > 0 ? fmtEur(montant) : '—'}</td>
+                <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{montant > 0 ? fmtEur2(montant) : '—'}</td>
                 <td colSpan={2} />
               </tr>
             )
@@ -6332,7 +6342,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                         <tr key={`f${i}`} style={{ borderTop: '1px solid var(--border)' }}>
                           <td style={{ padding: '8px 12px' }}>{f.type} ajoutée</td>
                           <td style={{ padding: '8px 12px', color: 'var(--text2)' }}>—</td>
-                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{[f.duree, f.debut && f.fin ? `du ${f.debut} au ${f.fin}` : (f.debut ? `à partir du ${f.debut}` : null), f.montant ? fmtEur(f.montant) : null].filter(Boolean).join(' · ') || '—'}</td>
+                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{[f.duree, f.debut && f.fin ? `du ${f.debut} au ${f.fin}` : (f.debut ? `à partir du ${f.debut}` : null), f.montant ? fmtEur2(f.montant) : null].filter(Boolean).join(' · ') || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -6585,7 +6595,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                             <tr key={`f${i}`} style={{ borderTop: '1px solid var(--border)' }}>
                               <td style={{ padding: '8px 12px' }}>{f.type} ajoutée</td>
                               <td style={{ padding: '8px 12px', color: 'var(--text2)' }}>—</td>
-                              <td style={{ padding: '8px 12px', fontWeight: 600 }}>{[f.duree, f.debut && f.fin ? `du ${f.debut} au ${f.fin}` : (f.debut ? `à partir du ${f.debut}` : null), f.montant ? fmtEur(f.montant) : null].filter(Boolean).join(' · ') || '—'}</td>
+                              <td style={{ padding: '8px 12px', fontWeight: 600 }}>{[f.duree, f.debut && f.fin ? `du ${f.debut} au ${f.fin}` : (f.debut ? `à partir du ${f.debut}` : null), f.montant ? fmtEur2(f.montant) : null].filter(Boolean).join(' · ') || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -7167,7 +7177,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                   {SL.echeancier.map((r, i) => (
                     <tr key={i}>
                       <td>{r.debut || '—'}</td><td>{r.fin || '—'}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtEur(r.montant)}{i === SL.echeancier.length - 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtEur2(r.montant)}{i === SL.echeancier.length - 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}</td>
                       <td style={{ color: 'var(--text2)' }}>{r.periode || '—'}</td>
                     </tr>
                   ))}
@@ -7205,7 +7215,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                           {NATURE_ECHEANCE_LABEL[r.nature] || r.nature}{r.a_confirmer ? ' — à confirmer par réextraction' : ''}
                         </td>
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                          {fmtEur(r.montant)}
+                          {fmtEur2(r.montant)}
                           {SL.mode === 'variable_lmg' && i === SL.echeancier.length - 1 && SL.echeancier.length > 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}
                         </td>
                       </tr>
