@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · loyer progressif'
+const APP_VERSION = '21.10 · lecture des surfaces'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2861,7 +2861,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   // vide ou égale au total des autres locaux. Une ligne "RIE" portant une
   // surface PROPRE et différente (ex: un lot de 1 024 m² au 1er étage) est une
   // vraie surface louée, mal catégorisée — elle compte dans le total.
-  const surfOf = r => parseFloat(String(r.surface_m2 || '').replace(/\s/g, '').replace(',', '.')) || 0
+  const surfOf = r => lireNombreSurface(r.surface_m2)
   const othersSurf = safe.filter(r => !isRieLabel(r) && !isPark(r)).reduce((t, r) => t + surfOf(r), 0)
   const isRie = r => {
     if (!isRieLabel(r)) return false
@@ -2894,7 +2894,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
     if (up && surf > 0) return { value: up * surf, computed: true }
     return { value: null, computed: false }
   }
-  const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
+  const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + lireNombreSurface(r.surface_m2), 0)
   // Lignes complétées, locaux et stationnement :
   // - prix extrait, sinon déduit du loyer de la ligne ; loyer extrait, sinon
   //   prix × quantité (surface ou nombre de places) — marqués "calcule" ;
@@ -2914,7 +2914,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   })
   const parkComputed = parkRows.map(row => {
     const fallbackNb = (!row.surface_m2 && parkRows.length === 1) ? parseParkingNbFallback(parkingNbPlaces) : null
-    const nb = parseFloat(String(row.surface_m2 || fallbackNb || '').replace(/[^0-9.]/g, '')) || 0
+    const nb = lireNombreSurface(row.surface_m2 || fallbackNb || '')
     let loyer = parseAmount(row.loyer_annuel), loyerSrc = loyer ? 'extrait' : null
     let unit = parseAmount(row.prix_unitaire), unitSrc = unit ? 'extrait' : null
     if (!unit && loyer && nb > 0) { unit = Math.round(loyer / nb); unitSrc = 'calcule' }
@@ -3266,13 +3266,31 @@ function computeFranchiseSummary(periodes) {
 // Équivalence d'une franchise en mois de loyer — commune au tableau de la fiche
 // et à l'export : incoherent = la durée extraite (souvent la période
 // d'application) ne colle pas au montant exonéré (écart > 25 %).
+// LECTURE D'UN NOMBRE DE SURFACE (ou de places) — robuste : le PREMIER nombre
+// du texte, virgule décimale et séparateurs de milliers compris, unité
+// ignorée. Remplace les lectures qui supprimaient tout sauf chiffres et
+// points (vécu : « 24 m2 » lu 242, « 172,00 » lu 17 200 → total de 172 214 m²).
+function lireNombreSurface(v) {
+  if (v === null || v === undefined || v === '') return 0
+  if (typeof v === 'number') return isFinite(v) ? v : 0
+  const t = String(v).replace(/[\u00a0\u202f]/g, ' ')
+  const m = t.match(/\d[\d .,]*/)
+  if (!m) return 0
+  let x = m[0].trim().replace(/[ .,]+$/, '')
+  if (x.includes(',')) x = x.replace(/[ .]/g, '').replace(',', '.')            // 1 234,56 / 1.234,56 / 172,00
+  else if (/^\d{1,3}([ .]\d{3})+$/.test(x)) x = x.replace(/[ .]/g, '')          // 1 234 / 1.234 (milliers)
+  else x = x.replace(/ /g, '')                                                    // 172.50
+  const n = parseFloat(x)
+  return isFinite(n) ? n : 0
+}
+
 // SURFACE TOTALE LOUÉE — fonction commune (fiche, dashboard, État locatif,
 // contrôle qualité, base, export) : la surface de référence extraite, à
 // laquelle s'ajoute une TERRASSE louée avec un loyer propre quand cette surface
 // de référence ne la comprend pas (vécu : Lille HASHTAG, bureaux 914,90 m² +
 // terrasse privative 224,60 m² louée 9 882 € → 1 139,50 m²).
 function surfaceTotaleLouee(d) {
-  const num = v => parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')) || 0
+  const num = v => lireNombreSurface(v)
   const ext = num(d?.surface_totale_m2) || null
   const rows = Array.isArray(d?.surfaces_detail) ? d.surfaces_detail : []
   const txt = r => stripAccents(`${safeStr(r.categorie) || ''} ${safeStr(r.typologie) || ''} ${safeStr(r.niveau) || ''}`).toLowerCase()
@@ -5394,7 +5412,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
         const totalM2 = surfaceTotaleLouee(d).m2 || 0
         surface = (detailRows.length === 1 && totalM2 > 0)
           ? totalM2
-          : detailRows.reduce((a, r) => a + (parseFloat(String(r.surface_m2 || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0), 0)
+          : detailRows.reduce((a, r) => a + lireNombreSurface(r.surface_m2), 0)
       } else {
         const info = extractFloorInfo(d.adresse)
         locationLabel = info ? info.label : (d.immeuble || d.adresse || 'Lot non localisé')
@@ -6740,8 +6758,8 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
               const isPark = r => { const cat = (r.categorie || r.typologie || '').toLowerCase(); return cat.includes('station') || cat.includes('parking') || cat.includes('place') }
               const mainRows = rows.filter(r => !isPark(r))
               const parkRows = rows.filter(r => isPark(r))
-              const totalM2 = mainRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
-              const parkCount = parkRows.reduce((acc, r) => acc + (parseFloat(String(r.surface_m2 || '').replace(/[^0-9.]/g, '')) || 0), 0)
+              const totalM2 = mainRows.reduce((acc, r) => acc + lireNombreSurface(r.surface_m2), 0)
+              const parkCount = parkRows.reduce((acc, r) => acc + lireNombreSurface(r.surface_m2), 0)
               return (
                 <div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
