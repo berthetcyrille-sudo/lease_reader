@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · durées décimales'
+const APP_VERSION = '21.10 · durée de l’échéancier lu'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -5531,7 +5531,30 @@ function appliquerEcheancierLu(base, prev, av) {
   const effLu = nd2(E.date_effet)
   base.date_effet = (E.statut_date_effet === 'inchangee' || !effLu) ? (prev.date_effet || effLu || base.date_effet) : effLu
   base.date_fin = fin
-  if (safeStr(E.duree_totale)) base.duree_totale = E.duree_totale
+  // Durée lue : retenue seulement si elle concorde avec les dates lues dans
+  // le même échéancier (vécu : TOPAZ, « 9 ans et 5 mois » pour une période du
+  // 31/12/2023 au 14/04/2033, soit 9 ans et 3,5 mois). Sinon : la durée
+  // précédente si elle concorde, à défaut une durée recalculée sur les dates.
+  if (safeStr(E.duree_totale)) {
+    const concorde = txt => {
+      const e = parseFR(normalizeDate(safeStr(base.date_effet))), b = parseFR(fin), ld = lireDuree(txt)
+      if (!e || !b || !ld) return false
+      const a = new Date(e.getFullYear(), e.getMonth() + ld.mois, e.getDate() - 1 + (ld.jours || 0))
+      return Math.abs(a - b) <= 5 * 86400000
+    }
+    if (concorde(E.duree_totale)) base.duree_totale = E.duree_totale
+    else if (prev.duree_totale && concorde(prev.duree_totale)) base.duree_totale = prev.duree_totale
+    else {
+      const e = parseFR(normalizeDate(safeStr(base.date_effet))), f = parseFR(fin)
+      if (e && f && f > e) {
+        const next = new Date(f.getFullYear(), f.getMonth(), f.getDate() + 1)
+        let m = (next.getFullYear() - e.getFullYear()) * 12 + (next.getMonth() - e.getMonth())
+        let j = next.getDate() - e.getDate()
+        if (j < 0) { m -= 1; j += new Date(next.getFullYear(), next.getMonth(), 0).getDate() }
+        base.duree_totale = `${formatDureeMonths(m)}${j ? ` et ${j} jour${j > 1 ? 's' : ''}` : ''}`
+      } else base.duree_totale = E.duree_totale
+    }
+  }
   if (safeStr(E.duree_ferme)) base.duree_ferme = E.duree_ferme
   const sorties = (Array.isArray(E.sorties) ? E.sorties : [])
     .map(x => ({ ...x, date: nd2(x?.date) }))
