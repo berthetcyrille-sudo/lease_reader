@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · règles du loyer variable'
+const APP_VERSION = '21.10 · plafonds de charges'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -140,6 +140,7 @@ REGLES PAR CHAMP:
 - indexation_trimestre_base: trimestre de reference si EXPLICITEMENT indique dans le bail (ex: "3T2025"). null si le bail dit "dernier indice publie a la date de signature" sans preciser lequel.
 - indexation_valeur_base: valeur numerique de l indice si EXPLICITEMENT mentionnee (ex: "120.5"). null si non mentionnee.
 - charges_impots_taxes: liste de TOUS les impots et taxes explicitement mentionnes dans la clause de refacturation des charges (ex: taxe fonciere, taxe sur les bureaux/TSB, taxe sur les surfaces commerciales/TASCOM, CFE, taxe sur les locaux vacants), avec pour chacun s'il est refacture au Preneur ou non. Format: [{"libelle":"Taxe fonciere","refacturee":"Oui","taux":"100%","detail":null}]. refacturee: "Oui"/"Non"/"Partielle" — "Partielle" si le bail dit explicitement que seule une quote-part est refacturee. taux: le pourcentage explicite si mentionne (ex: "refacture a hauteur de 50%" -> taux="50%"), sinon null (ne pas mettre "100%" par defaut si le bail dit juste "refacturee" sans preciser de taux). detail: precision complementaire si le bail en donne une (plafond, condition, exception), sinon null. [] si le bail ne detaille aucun impot/taxe nommement (une simple clause generale "les charges sont refacturees au Preneur" sans lister d'impots precis ne suffit pas a remplir ce champ).
+- charges_plafonds: PLAFONDS de charges stipules (refacturation plafonnee). Liste [{"type":"augmentation annuelle | montant annuel | €/m²/an | autre","valeur":"ex: 5 % / 25 €/m²/an / 30 000 €","assiette":"ex: charges, impots, taxes et redevances","texte":"phrase du bail","page":N}] ; [] si aucun plafond. Ex: "charges, impots, taxes et redevances refacturees integralement, plafonnees a une augmentation annuelle maximale de 5 %" → [{"type":"augmentation annuelle","valeur":"5 %","assiette":"charges, impots, taxes et redevances"}].
 - charges_vetuste: la clause du bail relative a la VETUSTE (art. 1755 du Code civil: les reparations dues a la vetuste ou a la force majeure ne sont pas, par principe legal, a la charge du preneur, sauf clause contraire du bail qui y deroge). Format: {"refacturee":"Oui","detail":"texte precisant les modalites, ex: le Preneur prend a sa charge les reparations liees a la vetuste normale des equipements"}. refacturee: "Oui" si le bail deroge au principe legal et met la vetuste a la charge du Preneur (meme partiellement), "Non" si le bail ne deroge pas ou confirme explicitement que la vetuste reste a la charge du Bailleur, "Partielle" si un partage est prevu. detail: TOUJOURS renseigner un texte resumant ce que dit le bail sur ce point (meme bref), pas seulement le statut. null (le champ entier) si le bail n'aborde pas du tout la vetuste.
 - charges_force_majeure: la clause du bail relative a la FORCE MAJEURE (meme principe de l'art. 1755 du Code civil que pour la vetuste). Format: {"refacturee":"Oui","detail":"texte precisant les modalites"}. Meme logique que charges_vetuste. null si le bail n'aborde pas la force majeure.
 - franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null,\"page\":3}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon. FRANCHISE REPARTIE EN TRANCHES (montants echelonnes): UNE LIGNE PAR TRANCHE LISTEE dans la clause — le nombre de lignes doit egaler le nombre de tranches (ex: 96.080 € a la prise d'effet puis 96.080 € a chacune des 1re a 4e dates anniversaires et 96.083 € a la 5e = 6 lignes) et la somme des montants doit egaler le total annonce (ex: 576.483 €) : verifier avant de repondre. date_debut = date de la tranche (prise d'effet, ou Neme date anniversaire = date d'effet + N ans) ; date_fin = null si la clause ne la precise pas. NE JAMAIS INVENTER de duree : si la clause ne donne que des montants, duree = \"recalcul = <montant / loyer mensuel de l'assiette, arrondi a 0,1> mois\" — l'assiette etant le loyer HORS redevance RIE si la clause le precise. DUREE = NOMBRE DE MOIS DE LOYER EXONERES, PAS la periode d'application (ne concerne QUE les clauses appelees franchise : une \"reduction de loyer\" chiffree par annee va dans abattements, pas ici) : si la franchise est un MONTANT impute sur une periode (ex: \"franchise de 5.430 € HT imputee sur les loyers de la premiere annee\"), la periode (12 mois) va dans date_debut/date_fin et duree = equivalent en mois de loyer, ecrit \"recalcul = <montant / loyer mensuel arrondi a 0,1> mois\" (ex: 5430 / (47060/12) → \"recalcul = 1,4 mois\") — JAMAIS \"12 mois\". ATTENTION DOUBLON FREQUENT A EVITER: quand le bail donne un montant GLOBAL de franchise PUIS le detail de ce meme montant ventile en plusieurs tranches (ex: \"franchise initiale de quatorze (14) mois, soit un montant total de 39.135,83 €, qui sera appliquee comme suit : 3,5 mois a compter de la date d'effet ; 3,5 mois a compter de la premiere date anniversaire ; ...\"), NE CREER QU'UNE LIGNE PAR TRANCHE INDIVIDUELLE — ne jamais ajouter EN PLUS une ligne reprenant le total global (14 mois / 39.135,83 €) : ce total n'est que la somme des tranches deja listees individuellement, l'ajouter en ligne supplementaire cree un double comptage. Le montant global (avec sa redaction complete) va dans le champ texte \"franchise\" ci-dessous, jamais comme ligne supplementaire de franchise_periodes. ATTENTION DISTINCTION AVEC mise_a_disposition: une "franchise de loyer" reduit ou annule un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero (sinon il n'y a rien a "franchiser"). NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation des locaux avant la date d'effet officielle du bail, ou avant que le loyer ne soit contractuellement du, souvent formulee "mise a disposition anticipee a titre gratuit", "pas de loyer ni charges dus pendant cette periode") — meme si le texte utilise par erreur ou par extension le mot "franchise" pour la designer, meme si elle est ventilee par lot/etage avec des dates differentes. Ces periodes de mise a disposition anticipee vont dans le champ dedie mise_a_disposition (objet unique) — si plusieurs lots ont des dates de mise a disposition differentes, resumer l'ensemble dans le champ texte "conditions" de mise_a_disposition (avec le detail par lot) plutot que de les eclater dans franchise_periodes avec un montant a zero. ATTENTION CAS INVERSE FREQUENT: quand le texte donne plusieurs montants de franchise a des DATES ANNIVERSAIRES successives (ex: "133.943 € HT/HC de franchise à compter du 15 septembre 2025 ; 133.943 € à compter du 15 septembre 2026 ; ...") SANS préciser explicitement une durée ni une date de fin pour chaque tranche, NE JAMAIS supposer que chaque tranche dure 12 mois (jusqu'à la date anniversaire suivante) — c'est presque toujours FAUX. Ces montants correspondent generalement chacun a quelques semaines/mois de loyer accordes CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an pendant 3 ans), pas une exoneration continue toute l'annee. Calculer la VRAIE duree en mois: duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), puis date_fin = date_debut + duree_mois mois - 1 jour (PAS la veille de la prochaine date anniversaire, sauf si duree_mois calculee y correspond par coincidence). N'utiliser une duree de 12 mois entre deux echeances que si le texte le dit EXPLICITEMENT (ex: "pendant les 12 mois suivants" ecrit noir sur blanc). FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — deux cas: (a) si la DUREE est explicitement ecrite dans le bail (ex: "2,5 mois", "3 mois") et que c'est le MONTANT qui manque: reprendre la duree TELLE QUELLE dans "duree" (ex: "2,5 mois"), et calculer montant = duree_mois * (loyer_annuel_base_HT_HC / 12), en ecrivant dans "montant" la chaine "recalcul = <montant> €" (ex: "recalcul = 116116 €") plutot qu'un chiffre brut, pour signaler que c'est deduit et non ecrit dans le bail. (b) si le MONTANT est explicitement ecrit et que c'est la DUREE qui manque: montant reste un chiffre brut normal (ex: "116116"), et calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), en ecrivant dans "duree" la chaine "recalcul = <duree_mois> mois" (ex: "recalcul = 2,11 mois") plutot qu'une phrase. Si duree ET montant sont TOUS LES DEUX explicites dans le texte, les reprendre tels quels sans aucun marqueur "recalcul". Ne jamais utiliser une formule detaillee du type "Champ calculé = A / B = C" — uniquement le resultat final precede de "recalcul =".
@@ -208,6 +209,44 @@ REGLES PAR CHAMP (champs_modifies):
 // prompt à elle seule ne peut fiabiliser ça : il faut que le modèle voie
 // explicitement l'état actuel pour savoir ce qui, en cas de silence du texte,
 // doit être laissé à null (= inchangé) plutôt que recalculé from scratch.
+// STRUCTURE DU LOYER VARIABLE — lecture dédiée (avec raisonnement), déclenchée
+// seulement quand une clause recette a été détectée : décrire TOUTES les
+// périodes (montants ou règles de calcul), en lisant tous les articles
+// concernés — loyer de base, « aménagements de loyer », minimum garanti, loyer
+// variable, surloyer des conditions générales (vécu : règles des années 2-3 et
+// 4+ logées dans « Loyer de base annuel indexé », ignorées par la lecture
+// financière qui ne regardait que l'article « Loyer variable »).
+const LOYER_VARIABLE_PROMPT = `Expert baux commerciaux français. Ce bail contient une clause de loyer variable (clause recette). Ta SEULE tâche : décrire la STRUCTURE COMPLÈTE DU LOYER, période par période, sur toute la durée du bail.
+
+LIS TOUS LES ARTICLES CONCERNÉS — ils sont souvent répartis : article « Loyer » / « Loyer de base » (et ses « aménagements de loyer » pour les premières années), article « Loyer variable » / « Surloyer », conditions générales (formule du surloyer), avenants éventuellement intégrés. Une règle de minimum ou de loyer de base définie dans l'article Loyer de base fait partie de la structure, même si l'article Loyer variable n'en parle pas.
+
+POUR CHAQUE PÉRIODE (1re année, 2e et 3e années, à partir de la 4e année, etc.) indique :
+- nature : "provision" (acompte versé dans l'attente du loyer définitif, puis régularisé) ou "minimum" (montant dû quel que soit le chiffre d'affaires : loyer minimum garanti, loyer de base) ;
+- montant : le chiffre s'il est fixé, sinon null ;
+- regle : la règle de calcul quand le montant n'est pas un chiffre fixe (ex : "80 % du loyer réel de l'année précédente", "65 % du loyer réel N-1, plancher de 200 €/m²") ;
+- plancher : le montant plancher de la période s'il y en a un (ex : 170720).
+MÉCANISME du loyer variable : "additionnel" s'il S'AJOUTE au minimum (surloyer, « en plus du loyer minimum garanti »), "plus_eleve" si l'on paie le plus élevé du minimum et du variable.
+sans_lmg = true UNIQUEMENT si le bail exclut tout minimum sur TOUTE sa durée.
+
+Exemple : « Loyer de base 170 720 € HT. Toutefois, pour les 3 premières années : 1re année, uniquement le loyer variable, réglé sur la base prévisionnelle de 200 000 € ; 2e et 3e années, loyer minimum garanti de 80 % du loyer réel de l'année précédente, plus le loyer variable ; à compter de la 4e année, loyer de base de 65 % du loyer réel de l'année précédente, sans pouvoir être inférieur à 200 €/m² soit 170 720 €. Loyer variable additionnel de 8 % HT du chiffre d'affaires HT » →
+{"type":"CA","taux":"8%","assiette":"Chiffre d'affaires HT","mecanisme":"additionnel","sans_lmg":false,"lmg":null,"montants_par_periode":[{"periode":"1re annee","montant":"200000","regle":null,"plancher":null,"nature":"provision"},{"periode":"2e et 3e annees","montant":null,"regle":"80 % du loyer reel de l'annee precedente","plancher":null,"nature":"minimum"},{"periode":"a partir de la 4e annee","montant":"170720","regle":"65 % du loyer reel de l'annee precedente, plancher de 200 €/m²","plancher":"170720","nature":"minimum"}],"plancher":null,"plafond":null,"regles":"texte complet et fidèle de toutes les règles"}
+
+Réponds UNIQUEMENT avec ce JSON minifié sur UNE ligne, sans markdown.`
+
+async function lireStructureLoyerVariable(extracted, base64, mediaType) {
+  if (!extracted?.loyer_variable) return extracted
+  try {
+    const r = await callClaude(base64, mediaType, LOYER_VARIABLE_PROMPT, 240000, { thinkingBudget: 6000 })
+    if (r && typeof r === 'object' && (Array.isArray(r.montants_par_periode) || r.taux)) {
+      extracted.loyer_variable = { ...extracted.loyer_variable, ...r, _lecture_dediee: true }
+      delete extracted._loyer_variable_echec
+    } else extracted._loyer_variable_echec = 'réponse incomplète'
+  } catch (e) {
+    extracted._loyer_variable_echec = e.message || 'erreur'
+  }
+  return extracted
+}
+
 // ÉCHÉANCIER D'UN AVENANT — lecture dédiée (avec raisonnement) : l'IA reçoit le
 // calendrier en vigueur juste avant l'avenant et renvoie le calendrier COMPLET
 // après lui. L'appli n'a plus à le reconstruire par des règles : elle enregistre
@@ -971,6 +1010,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
       } catch (_) { return [] }
     })(),
     surface_totale_louee: surfaceTotaleLouee(d).m2,
+    charges_plafonds: plafondsCharges(d).map(x => ({ type: x.type, valeur: x.valeur, assiette: x.assiette })),
     ventilation_loyer: ventilation,
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
     stationnement_prix_unitaire: (V.parkComputed.length === 1 && V.parkComputed[0].unit) ? V.parkComputed[0].unit : (computeParkingUnitPrice(d.parking_nb_places, surfaces) || null),
@@ -1287,7 +1327,7 @@ function exportControlesToExcel(tree) {
     ...rep(nRed, i => [`Réduction ${i} - Type`, `Réduction ${i} - Début`, `Réduction ${i} - Fin`, `Réduction ${i} - Durée`, `Réduction ${i} - Mois de loyer`, `Réduction ${i} - Montant`, `Réduction ${i} - Assiette`, `Réduction ${i} - Condition`]),
     ...rep(nInd, i => [`Indemnité ${i} - Terme`, `Indemnité ${i} - Due par`, `Indemnité ${i} - Motif`, `Indemnité ${i} - Montant`, `Indemnité ${i} - Calcul`]),
     ...rep(nAut, i => [`Autre indemnité/pénalité ${i}`]),
-    'Travaux - Montant global', ...rep(nTrav, i => [`Travaux ${i} - Libellé`, `Travaux ${i} - Montant`, `Travaux ${i} - Date limite`, `Travaux ${i} - Remarque`]),
+    'Plafond(s) des charges', 'Travaux - Montant global', ...rep(nTrav, i => [`Travaux ${i} - Libellé`, `Travaux ${i} - Montant`, `Travaux ${i} - Date limite`, `Travaux ${i} - Remarque`]),
   ]
   const val = x => (x === null || x === undefined) ? '' : x
   const data = rows.map(({ item, parent, vv }) => {
@@ -1312,6 +1352,7 @@ function exportControlesToExcel(tree) {
       ...rep(nRed, i => { const r = (vv.reductions || [])[i - 1]; return r ? [r.type, val(r.date_debut), val(r.date_fin) + (r.date_fin_calculee ? ' (calculée)' : ''), val(r.duree), val(r.mois_de_loyer), val(r.montant), val(r.surface_assiette), (val(r.condition) + (r.recalee ? ' [dates recalées]' : '')).trim()] : ['', '', '', '', '', '', '', ''] }),
       ...rep(nInd, i => { const r = (vv.indemnites_terme || [])[i - 1]; return r ? [val(r.terme), val(r.due_par), val(r.motif), val(r.montant), val(r.calcul)] : ['', '', '', '', ''] }),
       ...rep(nAut, i => { const r = (vv.indemnites_autres || [])[i - 1]; return [r ? Object.values(r).filter(x => x !== null && x !== '').join(' — ') : ''] }),
+      (vv.charges_plafonds || []).map(x => `${x.valeur}${x.type === 'augmentation annuelle' ? ' d\'augmentation annuelle' : ''}${x.assiette ? ` (${x.assiette})` : ''}`).join(' ; '),
       val(vv.travaux_montant), ...rep(nTrav, i => { const r = (vv.participations_travaux || [])[i - 1]; return r ? [val(r.libelle), val(r.montant), val(r.date_limite), val(r.remarque)] : ['', '', '', ''] }),
     ]
   })
@@ -3292,6 +3333,28 @@ function lireNombreSurface(v) {
   else x = x.replace(/ /g, '')                                                    // 172.50
   const n = parseFloat(x)
   return isFinite(n) ? n : 0
+}
+
+// PLAFONDS DE CHARGES — fonction commune (fiche, base, export) : le champ
+// extrait charges_plafonds, à défaut lus dans le texte des charges (« plafonnées
+// à une augmentation annuelle maximale de 5 % », « plafonnées à 25 €/m²/an »).
+function plafondsCharges(d) {
+  const lus = (Array.isArray(d?.charges_plafonds) ? d.charges_plafonds : [])
+    .map(x => ({ type: cleanTxt(x?.type) || 'plafond', valeur: cleanTxt(x?.valeur) || null, assiette: cleanTxt(x?.assiette) || null, texte: cleanTxt(x?.texte) || null, page: x?.page || null }))
+    .filter(x => x.valeur)
+  if (lus.length) return lus
+  const txt = safeStr(d?.charges) || ''
+  const out = []
+  const phrases = txt.split(/(?<=[.;])\s+|\n+/)
+  phrases.forEach(ph => {
+    const t = stripAccents(ph).toLowerCase()
+    if (!/plafonn|plafond|ne (pourra|pourront) (pas )?exceder|limite[es]? a/.test(t)) return
+    const pct = ph.match(/(\d+(?:[.,]\d+)?)\s*%/)
+    const eur = ph.match(/(\d[\d\s.]*(?:,\d+)?)\s*(?:€|euros?)\s*(?:HT\s*)?(?:\/\s*m²?\s*(?:\/\s*an)?)?/i)
+    if (pct) out.push({ type: /augment|hausse|annuel|par an/.test(t) ? 'augmentation annuelle' : 'plafond', valeur: `${pct[1].replace('.', ',')} %`, assiette: null, texte: ph.trim(), page: null })
+    else if (eur) out.push({ type: /m²|m2/.test(eur[0]) ? '€/m²/an' : 'montant annuel', valeur: eur[0].trim(), assiette: null, texte: ph.trim(), page: null })
+  })
+  return out
 }
 
 // SURFACE TOTALE LOUÉE — fonction commune (fiche, dashboard, État locatif,
@@ -7028,11 +7091,101 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
         </div>
       )}
 
+      {/* Échéancier du loyer (loyer fixe à paliers) — pour un loyer variable,
+          l'échéancier est présenté dans la section Loyer variable */}
+      {(() => {
+        const SL = structureLoyer(d)
+        if (SL.mode !== 'paliers' || !SL.echeancier.length) return null
+        return (
+          <div className="sec">
+            <div className="sec-hd"><div className="sec-label">Échéancier du loyer</div></div>
+            <div className="table-wrap">
+              <table className="indemnites-table">
+                <thead><tr><th>Du</th><th>Au</th><th style={{ textAlign: 'right' }}>Loyer annuel HT/HC</th><th>Description</th></tr></thead>
+                <tbody>
+                  {SL.echeancier.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.debut || '—'}</td><td>{r.fin || '—'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtEur2(r.montant)}{i === SL.echeancier.length - 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}</td>
+                      <td style={{ color: 'var(--text2)' }}>{r.periode || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Loyer variable (clause recette) — mode, taux, assiette, échéancier
+          (LMG / provisions par période), plancher/plafond, texte intégral replié */}
+      {d.loyer_variable && (() => {
+        const SL = structureLoyer(d)
+        const V = SL.variable || {}
+        return (
+          <div className="sec">
+            <div className="sec-hd"><div className="sec-label">Loyer variable</div></div>
+            <div className="gx" style={{ marginBottom: '10px' }}>
+              <Field label="Structure" value={MODE_LOYER_LABEL[SL.mode] || '—'} />
+              {V.mecanisme && <Field label="Mécanisme" value={V.mecanisme === 'additionnel' ? 'Additionnel : le loyer variable s\'ajoute au minimum' : 'Le plus élevé du minimum et du loyer variable'} />}
+              {V.taux && <Field label="Taux" value={V.taux} />}
+              {V.assiette && <Field label="Assiette" value={V.assiette} />}
+              {V.plancher && <Field label="Plancher" value={fmtEur(V.plancher)} />}
+              {V.plafond && <Field label="Plafond" value={fmtEur(V.plafond)} />}
+            </div>
+            {SL.echeancier.length > 0 && (
+              <div className="table-wrap" style={{ marginBottom: '10px' }}>
+                <table className="indemnites-table">
+                  <thead><tr><th>Période</th><th>Nature</th>{SL.echeancier.some(r => r.regle) && <th>Règle de calcul</th>}<th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th></tr></thead>
+                  <tbody>
+                    {SL.echeancier.map((r, i) => (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 500 }}>{r.periode || [r.debut && `à partir du ${r.debut}`, r.fin && `jusqu'au ${r.fin}`].filter(Boolean).join(' ') || '—'}</td>
+                        <td title={r.nature === 'provision' ? "Acompte versé dans l'attente du loyer définitif, puis régularisé" : (r.nature === 'minimum' ? "Montant dû quel que soit le chiffre d'affaires" : undefined)}>
+                          {NATURE_ECHEANCE_LABEL[r.nature] || r.nature}{r.a_confirmer ? ' — à confirmer par réextraction' : ''}
+                        </td>
+                        {SL.echeancier.some(x => x.regle) && <td style={{ color: 'var(--text2)' }}>{r.regle || '—'}</td>}
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                          {r.montant ? fmtEur2(r.montant) : <span style={{ fontWeight: 400, color: 'var(--text3)' }}>selon la règle</span>}
+                          {r.plancher && r.montant && r.plancher === r.montant ? <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>plancher</span> : null}
+                          {SL.mode === 'variable_lmg' && i === SL.echeancier.length - 1 && SL.echeancier.length > 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {V.regles && (
+              <details>
+                <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--accent)', fontWeight: 600 }}>Texte intégral de la clause</summary>
+                <div style={{ fontSize: '13px', color: 'var(--text2)', lineHeight: 1.55, marginTop: '6px' }}>{V.regles}</div>
+              </details>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Charges / TEOM */}
-      {show('charges') && d.charges && (
+      {show('charges') && (d.charges || plafondsCharges(d).length > 0) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Charges / TEOM</div></div>
-          <BulletField label="" value={d.charges} full />
+          {plafondsCharges(d).length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+              {plafondsCharges(d).map((pl, i) => (
+                <div key={i} title={pl.texte || undefined} style={{ background: 'var(--accent-bg)', border: '1px solid var(--border2)', borderRadius: '10px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '3px', minWidth: '220px' }}>
+                  <span style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '.08em', color: 'var(--accent)' }}>
+                    {pl.type === 'augmentation annuelle' ? 'PLAFOND D\'AUGMENTATION ANNUELLE DES CHARGES' : 'PLAFOND DES CHARGES'}
+                  </span>
+                  <span style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text)' }}>
+                    {pl.valeur}{pl.type === 'augmentation annuelle' ? <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text2)', marginLeft: '6px' }}>par an maximum</span> : null}
+                  </span>
+                  {pl.assiette && <span style={{ fontSize: '12px', color: 'var(--text2)' }}>{pl.assiette}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {d.charges && <BulletField label="" value={d.charges} full />}
         </div>
       )}
 
@@ -7176,81 +7329,6 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
           )}
         </div>
       )}
-
-      {/* Échéancier du loyer (loyer fixe à paliers) — pour un loyer variable,
-          l'échéancier est présenté dans la section Loyer variable */}
-      {(() => {
-        const SL = structureLoyer(d)
-        if (SL.mode !== 'paliers' || !SL.echeancier.length) return null
-        return (
-          <div className="sec">
-            <div className="sec-hd"><div className="sec-label">Échéancier du loyer</div></div>
-            <div className="table-wrap">
-              <table className="indemnites-table">
-                <thead><tr><th>Du</th><th>Au</th><th style={{ textAlign: 'right' }}>Loyer annuel HT/HC</th><th>Description</th></tr></thead>
-                <tbody>
-                  {SL.echeancier.map((r, i) => (
-                    <tr key={i}>
-                      <td>{r.debut || '—'}</td><td>{r.fin || '—'}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtEur2(r.montant)}{i === SL.echeancier.length - 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}</td>
-                      <td style={{ color: 'var(--text2)' }}>{r.periode || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )
-      })()}
-
-      {/* Loyer variable (clause recette) — mode, taux, assiette, échéancier
-          (LMG / provisions par période), plancher/plafond, texte intégral replié */}
-      {d.loyer_variable && (() => {
-        const SL = structureLoyer(d)
-        const V = SL.variable || {}
-        return (
-          <div className="sec">
-            <div className="sec-hd"><div className="sec-label">Loyer variable</div></div>
-            <div className="gx" style={{ marginBottom: '10px' }}>
-              <Field label="Structure" value={MODE_LOYER_LABEL[SL.mode] || '—'} />
-              {V.mecanisme && <Field label="Mécanisme" value={V.mecanisme === 'additionnel' ? 'Additionnel : le loyer variable s\'ajoute au minimum' : 'Le plus élevé du minimum et du loyer variable'} />}
-              {V.taux && <Field label="Taux" value={V.taux} />}
-              {V.assiette && <Field label="Assiette" value={V.assiette} />}
-              {V.plancher && <Field label="Plancher" value={fmtEur(V.plancher)} />}
-              {V.plafond && <Field label="Plafond" value={fmtEur(V.plafond)} />}
-            </div>
-            {SL.echeancier.length > 0 && (
-              <div className="table-wrap" style={{ marginBottom: '10px' }}>
-                <table className="indemnites-table">
-                  <thead><tr><th>Période</th><th>Nature</th>{SL.echeancier.some(r => r.regle) && <th>Règle de calcul</th>}<th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th></tr></thead>
-                  <tbody>
-                    {SL.echeancier.map((r, i) => (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 500 }}>{r.periode || [r.debut && `à partir du ${r.debut}`, r.fin && `jusqu'au ${r.fin}`].filter(Boolean).join(' ') || '—'}</td>
-                        <td title={r.nature === 'provision' ? "Acompte versé dans l'attente du loyer définitif, puis régularisé" : (r.nature === 'minimum' ? "Montant dû quel que soit le chiffre d'affaires" : undefined)}>
-                          {NATURE_ECHEANCE_LABEL[r.nature] || r.nature}{r.a_confirmer ? ' — à confirmer par réextraction' : ''}
-                        </td>
-                        {SL.echeancier.some(x => x.regle) && <td style={{ color: 'var(--text2)' }}>{r.regle || '—'}</td>}
-                        <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                          {r.montant ? fmtEur2(r.montant) : <span style={{ fontWeight: 400, color: 'var(--text3)' }}>selon la règle</span>}
-                          {r.plancher && r.montant && r.plancher === r.montant ? <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>plancher</span> : null}
-                          {SL.mode === 'variable_lmg' && i === SL.echeancier.length - 1 && SL.echeancier.length > 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {V.regles && (
-              <details>
-                <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--accent)', fontWeight: 600 }}>Texte intégral de la clause</summary>
-                <div style={{ fontSize: '13px', color: 'var(--text2)', lineHeight: 1.55, marginTop: '6px' }}>{V.regles}</div>
-              </details>
-            )}
-          </div>
-        )
-      })()}
 
       {/* Indemnités par terme de bail — fusionne les indemnités forfaitaires
           de remise en état (indemnites_restitution) ET les indemnités dues à
@@ -8559,6 +8637,7 @@ async function reextractOne(row, onProgress) {
           if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
           if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
           if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
+          if (extracted.loyer_variable) await lireStructureLoyerVariable(extracted, base64, mediaType)
           if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
         }
       } else {
@@ -8694,6 +8773,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
               if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
               if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
+              if (extracted.loyer_variable) await lireStructureLoyerVariable(extracted, base64, mediaType)
               if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
             }
           } else {
@@ -9556,6 +9636,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
             if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
+            if (extracted.loyer_variable) await lireStructureLoyerVariable(extracted, base64, mediaType)
             if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
           }
         } else {
@@ -11623,6 +11704,7 @@ export default function App() {
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
             if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
+            if (extracted.loyer_variable) await lireStructureLoyerVariable(extracted, base64, mediaType)
             if (Array.isArray(f.indemnites_break) && f.indemnites_break.length > 0) extracted.indemnites_break = f.indemnites_break
           }
         } catch (_) { /* non bloquant */ }
