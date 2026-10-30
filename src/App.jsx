@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · durée de l’échéancier lu'
+const APP_VERSION = '21.10 · régime domaine public'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -112,7 +112,7 @@ REGLES PAR CHAMP:
   3) Si le texte renonce a des echeances nommees SANS jamais preciser explicitement la consequence (aucune date/periode de sortie mentionnee), calculer duree_ferme = 3 x (nombre de periodes triennales renoncees) + 3 annees — verifier deux fois l'arithmetique avant de repondre.
   ATTENTION DEROGATION PARTIELLE CP/CG (cas particulier, a ne pas generaliser): ce qui suit ne vaut QUE si la CP parle exclusivement d'une DUREE FERME (periode sans faculte de conge) et ne dit RIEN de la duree du bail lui-meme. Si la CP fixe la duree DU BAIL (voir regle CP/CG pour la duree totale ci-dessus), c'est la duree CP qui fait foi pour duree_totale, sans exception. Cas particulier : quand une clause CP dit "par derogation a l'article CG-X - DUREE, le Contrat est consenti pour une DUREE FERME de N annees, le PRENEUR renoncant a donner conge a l'expiration de la 3eme et de la 6eme annee" (ou formulation equivalente), cette clause CP ne deroge QUE sur le mecanisme de sortie anticipee (duree_ferme = N annees) — elle NE redefinit PAS la duree totale du bail. La duree_totale reste celle fixee par l'article CG-X vise (souvent PLUS LONGUE, ex: 12 ans), sauf si la clause CP dit explicitement autre chose sur la duree totale elle-meme. NE JAMAIS recopier la valeur de la "duree ferme" CP dans duree_totale sans avoir verifie la duree totale dans l'article CG correspondant. Exemple: CP dit "par derogation a l'article CG3 - DUREE, le Contrat est consenti pour une duree ferme de neuf (9) annees, le PRENEUR renoncant a la 3eme et 6eme annee" et CG3 dit "le Contrat est consenti pour une duree de douze (12) annees" → duree_totale=12 ans, duree_ferme=9 ans (PAS duree_totale=9 ans).
 - reconduction_tacite: si le bail prevoit qu'au-dela du terme (date_fin), le contrat se poursuit automatiquement par tacite reconduction (annee par annee ou periode similaire) jusqu'a ce qu'une partie donne conge avec un preavis. Format: {"applicable":true,"preavis":"6 mois","periodicite":"annuelle","date_limite_absolue":null}. IMPORTANT: dans ce cas, date_fin reste la date de fin du terme FERME initial (ex: fin de la 9eme annee) — NE PAS la traiter comme une fin definitive du bail, la tacite reconduction est un etat DISTINCT et POSTERIEUR qui se rajoute. date_limite_absolue: certains baux plafonnent la duree totale possible de la reconduction tacite par une clause du type "en tout etat de cause, la Convention/le Contrat ne pourra exceder N (en toutes lettres) annees et prendra automatiquement fin le [date], sans formalite". Si une telle clause EXPLICITE existe, reporter cette date exacte (format JJ/MM/AAAA) dans date_limite_absolue — c'est un plafond contractuel dur, distinct du preavis de conge habituel. Sinon (reconduction tacite sans limite de duree totale exprimee), laisser date_limite_absolue a null. null pour le champ reconduction_tacite entier si le bail prevoit un terme ferme sans reconduction automatique (bail qui s'eteint purement et simplement a date_fin).
-- type_bail: reste CONCIS — un libelle court du type de contrat (ex: "Bail commercial", "Convention d'occupation precaire", "Bail derogatoire", "Bail professionnel"). NE JAMAIS recopier la liste des articles du Code de commerce ou une citation legale complete (ex: "soumis aux articles L.145-1 a L.145-60...") meme si le bail les mentionne explicitement — ces references legales n'apportent rien a un libelle de type de contrat et doivent etre omises. EXCEPTION IMPORTANTE, A NE PAS CONFONDRE AVEC CE QUI PRECEDE: le REGIME JURIDIQUE global du contrat (Code civil vs statut des baux commerciaux du Code de commerce) N'EST PAS une "citation d'articles" a omettre — c'est une information structurante a capturer des qu'elle ressort du document, meme sous une forme discrete (ex: mention "(Code civil)" juste sous le titre du contrat en page de garde, ou clause de fond qui fonde expressement le contrat sur les articles 1104/1195 du Code civil plutot que sur le statut des baux commerciaux). Dans ce cas, l'ajouter entre parentheses a la suite du libelle court, ex: "Bail de parking (Code civil)", "Convention d'occupation precaire (Code civil)". Ne l'ajouter que si le document l'indique explicitement (titre, mention immediatement sous le titre, ou clause de fond) — ne jamais deduire ce regime du seul objet du contrat (un "bail de parking" n'est pas automatiquement "Code civil" sans indication expresse dans CE document).
+- type_bail: reste CONCIS — un libelle court du type de contrat (ex: "Bail commercial", "Convention d'occupation precaire", "Bail derogatoire", "Bail professionnel"). NE JAMAIS recopier la liste des articles du Code de commerce ou une citation legale complete (ex: "soumis aux articles L.145-1 a L.145-60...") meme si le bail les mentionne explicitement — ces references legales n'apportent rien a un libelle de type de contrat et doivent etre omises. EXCEPTION IMPORTANTE, A NE PAS CONFONDRE AVEC CE QUI PRECEDE: le REGIME JURIDIQUE global du contrat (Code civil vs statut des baux commerciaux du Code de commerce) N'EST PAS une "citation d'articles" a omettre — c'est une information structurante a capturer des qu'elle ressort du document, meme sous une forme discrete (ex: mention "(Code civil)" juste sous le titre du contrat en page de garde, ou clause qui ECARTE EXPRESSEMENT le statut des baux commerciaux — ex: \"les parties conviennent que le present bail n'est pas soumis aux articles L.145-1 et suivants du Code de commerce\" ou \"bail soumis aux seules dispositions des articles 1709 et suivants du Code civil\"). Dans ce cas, l'ajouter entre parentheses a la suite du libelle court, ex: "Bail de parking (Code civil)", "Convention d'occupation precaire (Code civil)". Ne l'ajouter que si le document l'indique explicitement (titre, mention immediatement sous le titre, ou clause de fond) — ne jamais deduire ce regime du seul objet du contrat (un "bail de parking" n'est pas automatiquement "Code civil" sans indication expresse dans CE document). ATTENTION: un bail COMMERCIAL cite tres souvent des articles du Code civil sans etre un bail civil — renonciation a l'imprevision (art. 1195), caducite (art. 1186-1187), bonne foi (art. 1104), vetuste (art. 1755), grosses reparations (art. 606), obligations du bailleur (art. 1719-1720). Ces citations ne justifient JAMAIS \"(Code civil)\" : un bail qui se refere au statut des baux commerciaux (articles L.145-1 et suivants, renouvellement, faculte triennale, indemnite d'eviction) reste \"Bail commercial\". DOMAINE PUBLIC: un contrat portant sur le domaine public (convention d'occupation du domaine public, sous-location consentie par un « occupant du domaine public », AOT, locaux dependant d'un port autonome ou d'une personne publique) a pour libelle \"Sous-location du domaine public\" ou \"Convention d'occupation du domaine public\" — JAMAIS \"(Code civil)\" ni \"Bail commercial\" : l'exclusion du statut des baux commerciaux y resulte de la domanialite publique (occupation precaire et revocable), pas d'un choix du Code civil.
 - frais_redaction_actes: si le bail (ou les CG/CP) mentionne des frais forfaitaires de redaction d'actes — typiquement une clause du type "les frais de redaction du present bail sont fixes forfaitairement a la somme de X euros HT" et/ou, separement, une clause anticipant les avenants futurs du type "les frais de redaction de chaque avenant ulterieur seront fixes forfaitairement a Y euros". Extraire TOUS les montants distincts mentionnes (souvent DEUX: un pour le bail lui-meme, un autre — generalement plus faible — prevu pour les avenants futurs). Format: [{"type":"bail","montant":"300","due_par":"Preneur"},{"type":"avenant","montant":"150","due_par":"Preneur"}]. type doit etre "bail" ou "avenant" selon ce a quoi le montant s'applique. due_par: "Preneur" ou "Bailleur" selon qui supporte les frais (souvent le Preneur). [] si aucune mention de frais de redaction d'actes.
 - date_signature: chercher SYSTEMATIQUEMENT cette date dans TOUT le document, meme quand elle n'apporte rien au calcul de date_effet/date_fin — elle sert notamment a classer chronologiquement les baux et avenants entre eux quand aucune autre date n'est disponible. Se trouve generalement en toute fin d'acte (bloc de signature "Fait a ..., le [date]", juste avant les annexes), mais peut aussi figurer sur un certificat de signature electronique separe (DocuSign, Yousign ou equivalent) si le PDF en contient un — verifier ces pages si presentes. Si les parties signent a des dates differentes (signature electronique asynchrone notamment), retenir la DERNIERE date de signature (celle qui rend l'acte definitivement conclu par toutes les parties). null UNIQUEMENT si aucune date n'est identifiable nulle part dans le document (ligne "Fait le" laissee vierge, page de signature absente du PDF fourni).
 - date_effet_condition: a remplir UNIQUEMENT quand la clause du bail definit elle-meme la date de prise d'effet par reference a un EVENEMENT FUTUR INCERTAIN (pas une date calendaire fixe) — ex: "la date de prise d'effet du Bail est fixee a la date de signature de l'Acte de Vente", "le Bail prendra effet a la date de levee de la condition suspensive de financement", "a la date de reception des travaux". Dans ce cas, date_effet DOIT rester null (aucune date calendaire n'existe reellement dans le document) mais date_effet_condition doit etre rempli pour ne jamais laisser l'information disparaitre purement et simplement. Format: {"libelle":"texte concis de l'evenement dont depend la prise d'effet, ex: Signature de l'Acte de Vente","date_limite":"jj/mm/aaaa si une date limite de realisation de cet evenement est mentionnee (souvent la meme que celle de la condition suspensive correspondante dans conditions_suspensives), sinon null"}. Si cet evenement correspond a une condition suspensive deja listee dans conditions_suspensives, reprendre EXACTEMENT le meme libelle et la meme date_limite_levee ici (coherence entre les deux champs). null si la date de prise d'effet est une date calendaire normale (le cas le plus frequent) ou deductible directement (ex: date de signature, date de mise a disposition).
@@ -963,7 +963,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
   })
   const fTot = franchiseTotals(mergeLoyerReductions(frSrc, abSrc, eff.date_effet), loyerAnnuel, rieAn)
   return {
-    date_effet: isAv ? (safeStr(raw.date_effet_avenant) || null) : (raw.date_effet || eff.date_effet || null),
+    date_effet: isAv ? (safeStr(raw.date_effet_avenant) || null) : dateEffetEnVigueur(raw, eff),
     date_fin: dateFin,
     duree_totale: duree('duree_totale'),
     duree_ferme: duree('duree_ferme'),
@@ -4284,6 +4284,10 @@ function isPublicSectorTenant(preneurStr) {
 function bailTypeLabel(typeBailStr) {
   const s = stripAccents(String(typeBailStr || '')).toLowerCase()
   if (!s) return 'Bail'
+  // domaine public d'abord : occupation « précaire et révocable », statut des
+  // baux commerciaux exclu — ni dérogatoire, ni civil (vécu : sous-location
+  // du domaine public du Port autonome de Bordeaux étiquetée « Civil »)
+  if (/domaine public|domanialite|occupation temporaire|\baot\b/.test(s)) return 'Domaine public'
   if (/derogatoire|precaire|courte duree/.test(s)) return 'Dérogatoire'
   if (/code civil|bail civil/.test(s)) return 'Civil'
   if (/professionnel/.test(s)) return 'Professionnel'
@@ -4296,11 +4300,28 @@ function bailTypeLabel(typeBailStr) {
 // style par défaut de l'étiquette).
 const BAIL_TYPE_STYLES = {
   Civil: { background: '#E6EEF8', color: '#2F5E91', border: '1px solid rgba(47,94,145,.25)' },
+  'Domaine public': { background: '#E3F1EF', color: '#1F6B60', border: '1px solid rgba(31,107,96,.25)' },
   Dérogatoire: { background: '#FAEEDA', color: '#9A6B00', border: '1px solid rgba(184,134,11,.3)' },
   Professionnel: { background: '#EFE8F6', color: '#6B4A93', border: '1px solid rgba(107,74,147,.25)' },
 }
 function bailTypeStyle(typeBailStr) {
   return BAIL_TYPE_STYLES[bailTypeLabel(typeBailStr)] || null
+}
+// RÉGIME DU BAIL à partir de TOUTES les données déjà extraites, pas du seul
+// libellé du type : les conventions sur le domaine public se reconnaissent
+// sans réextraction aux parties (« occupant du domaine public »), à la
+// domanialité publique ou à un port autonome cités dans les clauses. Indices
+// FORTS uniquement — une simple autorisation de terrasse sur la voie publique
+// dans un bail commercial ne suffit pas.
+function regimeBail(d) {
+  const lbl = bailTypeLabel(d?.type_bail)
+  if (lbl === 'Domaine public' || lbl === 'Professionnel') return lbl
+  const parties = stripAccents(`${safeStr(d?.bailleur) || ''} ${safeStr(d?.preneur) || ''} ${safeStr(d?.type_bail) || ''}`).toLowerCase()
+  let tout = ''
+  try { tout = stripAccents(JSON.stringify(d || {})).toLowerCase() } catch (_) {}
+  const fort = /occupant du domaine public|domanialite publique|convention d.occupation (temporaire )?du domaine public|autorisation d.occupation temporaire|\baot\b/
+  if (fort.test(parties) || /occupant du domaine public|domanialite publique/.test(tout)) return 'Domaine public'
+  return lbl
 }
 
 function parseYearsFromDureeText(s) {
@@ -5214,6 +5235,21 @@ function breaksDeLaClause(m) {
   if (finD) b = b.filter(x => { const t = parseFR(normalizeDate(safeStr(x))); return !t || t <= finD })
   b = [...new Map(b.map(x => { const t = parseFR(normalizeDate(safeStr(x))); return [t ? `${t.getFullYear()}-${t.getMonth()}` : x, x] })).values()]
   return b.sort((x, y) => { const a = parseFR(normalizeDate(safeStr(x))), c = parseFR(normalizeDate(safeStr(y))); return (a && c) ? a - c : 0 })
+}
+
+// PRISE D'EFFET EN VIGUEUR d'un bail — règle commune (base, exports,
+// dashboard) : la date d'origine pour un RENOUVELLEMENT (le preneur occupe
+// depuis l'origine) ; la date DÉCALÉE par un avenant quand il s'agit d'un
+// report ou d'un avancement dans le même bail (écart < 3 ans, avant
+// l'expiration d'origine — vécu : GROUPE SEB, prise d'effet avancée du
+// 15/06/2017 au 01/05/2017, restée au 15/06/2017 en base).
+function dateEffetEnVigueur(raw, eff) {
+  const o = normalizeDate(safeStr(raw?.date_effet)), n = normalizeDate(safeStr(eff?.date_effet))
+  if (!o) return n || null
+  if (!n || n === o) return o
+  const to = parseFR(o), tn = parseFR(n), finO = parseFR(normalizeDate(safeStr(raw?.date_fin))) || parseFR(computeDateFinFromDuree(o, raw?.duree_totale))
+  if (to && tn && Math.abs(tn - to) < 3 * 365 * 86400000 && (!finO || tn < finO)) return n
+  return o
 }
 
 // Breaks d'un état (bail ou état après avenants), hors échéances lues : le
@@ -10724,7 +10760,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             const eff = (!isAv && Array.isArray(row.avenants) && row.avenants.length > 0) ? mergedBailData(row) : d
             // Affichage : la date d'effet du bail si elle existe (un renouvellement
             // ne la réécrit pas) ; sinon celle confirmée par avenant (CS, BEFA).
-            const effectiveDateEffet = (!isAv && d.date_effet) ? d.date_effet : eff.date_effet
+            const effectiveDateEffet = !isAv ? (dateEffetEnVigueur(d, eff) || eff.date_effet) : eff.date_effet
             const normalizedDateFin = normalizeDate(safeStr(eff.date_fin))
             const cleanDateFin = (normalizedDateFin && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizedDateFin))
               ? normalizedDateFin
@@ -10900,9 +10936,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
                 {/* Type */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px', flexDirection: 'row', gap: '4px', flexWrap: 'wrap' }}>
-                  <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`} style={!isAv ? (bailTypeStyle(d.type_bail) || undefined) : undefined}
+                  <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`} style={!isAv ? (BAIL_TYPE_STYLES[regimeBail(d)] || undefined) : undefined}
                     title={!isAv && d.type_bail ? d.type_bail : undefined}>
-                    {isAv ? 'Avenant' : bailTypeLabel(d.type_bail)}
+                    {isAv ? 'Avenant' : regimeBail(d)}
                   </span>
                   {!isAv && (() => {
                     const r = riskMap.get(row.id)
@@ -12651,13 +12687,13 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                   Extrait le {formatExtractionDate(activeItem.data._extracted_at)}
                 </div>
               )}
-              <div className="result-tag" style={activeItem.document_type !== 'avenant' ? (bailTypeStyle(activeItem.data?.type_bail) || undefined) : undefined}>
+              <div className="result-tag" style={activeItem.document_type !== 'avenant' ? (BAIL_TYPE_STYLES[regimeBail(activeItem.data)] || undefined) : undefined}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
                 </svg>
                 {activeItem.document_type === 'avenant' ? 'Avenant' : (() => {
-                  const l = bailTypeLabel(activeItem.data?.type_bail)
-                  return l === 'Bail' ? 'Bail' : `Bail ${l.toLowerCase()}`
+                  const l = regimeBail(activeItem.data)
+                  return l === 'Bail' ? 'Bail' : (l === 'Domaine public' ? 'Domaine public' : `Bail ${l.toLowerCase()}`)
                 })()}
               </div>
               <div className="result-title">{resultTitle}</div>
