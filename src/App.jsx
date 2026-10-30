@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · redevance RIE'
+const APP_VERSION = '21.10 · emplacements en m²'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -149,6 +149,8 @@ REGLES PAR CHAMP:
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
   STATIONNEMENT — TOTAL ET SOUS-CATEGORIES: un total suivi de « dont » / « comprenant » INCLUT toutes les sous-categories citees (PMR, places electriques, places reservees…) : elles detaillent le total, elles ne s'y ajoutent pas et ne s'en retranchent pas. Ventiler surfaces_detail (lignes Stationnement) par LOCALISATION ou par PRIX uniquement, et la somme des lignes doit egaler le total annonce. Ex: « 99 emplacements dont 2 places reservees au local de sprinklage, et comprenant 2 PMR en sous-sol, 16 places pour vehicules electriques en sous-sol et 3 PMR en exterieur » → parking_nb_places = \"99 places (96 en sous-sol + 3 en exterieur)\" ; lignes : Stationnement sous-sol 96, Stationnement exterieur 3 — JAMAIS 99 − 16 = 83.
   DEUX-ROUES: les places pour deux-roues / velos / motos ont leur propre ligne surfaces_detail avec categorie \"Stationnement deux-roues\" (jamais confondues avec les places voitures), et parking_nb_places les distingue : ex \"42 places voitures + 9 places deux-roues\".
+  EMPLACEMENTS EXPRIMES EN M²: « 23 m² d'emplacements 2 roues » est une SURFACE, pas un nombre de places : ligne \"Stationnement deux-roues\" avec surface_m2 = \"23 m²\" (garder l'unite m² dans la valeur) — jamais 23 places.
+  REPARTITION PAR NUMEROS: quand un total d'emplacements est suivi de leurs numeros repartis entre batiments, compter les numeros pour ventiler (« 49, 58 a 62, 71, 72 » = 1 + 5 + 2 = 8 places) et verifier que la somme egale le total annonce. Ex: « 9 emplacements en sous-sol numerotes 49, 58 a 62, 71, 72 dans le Batiment B et 55 dans le Batiment C » → Batiment B : 8 places, Batiment C : 1 place (total 9) — jamais 9 + 1.
 - depot_garantie_montant / depot_garantie_duree_mois / depot_garantie: depot_garantie_montant = montant chiffre du depot de garantie classique SI le bail l'exprime en euros (montant fixe ou resultant d'un calcul deja fait dans le texte). depot_garantie_duree_mois: SEPAREMENT, si le bail exprime (aussi ou uniquement) ce depot en nombre de mois de loyer (formulation frequente: "depot de garantie egal a X mois de loyer HT/HC", "correspondant a X mois de loyer principal"), isoler ce nombre ici au format court, ex: "3 mois de loyer HT/HC". Les deux champs montant et duree_mois peuvent coexister (certains baux donnent les deux) ou n'exister que l'un des deux. ATTENTION CAS FREQUENT: quand la clause dit que le depot de garantie est SUBSTITUE/REMPLACE par une GAPD ("le Preneur substitue au depot de garantie une garantie autonome a premiere demande correspondant a X mois de loyer"), le nombre de mois qui suit appartient a la GAPD (gapd_duree_mois), PAS au depot de garantie classique — laisser depot_garantie_montant et depot_garantie_duree_mois a null dans ce cas, meme si "X mois" apparait dans la meme phrase que "depot de garantie". depot_garantie: texte des modalites completes (conditions de restitution, indexation du depot, mention de la substitution le cas echeant, etc.).
 - gapd_montant / gapd: si le bail prevoit, EN COMPLEMENT du depot de garantie classique (depot_garantie_montant/depot_garantie), une GARANTIE AUTONOME A PREMIERE DEMANDE (GAPD) — une garantie bancaire distincte ou complementaire, souvent mobilisable "a premiere demande" independamment de toute contestation, generalement mise en place par un etablissement bancaire au profit du Bailleur. NE PAS confondre avec le simple depot de garantie (qui reste dans depot_garantie_montant/depot_garantie) ni avec un cautionnement personnel/solidaire (qui va dans le champ garant). gapd_montant: montant chiffre brut de la GAPD si mentionne. gapd: texte des modalites completes (etablissement emetteur si nomme, duree de validite, conditions de mobilisation, articulation avec le depot de garantie classique). null pour les deux champs si aucune GAPD n'est mentionnee — la tres grande majorite des baux n'en ont pas, ne pas en deduire une simplement parce qu'un depot de garantie classique existe. RAPPEL: des que le champ gapd est renseigne (non-null), penser a inclure sa page dans _pages (cle "gapd") comme pour tout autre champ simple renseigne — cette clause est facile a oublier car souvent absente, ne pas la sauter une fois qu'elle est bien presente.
 - gapd_duree_mois: UNIQUEMENT si une GAPD existe (voir gapd_montant/gapd ci-dessus). Isole le nombre de mois de loyer que represente le montant de la GAPD, quand le bail l'exprime ainsi (formulation frequente: "garantie autonome a premiere demande d'un montant egal a X mois de loyer HT/HC", "correspondant a X mois de loyer principal", ou "le Preneur substitue au depot de garantie une GAPD correspondant a X mois de loyer" — dans ce dernier cas de substitution, X mois va ICI, pas dans depot_garantie_duree_mois). Format court, ex: "3 mois de loyer HT/HC" ou juste "3 mois" si l'assiette n'est pas precisee. null si la GAPD est exprimee uniquement en montant fixe sans reference a un nombre de mois de loyer, ou si aucune GAPD n'existe.
@@ -1012,7 +1014,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
       } catch (_) { return [] }
     })(),
     surface_totale_louee: surfaceTotaleLouee(d).m2,
-    stationnement: placesStationnement(d).map(c => ({ nb: c.nb, prix_unitaire: c.prix, deux_roues: c.deuxRoues || undefined, localisation: c.localisation, corrige: c.corrige || undefined })),
+    stationnement: placesStationnement(d).map(c => ({ nb: c.nb, m2: c.m2 || undefined, prix_unitaire: c.prix, deux_roues: c.deuxRoues || undefined, localisation: c.localisation, corrige: c.corrige || undefined })),
     charges_plafonds: plafondsCharges(d).map(x => ({ type: x.type, valeur: x.valeur, assiette: x.assiette })),
     ventilation_loyer: ventilation,
     surface_totale_ventilee: Math.round(V.total * 100) / 100, // RIE et stationnement exclus, comme le tableau
@@ -1164,7 +1166,7 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
     ...breakVals,
     v(d.conditions_break),
     (VV.surface_totale_louee ?? surf(d.surface_totale_m2)),
-    (Array.isArray(VV.stationnement) && VV.stationnement.length ? VV.stationnement.map(c => `${c.nb} place${c.nb > 1 ? 's' : ''}${c.deux_roues ? ' deux-roues' : ''}`).join(' + ') : (parseParkingShort(d.parking_nb_places) || '')),
+    (Array.isArray(VV.stationnement) && VV.stationnement.length ? VV.stationnement.map(c => c.m2 ? `${c.m2} m² d'emplacements${c.deux_roues ? ' deux-roues' : ''}` : `${c.nb} place${c.nb > 1 ? 's' : ''}${c.deux_roues ? ' deux-roues' : ''}`).join(' + ') : (parseParkingShort(d.parking_nb_places) || '')),
     (Array.isArray(VV.stationnement) && VV.stationnement.length ? (VV.stationnement.length === 1 ? (VV.stationnement[0].prix_unitaire ?? '') : VV.stationnement.map(c => `${c.prix_unitaire ?? '—'} €${c.deux_roues ? ' (deux-roues)' : ''}`).join(' ; ')) : (pkUnit || '')),
     v(d.rie),
     ...surfVals,
@@ -3059,12 +3061,12 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   // 83 + 3 (99 − 16) ; avec 96 + 3, la ventilation retombe sur 1 198 680 €.
   {
     const totalAnnonce = Math.round(lireNombreSurface(String(parkingNbPlaces || '').split('(')[0]))
-    const sommeNb = parkComputed.reduce((t, p) => t + (p.nb || 0), 0)
+    const sommeNb = parkComputed.filter(p => !estEnM2(p.row)).reduce((t, p) => t + (p.nb || 0), 0)
     // manque > 0 : places manquantes ; manque < 0 : places en trop (vécu :
     // 9 annoncées, lignes 9 + 1) — même garde-fou dans les deux sens
     const manque = totalAnnonce > 0 ? totalAnnonce - Math.round(sommeNb) : 0
     if (declaredTotal > 0 && manque !== 0 && mainLoyerSum > 0) {
-      const princ = parkComputed.filter(p => p.unit && p.loyerSrc !== 'extrait' && p.nb > 0 && p.nb + manque > 0).sort((a, b) => b.nb - a.nb)[0]
+      const princ = parkComputed.filter(p => !estEnM2(p.row) && p.unit && p.loyerSrc !== 'extrait' && p.nb > 0 && p.nb + manque > 0).sort((a, b) => b.nb - a.nb)[0]
       if (princ) {
         const avant = mainLoyerSum + parkComputed.reduce((t, p) => t + (p.loyer || 0), 0)
         const apres = avant + princ.unit * manque
@@ -3215,7 +3217,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                     {hasBat && <td style={{ fontWeight: 500 }}>{safeStr(row.batiment) || '—'}</td>}
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
                     <td style={{ textAlign: 'right' }}>
-                      {nb > 0 ? <span title={nbCorrige ? `Corrigé : ${nbAvant} places extraites — le nombre total de places annoncé et le loyer du bail confirment ${nb}` : undefined} style={nbCorrige ? { fontStyle: 'italic', cursor: 'help' } : undefined}>{nbCorrige ? '≈ ' : ''}{nb} pl.</span> : '—'}
+                      {nb > 0 && estEnM2(row) ? fmtSurface(nb) : nb > 0 ? <span title={nbCorrige ? `Corrigé : ${nbAvant} places extraites — le nombre total de places annoncé et le loyer du bail confirment ${nb}` : undefined} style={nbCorrige ? { fontStyle: 'italic', cursor: 'help' } : undefined}>{nbCorrige ? '≈ ' : ''}{nb} pl.</span> : '—'}
                     </td>
                     {showRent && <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
                       {unit ? `${unit.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : '—'}{unit && mark(unitSrc)}
@@ -3414,6 +3416,9 @@ function plafondsCharges(d) {
   return out
 }
 
+// Ligne de stationnement exprimée en SURFACE (« 23 m² d'emplacements 2 roues »)
+const estEnM2 = r => /m²|m2\b/i.test(String(r?.surface_m2 || '')) || /^m/i.test(safeStr(r?.unite) || '')
+
 // PLACES DE STATIONNEMENT PAR CATÉGORIE — à partir des lignes de la
 // ventilation (une entrée par ligne : nombre, prix unitaire réel, deux-roues
 // ou non), au lieu d'un nombre extrait et d'un prix moyen trompeur (vécu : 42
@@ -3427,13 +3432,18 @@ function placesStationnement(d) {
   const V = computeVentilation(surfaces, d.parking_nb_places, d.loyer_signature_montant)
   const lignes = V.parkComputed.filter(p => p.nb > 0)
   if (!lignes.length) return []
+  const enM2 = lignes.filter(p => estEnM2(p.row))
+  const places = lignes.filter(p => !estEnM2(p.row))
   const txt = r => stripAccents(`${safeStr(r.categorie) || ''} ${safeStr(r.typologie) || ''} ${safeStr(r.niveau) || ''} ${safeStr(r.localisation) || ''} ${safeStr(r.description) || ''}`).toLowerCase()
-  const prixPrinc = Math.max(0, ...lignes.map(p => p.unit || 0))
-  return lignes.map(p => ({
-    nb: p.nb, prix: p.unit || null, localisation: safeStr(p.row.niveau || p.row.localisation) || null,
-    deuxRoues: RE_DEUX_ROUES.test(txt(p.row)) || (!!p.unit && prixPrinc > 0 && p.unit < prixPrinc / 3 && lignes.length > 1),
-    corrige: !!p.nbCorrige,
-  }))
+  const prixPrinc = Math.max(0, ...places.map(p => p.unit || 0))
+  return [
+    ...places.map(p => ({
+      nb: p.nb, prix: p.unit || null, localisation: safeStr(p.row.niveau || p.row.localisation) || null,
+      deuxRoues: RE_DEUX_ROUES.test(txt(p.row)) || (!!p.unit && prixPrinc > 0 && p.unit < prixPrinc / 3 && places.length > 1),
+      corrige: !!p.nbCorrige,
+    })),
+    ...enM2.map(p => ({ nb: null, m2: p.nb, prix: p.unit || null, localisation: safeStr(p.row.niveau || p.row.localisation) || null, deuxRoues: RE_DEUX_ROUES.test(txt(p.row)), corrige: false })),
+  ]
 }
 
 // SURFACE D'UNE LIGNE (locaux) : la surface extraite, sauf si elle contredit
@@ -4495,7 +4505,7 @@ function auditBail(row) {
     // deux-roues (vécu : 42 voitures + 9 deux-roues → fausse alerte 42 ≠ 51)
     const catsQ = placesStationnement(d)
     const totalTxt = stripAccents(String(d.parking_nb_places || '')).toLowerCase()
-    const voitures = RE_DEUX_ROUES.test(totalTxt) ? catsQ : catsQ.filter(c => !c.deuxRoues)
+    const voitures = (RE_DEUX_ROUES.test(totalTxt) ? catsQ : catsQ.filter(c => !c.deuxRoues)).filter(c => c.nb)
     const lignes = voitures.map(c => ({ surface_m2: c.nb }))
     const somme = voitures.reduce((t, c) => t + (c.nb || 0), 0)
     if (total > 0 && lignes.length && somme > 0 && Math.abs(total - somme) >= 1) issues.push({
@@ -7021,7 +7031,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                             {cats.map((c, i) => (
                               <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
-                                <span>{c.corrige ? '≈ ' : ''}{c.nb} place{c.nb > 1 ? 's' : ''}{c.deuxRoues ? ' deux-roues' : ''}</span>
+                                <span>{c.m2 ? `${fmtSurface(c.m2)} d'emplacements${c.deuxRoues ? ' deux-roues' : ''}` : `${c.corrige ? '≈ ' : ''}${c.nb} place${c.nb > 1 ? 's' : ''}${c.deuxRoues ? ' deux-roues' : ''}`}</span>
                                 {c.prix ? <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--text2)' }}>{c.prix.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} €/place/an</span> : null}
                                 {cats.length > 1 && c.localisation ? <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text3)' }}>{c.localisation}</span> : null}
                               </div>
