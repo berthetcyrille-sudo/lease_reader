@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · tri multiple 2'
+const APP_VERSION = '21.10 · tri multiple 3'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -9926,8 +9926,15 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       if (!avMap[pid]) avMap[pid] = []
       avMap[pid].push(r)
     })
-    const compareSelon = (key, dir, a, b) => {
-      if (key === 'extraction') { const c = getExtractedAt(a).localeCompare(getExtractedAt(b)); return dir === 'asc' ? c : -c }
+    // Date d'extraction : à la seconde quand c'est le dernier critère ; AU JOUR
+    // quand un autre critère la suit — sinon, aucune égalité possible, et le
+    // critère suivant (ex. loyer) ne réorganiserait jamais rien.
+    const jourLocal = iso => { if (!iso) return ''; const t = new Date(iso); return isNaN(t) ? String(iso).slice(0, 10) : `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}` }
+    const compareSelon = (key, dir, a, b, auJour = false) => {
+      if (key === 'extraction') {
+        const xa = auJour ? jourLocal(getExtractedAt(a)) : getExtractedAt(a), xb = auJour ? jourLocal(getExtractedAt(b)) : getExtractedAt(b)
+        const c = xa.localeCompare(xb); return dir === 'asc' ? c : -c
+      }
       if (key === 'loyer') {
         const la = getLoyer(a), lb = getLoyer(b)
         if (la === null && lb === null) return 0
@@ -9939,7 +9946,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       return dir === 'asc' ? c : -c
     }
     bails.sort((a, b) => {
-      for (const t of sorts) { const c = compareSelon(t.key, t.dir, a, b); if (c) return c }
+      for (let k = 0; k < sorts.length; k++) { const t = sorts[k]; const c = compareSelon(t.key, t.dir, a, b, k < sorts.length - 1); if (c) return c }
       return 0
     })
     // Tri par loyer : classement GLOBAL des baux, tous immeubles confondus
@@ -10322,7 +10329,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             <span key={t.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '999px', padding: '3px 6px 3px 10px' }}>
               <button type="button" onClick={() => setSorts(prev => prev.map(x => x.key === t.key ? { ...x, dir: x.dir === 'asc' ? 'desc' : 'asc' } : x))}
                 title="Inverser le sens" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text)', font: 'inherit' }}>
-                {sorts.length > 1 ? `${i + 1}. ` : ''}{SORT_LABELS[t.key]} {t.dir === 'asc' ? '↑' : '↓'}
+                {sorts.length > 1 ? `${i + 1}. ` : ''}{SORT_LABELS[t.key]}{t.key === 'extraction' && i < sorts.length - 1 ? ' (au jour)' : ''} {t.dir === 'asc' ? '↑' : '↓'}
               </button>
               <button type="button" aria-label={`Retirer le tri ${SORT_LABELS[t.key]}`} title="Retirer ce tri"
                 onClick={() => setSorts(prev => { const n = prev.filter(x => x.key !== t.key); return n.length ? n : [{ key: 'actif', dir: 'asc' }] })}
