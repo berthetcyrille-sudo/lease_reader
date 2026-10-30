@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · fichiers sources manquants'
+const APP_VERSION = '21.10 · tri multiple 2'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -9251,14 +9251,18 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const triParDefaut = sorts.length === 1 && sorts[0].key === 'actif' && sorts[0].dir === 'asc'
   const rangTri = key => sorts.findIndex(x => x.key === key) + 1
   const sensTri = key => sorts.find(x => x.key === key)?.dir || 'asc'
+  // Clic sur une colonne : déjà triée → inverse son sens ; sinon AJOUTE un
+  // critère après ceux actifs (depuis le tri par défaut, le remplace).
+  // Maj+clic : nouveau tri sur cette seule colonne.
   function clicTri(key, e) {
-    const multi = !!(e && (e.shiftKey || e.metaKey || e.ctrlKey))
+    const nouveau = !!(e && (e.shiftKey || e.metaKey || e.ctrlKey))
     setSorts(prev => {
+      const parDefaut = prev.length === 1 && prev[0].key === 'actif' && prev[0].dir === 'asc'
       const i = prev.findIndex(x => x.key === key)
-      const inv = x => ({ ...x, dir: x.dir === 'asc' ? 'desc' : 'asc' })
-      if (multi) return i >= 0 ? prev.map((x, j) => j === i ? inv(x) : x) : [...prev, { key, dir: SORT_DEFAULT_DIR[key] }]
-      if (i === 0) return [inv(prev[0]), ...prev.slice(1)]
-      return [{ key, dir: SORT_DEFAULT_DIR[key] }]
+      if (nouveau) return [{ key, dir: i >= 0 && prev.length === 1 ? (prev[0].dir === 'asc' ? 'desc' : 'asc') : SORT_DEFAULT_DIR[key] }]
+      if (i >= 0) return prev.map((x, j) => j === i ? { ...x, dir: x.dir === 'asc' ? 'desc' : 'asc' } : x)
+      if (parDefaut) return [{ key, dir: SORT_DEFAULT_DIR[key] }]
+      return [...prev, { key, dir: SORT_DEFAULT_DIR[key] }]
     })
   }
   const [editingActif, setEditingActif] = useState(null) // bail id
@@ -10335,14 +10339,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           {!triParDefaut && (
             <button type="button" className="btn" onClick={() => setSorts([{ key: 'actif', dir: 'asc' }])} style={{ fontSize: '11.5px', padding: '3px 10px' }}>Réinitialiser</button>
           )}
-          <span style={{ color: 'var(--text3)', fontSize: '11px' }}>Maj+clic sur une colonne pour ajouter un critère</span>
+          <span style={{ color: 'var(--text3)', fontSize: '11px' }}>Clic sur une colonne : ajoute un critère (ou inverse son sens) · Maj+clic : trier sur cette seule colonne</span>
         </div>
       )}
       {!!filtered.length && (
         <div className="dash-thead">
           <div className="dash-th" style={{ gridColumn: '1', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-              title="Trier par actif — Maj+clic pour l'ajouter comme critère supplémentaire"
+              title="Trier par actif — un clic ajoute ce critère, Maj+clic trie sur cette seule colonne"
               onClick={e => clicTri('actif', e)}>
               Actif / Document
               <SortIndicator active={rangTri('actif') > 0} dir={sensTri('actif')} rank={sorts.length > 1 ? rangTri('actif') : null} />
@@ -10356,7 +10360,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             </span>
           </div>
           <div className="dash-th" style={{ gridColumn: '2', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
-            title="Trier par preneur — Maj+clic pour l'ajouter comme critère supplémentaire"
+            title="Trier par preneur — un clic ajoute ce critère, Maj+clic trie sur cette seule colonne"
             onClick={e => clicTri('preneur', e)}>
             Preneur
             <SortIndicator active={rangTri('preneur') > 0} dir={sensTri('preneur')} rank={sorts.length > 1 ? rangTri('preneur') : null} />
