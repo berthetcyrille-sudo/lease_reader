@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · montants au centime'
+const APP_VERSION = '21.10 · réextraire bail et avenants'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -11725,6 +11725,44 @@ export default function App() {
     }
   }
 
+  // Réextraction du BAIL ET DE SES AVENANTS, dans l'ordre : le bail d'abord,
+  // puis chaque avenant par ordre chronologique — chacun relit en base le
+  // calendrier issu du précédent (reextractOne charge le bail et les autres
+  // avenants au moment où il démarre).
+  async function reextractBailEtAvenants(bailRow) {
+    const bail = history.find(b => b.id === bailRow.id) || bailRow
+    const avenants = [...(bail.avenants || [])].filter(a => a.storage_path && !a.data?._archived).sort(compareAvenants)
+    const total = 1 + avenants.length
+    if (!window.confirm(`Réextraire le bail et ses ${avenants.length} avenant${avenants.length > 1 ? 's' : ''} (${total} documents) ?\n\nLe bail est réextrait d'abord, puis chaque avenant dans l'ordre chronologique. Les données actuelles seront remplacées, y compris les corrections manuelles.\n\nCompter environ 1 à 2 minutes par document.`)) return
+    setFicheReextractMsg(null)
+    const nomBail = bail.data?.immeuble || bail.data?.adresse || bail.file_name
+    const warn = e => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    const echecs = []
+    try {
+      const docs = [bail, ...avenants]
+      for (let i = 0; i < docs.length; i++) {
+        const doc = docs[i]
+        const libelle = i === 0 ? `${nomBail} — bail (1/${total})` : `${nomBail} — ${doc.file_name} (${i + 1}/${total})`
+        setFicheReextract({ label: libelle, state: 'downloading' })
+        let res
+        try {
+          res = await reextractOne(doc, (state, current, tot) => {
+            setFicheReextract(prev => ({ ...prev, state, progCurrent: current ?? null, progTotal: tot ?? null }))
+          })
+        } catch (e) { res = { success: false, error: e.message || String(e) } }
+        if (!res?.success) echecs.push(`${i === 0 ? 'bail' : doc.file_name} : ${res?.error || 'erreur'}`)
+      }
+    } finally {
+      window.removeEventListener('beforeunload', warn)
+      setFicheReextract(null)
+    }
+    await loadHistory()
+    setFicheReextractMsg(echecs.length
+      ? { type: 'error', text: `Réextraction terminée avec ${echecs.length} échec${echecs.length > 1 ? 's' : ''} sur ${total} documents — ${echecs.join(' ; ')}` }
+      : { type: 'success', text: `Bail et ${avenants.length} avenant${avenants.length > 1 ? 's' : ''} réextraits avec succès (${total} documents, dans l'ordre chronologique).` })
+  }
+
   async function recomputeExitsWithDate(row, dateEffetStr, baseData) {
     setExitsRecalc({ id: row.id, status: 'running' })
     try {
@@ -12205,6 +12243,16 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                       <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                     </svg>
                     Réextraire
+                  </button>
+                )}
+                {activeItem.storage_path && activeItem.document_type === 'bail' && ((history.find(b => b.id === activeItem.id)?.avenants || activeItem.avenants || []).filter(a => a.storage_path && !a.data?._archived).length > 0) && (
+                  <button className="btn" disabled={!!ficheReextract}
+                    onClick={() => reextractBailEtAvenants(activeItem)}
+                    title="Réextraire le bail puis chacun de ses avenants, dans l'ordre chronologique (remplace les données actuelles, y compris les corrections manuelles)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                    </svg>
+                    Réextraire le bail et ses avenants
                   </button>
                 )}
                 {avNav?.prev && (
