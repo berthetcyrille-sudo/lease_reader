@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · montant franchise : durée d’abord'
+const APP_VERSION = '21.10 · redevance RIE'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2918,12 +2918,27 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   // vide ou égale au total des autres locaux. Une ligne "RIE" portant une
   // surface PROPRE et différente (ex: un lot de 1 024 m² au 1er étage) est une
   // vraie surface louée, mal catégorisée — elle compte dans le total.
-  const surfOf = r => isPark(r) ? lireNombreSurface(r.surface_m2) : surfaceLigne(r, safe)
+  // RIE : jamais de recalcul loyer ÷ prix (traitement propre de la redevance)
+  const surfOf = r => (isPark(r) || isRieLabel(r)) ? lireNombreSurface(r.surface_m2) : surfaceLigne(r, safe)
   const othersSurf = safe.filter(r => !isRieLabel(r) && !isPark(r)).reduce((t, r) => t + surfOf(r), 0)
+  // Surfaces de référence d'une redevance RIE : l'ensemble des locaux, ou
+  // une catégorie (vécu : redevance sur les seuls bureaux, archives exclues)
+  const surfacesParCategorie = (() => {
+    const g = {}
+    safe.filter(r => !isRieLabel(r) && !isPark(r)).forEach(r => { const k = stripAccents(String(r.categorie || r.typologie || '')).toLowerCase().trim(); g[k] = (g[k] || 0) + surfOf(r) })
+    return Object.values(g)
+  })()
   const isRie = r => {
     if (!isRieLabel(r)) return false
-    const sv = surfOf(r)
-    return !sv || !othersSurf || Math.abs(sv - othersSurf) <= Math.max(2, othersSurf * 0.03)
+    // surface de la redevance : extraite, à défaut redevance ÷ prix au m²
+    const L = parseAmount(r.loyer_annuel), P = parseAmount(r.prix_unitaire)
+    const sv = surfOf(r) || (L && P ? L / P : 0)
+    if (!sv || !othersSurf) return true
+    const proche = ref => Math.abs(sv - ref) <= Math.max(2, ref * 0.03)
+    if (proche(othersSurf) || surfacesParCategorie.some(proche)) return true
+    // redevance ÷ prix retombe sur une surface de référence → redevance
+    if (L && P && (proche(othersSurf) || surfacesParCategorie.some(ref => Math.abs(L / P - ref) <= Math.max(2, ref * 0.03)))) return true
+    return false
   }
   const isMiscatRie = r => isRieLabel(r) && !isRie(r)
   const mainRows = safe.filter(r => !isPark(r))
@@ -2938,7 +2953,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   const unitPrice = r => {
     if (r.prix_unitaire) return parseAmount(r.prix_unitaire)
     const loyer = parseAmount(r.loyer_annuel)
-    const surf  = surfaceLigne(r, safe)
+    const surf  = surfOf(r)
     // Only calculate if BOTH are explicitly provided
     if (loyer !== null && loyer > 0 && surf > 0) return arrondi2(loyer / surf)
     return null // Cannot calculate - don't show
@@ -2947,11 +2962,11 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
     const explicit = parseAmount(r.loyer_annuel)
     if (explicit) return { value: explicit, computed: false }
     const up = unitPrice(r)
-    const surf = surfaceLigne(r, safe)
+    const surf = surfOf(r)
     if (up && surf > 0) return { value: up * surf, computed: true }
     return { value: null, computed: false }
   }
-  const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + surfaceLigne(r, safe), 0)
+  const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + surfOf(r), 0)
   // Lignes complétées, locaux et stationnement :
   // - prix extrait, sinon déduit du loyer de la ligne ; loyer extrait, sinon
   //   prix × quantité (surface ou nombre de places) — marqués "calcule" ;
@@ -2961,7 +2976,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   //   global porte sur une seule composante (30 000 € pour 240 m² de bureaux
   //   → 125 €/m²), ou stationnement au prix non extrait.
   const mainComputed = mainRows.map(row => {
-    const qty = surfaceLigne(row, safe)
+    const qty = surfOf(row)
     const surfaceCorrigee = Math.abs(qty - lireNombreSurface(row.surface_m2)) > 0.01
     const explicitLoyer = parseAmount(row.loyer_annuel)
     const up = unitPrice(row)
