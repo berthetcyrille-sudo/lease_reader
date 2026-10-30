@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · sorties périmées écartées 2'
+const APP_VERSION = '21.10 · étiquette sur une ligne'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -10977,7 +10977,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
                 {/* Type */}
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px', flexDirection: 'row', gap: '4px', flexWrap: 'wrap' }}>
-                  <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`} style={!isAv ? (BAIL_TYPE_STYLES[regimeBail(d)] || undefined) : undefined}
+                  <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`} style={{ whiteSpace: 'nowrap', ...(!isAv ? (BAIL_TYPE_STYLES[regimeBail(d)] || {}) : {}) }}
                     title={!isAv && d.type_bail ? d.type_bail : undefined}>
                     {isAv ? 'Avenant' : (regimeBail(d) === 'Domaine public' ? 'Dom. public' : regimeBail(d))}
                   </span>
