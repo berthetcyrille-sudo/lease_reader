@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · réextraire bail et avenants'
+const APP_VERSION = '21.10 · choix de réextraction 2'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -8179,6 +8179,49 @@ function PortfolioChatModal({ history, onClose, onSelect }) {
 
 // Fenêtre de progression d'une réextraction — plein écran et bloquante (rien
 // n'est cliquable dessous), partagée par le dashboard et la fiche.
+// Enchaînement commun (fiche et dashboard) : le bail, puis chaque avenant par
+// ordre chronologique — chacun relit en base le calendrier issu du précédent.
+// onEtape(libelle, state, current, total) alimente la fenêtre de progression.
+async function reextraireBailEtAvenantsSequence(bail, onEtape) {
+  const avenants = [...(bail.avenants || [])].filter(a => a.storage_path && !a.data?._archived).sort(compareAvenants)
+  const docs = [bail, ...avenants]
+  const nomBail = bail.data?.immeuble || bail.data?.adresse || bail.file_name
+  const echecs = []
+  for (let i = 0; i < docs.length; i++) {
+    const doc = docs[i]
+    const libelle = i === 0 ? `${nomBail} — bail (1/${docs.length})` : `${nomBail} — ${doc.file_name} (${i + 1}/${docs.length})`
+    onEtape(libelle, 'downloading', null, null)
+    let res
+    try {
+      res = await reextractOne(doc, (state, current, tot) => onEtape(libelle, state, current ?? null, tot ?? null))
+    } catch (e) { res = { success: false, error: e.message || String(e) } }
+    if (!res?.success) echecs.push(`${i === 0 ? 'bail' : doc.file_name} : ${res?.error || 'erreur'}`)
+  }
+  return { total: docs.length, nbAvenants: avenants.length, echecs }
+}
+
+function ChoixReextractionModal({ nbAvenants, onBailSeul, onBailEtAvenants, onCancel }) {
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(20,16,12,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="choix-reextract-titre" onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--surface)', borderRadius: '12px', padding: '22px 24px', width: '100%', maxWidth: '440px', boxShadow: '0 12px 40px rgba(0,0,0,.25)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div id="choix-reextract-titre" style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>Réextraire</div>
+        <div style={{ fontSize: '13px', color: 'var(--text2)', lineHeight: 1.5 }}>
+          Les données actuelles seront remplacées, y compris les corrections manuelles (date d'effet saisie, surface, nom de substitution…).
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button className="btn" style={{ justifyContent: 'center' }} onClick={onBailSeul}>Seulement le bail</button>
+          <button className="btn primary" style={{ justifyContent: 'center' }} onClick={onBailEtAvenants}>Le bail et ses avenants ({nbAvenants})</button>
+        </div>
+        <div style={{ fontSize: '11.5px', color: 'var(--text3)', lineHeight: 1.45 }}>
+          Avec les avenants, le bail est réextrait d'abord, puis chaque avenant dans l'ordre chronologique — compter 1 à 2 minutes par document.
+        </div>
+        <button className="btn" onClick={onCancel} style={{ alignSelf: 'flex-end', fontSize: '12.5px' }}>Annuler</button>
+      </div>
+    </div>
+  )
+}
+
 function ReextractProgressModal({ progress }) {
   return (
     <div style={{
@@ -9056,6 +9099,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   const [avenantBatchProgress, setAvenantBatchProgress] = useState(null) // { bailLabel, current, total, fileName, state } — bloquant, pour l'ajout d'avenant(s)
   const [attachTarget, setAttachTarget] = useState(null) // document en attente d'attache de fichier source
   const [confirmReextract, setConfirmReextract] = useState(null) // row en attente de confirmation de réextraction
+  const [choixReextractDash, setChoixReextractDash] = useState(null) // { row, nbAvenants } : bail seul / bail et avenants
   const [confirmAttachReextract, setConfirmAttachReextract] = useState(null) // row sans fichier source, en attente de confirmation attache+réextraction
   const [showBulkAttach, setShowBulkAttach] = useState(false)
   const [showBulkReextract, setShowBulkReextract] = useState(false)
@@ -9590,6 +9634,22 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     showToast(echecs ? 'error' : 'success', `Échéanciers relus : ${faits - echecs}/${faits}${echecs ? ` — ${echecs} échec${echecs > 1 ? 's' : ''} (document absent ou illisible), voir la console` : ''}.`)
   }
 
+  async function reextractBailEtAvenantsDash(bailRow) {
+    const bail = tree.find(b => b.id === bailRow.id) || bailRow
+    const warn = e => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    let r
+    try {
+      r = await reextraireBailEtAvenantsSequence(bail, (label, state, progCurrent, progTotal) => setReextractProgress({ label, state, progCurrent, progTotal }))
+    } finally {
+      window.removeEventListener('beforeunload', warn)
+      setReextractProgress(null)
+    }
+    onRefresh?.()
+    if (r.echecs.length) showToast('error', `Réextraction terminée avec ${r.echecs.length} échec${r.echecs.length > 1 ? 's' : ''} sur ${r.total} documents — ${r.echecs.join(' ; ')}`, 12000)
+    else showToast('success', `Bail et ${r.nbAvenants} avenant${r.nbAvenants > 1 ? 's' : ''} réextraits avec succès (${r.total} documents, dans l'ordre chronologique).`, 6000)
+  }
+
   async function handleReextract(row) {
     setConfirmReextract(null)
     const label = row.data?.immeuble || row.data?.adresse || row.file_name
@@ -9801,6 +9861,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           onConfirm={e => { onDelete(confirmDelete, { stopPropagation: () => {} }); setConfirmDelete(null) }}
           onCancel={() => setConfirmDelete(null)}
         />
+      )}
+      {choixReextractDash && (
+        <ChoixReextractionModal nbAvenants={choixReextractDash.nbAvenants}
+          onBailSeul={() => { const r = choixReextractDash.row; setChoixReextractDash(null); handleReextract(r) }}
+          onBailEtAvenants={() => { const r = choixReextractDash.row; setChoixReextractDash(null); reextractBailEtAvenantsDash(r) }}
+          onCancel={() => setChoixReextractDash(null)} />
       )}
       {confirmReextract && (
         <ConfirmModal
@@ -10641,7 +10707,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                           },
                           row.storage_path && {
                             icon: <><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/></>,
-                            label: 'Réextraire', onClick: () => setConfirmReextract(row),
+                            label: 'Réextraire', onClick: () => {
+                              const nbAv = row.document_type === 'bail'
+                                ? ((tree.find(b => b.id === row.id)?.avenants) || []).filter(a => a.storage_path && !a.data?._archived).length
+                                : 0
+                              if (nbAv > 0) setChoixReextractDash({ row, nbAvenants: nbAv })
+                              else setConfirmReextract(row)
+                            },
                           },
                           !isAv && {
                             icon: row.data?._archived
@@ -10952,6 +11024,7 @@ export default function App() {
   // Réextraction lancée depuis la fiche (bail ou avenant)
   const [ficheReextract, setFicheReextract] = useState(null) // { label } pendant l'opération
   const [ficheReextractMsg, setFicheReextractMsg] = useState(null) // { type, text } après
+  const [choixReextract, setChoixReextract] = useState(null) // { row, nbAvenants } : fenêtre « bail seul / bail et avenants »
   const [showQualityCheck, setShowQualityCheck] = useState(false)
   const [showPortfolioChat, setShowPortfolioChat] = useState(false)
   // Pastille du bouton Contrôle qualité : même calcul que la fenêtre (hors
@@ -11697,8 +11770,8 @@ export default function App() {
     return true
   }
 
-  async function reextractFromFiche(row) {
-    if (!window.confirm("Réextraire ce document à partir de son fichier source ?\n\nLes données actuelles seront remplacées, y compris les corrections manuelles (date d'effet saisie, surface, nom de substitution…).")) return
+  async function reextractFromFiche(row, sansConfirmation = false) {
+    if (!sansConfirmation && !window.confirm("Réextraire ce document à partir de son fichier source ?\n\nLes données actuelles seront remplacées, y compris les corrections manuelles (date d'effet saisie, surface, nom de substitution…).")) return
     setFicheReextractMsg(null)
     const label = row.data?.immeuble || row.data?.adresse || row.file_name
     setFicheReextract({ label, state: 'downloading' })
@@ -11731,36 +11804,20 @@ export default function App() {
   // avenants au moment où il démarre).
   async function reextractBailEtAvenants(bailRow) {
     const bail = history.find(b => b.id === bailRow.id) || bailRow
-    const avenants = [...(bail.avenants || [])].filter(a => a.storage_path && !a.data?._archived).sort(compareAvenants)
-    const total = 1 + avenants.length
-    if (!window.confirm(`Réextraire le bail et ses ${avenants.length} avenant${avenants.length > 1 ? 's' : ''} (${total} documents) ?\n\nLe bail est réextrait d'abord, puis chaque avenant dans l'ordre chronologique. Les données actuelles seront remplacées, y compris les corrections manuelles.\n\nCompter environ 1 à 2 minutes par document.`)) return
     setFicheReextractMsg(null)
-    const nomBail = bail.data?.immeuble || bail.data?.adresse || bail.file_name
     const warn = e => { e.preventDefault(); e.returnValue = '' }
     window.addEventListener('beforeunload', warn)
-    const echecs = []
+    let r
     try {
-      const docs = [bail, ...avenants]
-      for (let i = 0; i < docs.length; i++) {
-        const doc = docs[i]
-        const libelle = i === 0 ? `${nomBail} — bail (1/${total})` : `${nomBail} — ${doc.file_name} (${i + 1}/${total})`
-        setFicheReextract({ label: libelle, state: 'downloading' })
-        let res
-        try {
-          res = await reextractOne(doc, (state, current, tot) => {
-            setFicheReextract(prev => ({ ...prev, state, progCurrent: current ?? null, progTotal: tot ?? null }))
-          })
-        } catch (e) { res = { success: false, error: e.message || String(e) } }
-        if (!res?.success) echecs.push(`${i === 0 ? 'bail' : doc.file_name} : ${res?.error || 'erreur'}`)
-      }
+      r = await reextraireBailEtAvenantsSequence(bail, (label, state, progCurrent, progTotal) => setFicheReextract({ label, state, progCurrent, progTotal }))
     } finally {
       window.removeEventListener('beforeunload', warn)
       setFicheReextract(null)
     }
     await loadHistory()
-    setFicheReextractMsg(echecs.length
-      ? { type: 'error', text: `Réextraction terminée avec ${echecs.length} échec${echecs.length > 1 ? 's' : ''} sur ${total} documents — ${echecs.join(' ; ')}` }
-      : { type: 'success', text: `Bail et ${avenants.length} avenant${avenants.length > 1 ? 's' : ''} réextraits avec succès (${total} documents, dans l'ordre chronologique).` })
+    setFicheReextractMsg(r.echecs.length
+      ? { type: 'error', text: `Réextraction terminée avec ${r.echecs.length} échec${r.echecs.length > 1 ? 's' : ''} sur ${r.total} documents — ${r.echecs.join(' ; ')}` }
+      : { type: 'success', text: `Bail et ${r.nbAvenants} avenant${r.nbAvenants > 1 ? 's' : ''} réextraits avec succès (${r.total} documents, dans l'ordre chronologique).` })
   }
 
   async function recomputeExitsWithDate(row, dateEffetStr, baseData) {
@@ -12127,6 +12184,12 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
         )}
 
         {ficheReextract && <ReextractProgressModal progress={ficheReextract} />}
+        {choixReextract && (
+          <ChoixReextractionModal nbAvenants={choixReextract.nbAvenants}
+            onBailSeul={() => { const r = choixReextract.row; setChoixReextract(null); reextractFromFiche(r, true) }}
+            onBailEtAvenants={() => { const r = choixReextract.row; setChoixReextract(null); reextractBailEtAvenants(r) }}
+            onCancel={() => setChoixReextract(null)} />
+        )}
 
         {showPortfolioChat && (
           <PortfolioChatModal
@@ -12237,22 +12300,18 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                 )}
                 {activeItem.storage_path && (
                   <button className="btn" disabled={!!ficheReextract}
-                    onClick={() => reextractFromFiche(activeItem)}
+                    onClick={() => {
+                      const nbAv = activeItem.document_type === 'bail'
+                        ? (history.find(b => b.id === activeItem.id)?.avenants || activeItem.avenants || []).filter(a => a.storage_path && !a.data?._archived).length
+                        : 0
+                      if (nbAv > 0) setChoixReextract({ row: activeItem, nbAvenants: nbAv })
+                      else reextractFromFiche(activeItem)
+                    }}
                     title="Relancer l'extraction de ce document à partir de son fichier source (remplace les données actuelles, y compris les corrections manuelles)">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                     </svg>
                     Réextraire
-                  </button>
-                )}
-                {activeItem.storage_path && activeItem.document_type === 'bail' && ((history.find(b => b.id === activeItem.id)?.avenants || activeItem.avenants || []).filter(a => a.storage_path && !a.data?._archived).length > 0) && (
-                  <button className="btn" disabled={!!ficheReextract}
-                    onClick={() => reextractBailEtAvenants(activeItem)}
-                    title="Réextraire le bail puis chacun de ses avenants, dans l'ordre chronologique (remplace les données actuelles, y compris les corrections manuelles)">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                    </svg>
-                    Réextraire le bail et ses avenants
                   </button>
                 )}
                 {avNav?.prev && (
