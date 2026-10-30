@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · plafonds de charges'
+const APP_VERSION = '21.10 · choix de réextraction 3'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -8279,13 +8279,14 @@ function PortfolioChatModal({ history, onClose, onSelect }) {
 // ordre chronologique — chacun relit en base le calendrier issu du précédent.
 // onEtape(libelle, state, current, total) alimente la fenêtre de progression.
 async function reextraireBailEtAvenantsSequence(bail, onEtape) {
-  const avenants = [...(bail.avenants || [])].filter(a => a.storage_path && !a.data?._archived).sort(compareAvenants)
+  const avenants = [...(bail.avenants || [])].filter(a => !a.data?._archived).sort(compareAvenants)
   const docs = [bail, ...avenants]
   const nomBail = bail.data?.immeuble || bail.data?.adresse || bail.file_name
   const echecs = []
   for (let i = 0; i < docs.length; i++) {
     const doc = docs[i]
     const libelle = i === 0 ? `${nomBail} — bail (1/${docs.length})` : `${nomBail} — ${doc.file_name} (${i + 1}/${docs.length})`
+    if (!doc.storage_path) { echecs.push(`${i === 0 ? 'bail' : doc.file_name} : pas de fichier source rattaché`); continue }
     onEtape(libelle, 'downloading', null, null)
     let res
     try {
@@ -9179,15 +9180,15 @@ function BailPickerModal({ row, bails, progress, onConfirm, onClose, title, subt
 // Indicateur de tri d'un en-tête de colonne : ↑/↓ quand la colonne est
 // triée, ⇅ discret sinon — pour signaler qu'elle est triable avant même le
 // premier clic.
-function SortIndicator({ active, dir }) {
+function SortIndicator({ active, dir, rank = null }) {
   return (
-    <span style={{ fontSize: '10px', color: 'var(--text3)', opacity: active ? 1 : 0.45 }}>
-      {active ? (dir === 'asc' ? '↑' : '↓') : '⇅'}
+    <span style={{ fontSize: '10px', color: active ? 'var(--accent)' : 'var(--text3)', opacity: active ? 1 : 0.45, fontWeight: active ? 700 : 400 }}>
+      {active ? (dir === 'asc' ? '↑' : '↓') : '⇅'}{active && rank ? <sup style={{ fontSize: '8.5px', marginLeft: '1px' }}>{rank}</sup> : null}
     </span>
   )
 }
 
-function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived, immeubles, onEnsureImmeuble, userEmail }) {
+function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, newIds, onRefresh, onUpdateActif, onNewAvenant, filter, setFilter, search, setSearch, showArchived, setShowArchived, immeubles, onEnsureImmeuble, userEmail, sorts: sortsProp, setSorts: setSortsProp }) {
   const [confirmClear, setConfirmClear] = useState(false)
   const [exportErrors, setExportErrors] = useState(null)
   const [extractionErrors, setExtractionErrors] = useState(null) // null or array of {name, reason}
@@ -9224,8 +9225,29 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
   // Flatten all items for table
   const [expanded, setExpanded] = useState({})
-  const [sortDir, setSortDir] = useState('asc')
-  const [sortBy, setSortBy] = useState('actif') // 'actif' | 'preneur' | 'loyer' | 'extraction'
+  // TRI MULTIPLE : liste ordonnée de critères [{ key, dir }] — clic sur un
+  // en-tête = tri principal ; Maj+clic (ou menu « puis par… ») = critère
+  // supplémentaire. État tenu par l'application (conservé au retour d'une fiche).
+  const [sortsLocal, setSortsLocal] = useState([{ key: 'actif', dir: 'asc' }])
+  const sorts = (Array.isArray(sortsProp) && sortsProp.length) ? sortsProp : sortsLocal
+  const setSorts = setSortsProp || setSortsLocal
+  const SORT_LABELS = { actif: 'Actif', extraction: 'Extraction', preneur: 'Preneur', loyer: 'Loyer base' }
+  const SORT_DEFAULT_DIR = { actif: 'asc', extraction: 'desc', preneur: 'asc', loyer: 'desc' }
+  const sortBy = sorts[0]?.key || 'actif'
+  const sortDir = sorts[0]?.dir || 'asc'
+  const triParDefaut = sorts.length === 1 && sorts[0].key === 'actif' && sorts[0].dir === 'asc'
+  const rangTri = key => sorts.findIndex(x => x.key === key) + 1
+  const sensTri = key => sorts.find(x => x.key === key)?.dir || 'asc'
+  function clicTri(key, e) {
+    const multi = !!(e && (e.shiftKey || e.metaKey || e.ctrlKey))
+    setSorts(prev => {
+      const i = prev.findIndex(x => x.key === key)
+      const inv = x => ({ ...x, dir: x.dir === 'asc' ? 'desc' : 'asc' })
+      if (multi) return i >= 0 ? prev.map((x, j) => j === i ? inv(x) : x) : [...prev, { key, dir: SORT_DEFAULT_DIR[key] }]
+      if (i === 0) return [inv(prev[0]), ...prev.slice(1)]
+      return [{ key, dir: SORT_DEFAULT_DIR[key] }]
+    })
+  }
   const [editingActif, setEditingActif] = useState(null) // bail id
   const [publicSectorOnly, setPublicSectorOnly] = useState(false)
   const [errorOnly, setErrorOnly] = useState(false)
@@ -9887,22 +9909,21 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       if (!avMap[pid]) avMap[pid] = []
       avMap[pid].push(r)
     })
-    bails.sort((a, b) => {
-      if (sortBy === 'extraction') {
-        const cmp = getExtractedAt(a).localeCompare(getExtractedAt(b))
-        return sortDir === 'asc' ? cmp : -cmp
-      }
-      if (sortBy === 'loyer') {
+    const compareSelon = (key, dir, a, b) => {
+      if (key === 'extraction') { const c = getExtractedAt(a).localeCompare(getExtractedAt(b)); return dir === 'asc' ? c : -c }
+      if (key === 'loyer') {
         const la = getLoyer(a), lb = getLoyer(b)
         if (la === null && lb === null) return 0
-        if (la === null) return 1
+        if (la === null) return 1 // sans loyer : toujours en fin de liste
         if (lb === null) return -1
-        return sortDir === 'asc' ? la - lb : lb - la
+        return dir === 'asc' ? la - lb : lb - la
       }
-      const cmp = sortBy === 'preneur'
-        ? getPreneurName(a).localeCompare(getPreneurName(b), 'fr')
-        : getActifName(a).localeCompare(getActifName(b), 'fr')
-      return sortDir === 'asc' ? cmp : -cmp
+      const c = key === 'preneur' ? getPreneurName(a).localeCompare(getPreneurName(b), 'fr') : getActifName(a).localeCompare(getActifName(b), 'fr')
+      return dir === 'asc' ? c : -c
+    }
+    bails.sort((a, b) => {
+      for (const t of sorts) { const c = compareSelon(t.key, t.dir, a, b); if (c) return c }
+      return 0
     })
     // Tri par loyer : classement GLOBAL des baux, tous immeubles confondus
     // (pas de regroupement par immeuble, sinon un gros loyer d'un immeuble
@@ -10278,25 +10299,54 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         )}
       </div>
       {!!filtered.length && (
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', padding: '6px 4px 8px', fontSize: '12px', color: 'var(--text2)' }}>
+          <span style={{ fontWeight: 600 }}>Tri :</span>
+          {sorts.map((t, i) => (
+            <span key={t.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '999px', padding: '3px 6px 3px 10px' }}>
+              <button type="button" onClick={() => setSorts(prev => prev.map(x => x.key === t.key ? { ...x, dir: x.dir === 'asc' ? 'desc' : 'asc' } : x))}
+                title="Inverser le sens" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text)', font: 'inherit' }}>
+                {sorts.length > 1 ? `${i + 1}. ` : ''}{SORT_LABELS[t.key]} {t.dir === 'asc' ? '↑' : '↓'}
+              </button>
+              <button type="button" aria-label={`Retirer le tri ${SORT_LABELS[t.key]}`} title="Retirer ce tri"
+                onClick={() => setSorts(prev => { const n = prev.filter(x => x.key !== t.key); return n.length ? n : [{ key: 'actif', dir: 'asc' }] })}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: '13px', lineHeight: 1, padding: '0 2px' }}>×</button>
+            </span>
+          ))}
+          {Object.keys(SORT_LABELS).some(k => !rangTri(k)) && (
+            <select value="" onChange={e => { const k = e.target.value; if (k) setSorts(prev => [...prev, { key: k, dir: SORT_DEFAULT_DIR[k] }]) }}
+              style={{ fontSize: '12px', padding: '3px 6px', border: '1px solid var(--border2)', borderRadius: '6px', background: 'var(--surface)', color: 'var(--text2)' }}>
+              <option value="">puis par…</option>
+              {Object.keys(SORT_LABELS).filter(k => !rangTri(k)).map(k => <option key={k} value={k}>{SORT_LABELS[k]}</option>)}
+            </select>
+          )}
+          {!triParDefaut && (
+            <button type="button" className="btn" onClick={() => setSorts([{ key: 'actif', dir: 'asc' }])} style={{ fontSize: '11.5px', padding: '3px 10px' }}>Réinitialiser</button>
+          )}
+          <span style={{ color: 'var(--text3)', fontSize: '11px' }}>Maj+clic sur une colonne pour ajouter un critère</span>
+        </div>
+      )}
+      {!!filtered.length && (
         <div className="dash-thead">
           <div className="dash-th" style={{ gridColumn: '1', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-              onClick={() => { if (sortBy === 'actif') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('actif'); setSortDir('asc') } }}>
+              title="Trier par actif — Maj+clic pour l'ajouter comme critère supplémentaire"
+              onClick={e => clicTri('actif', e)}>
               Actif / Document
-              <SortIndicator active={sortBy === 'actif'} dir={sortDir} />
+              <SortIndicator active={rangTri('actif') > 0} dir={sensTri('actif')} rank={sorts.length > 1 ? rangTri('actif') : null} />
             </span>
             <span style={{ color: 'var(--border2)' }}>·</span>
             <span title="Trier les baux par date de dernière extraction (tous immeubles confondus)"
               style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-              onClick={() => { if (sortBy === 'extraction') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('extraction'); setSortDir('desc') } }}>
+              onClick={e => clicTri('extraction', e)}>
               Extraction
-              <SortIndicator active={sortBy === 'extraction'} dir={sortDir} />
+              <SortIndicator active={rangTri('extraction') > 0} dir={sensTri('extraction')} rank={sorts.length > 1 ? rangTri('extraction') : null} />
             </span>
           </div>
           <div className="dash-th" style={{ gridColumn: '2', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}
-            onClick={() => { if (sortBy === 'preneur') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('preneur'); setSortDir('asc') } }}>
+            title="Trier par preneur — Maj+clic pour l'ajouter comme critère supplémentaire"
+            onClick={e => clicTri('preneur', e)}>
             Preneur
-            <SortIndicator active={sortBy === 'preneur'} dir={sortDir} />
+            <SortIndicator active={rangTri('preneur') > 0} dir={sensTri('preneur')} rank={sorts.length > 1 ? rangTri('preneur') : null} />
           </div>
           <div className="dash-th" style={{ gridColumn: '3' }}>Type</div>
           <div className="dash-th dash-th-right" style={{ gridColumn: '4' }}>Surface</div>
@@ -10305,9 +10355,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           <div className="dash-th" style={{ gridColumn: '7' }}>Break</div>
           <div className="dash-th dash-th-right" style={{ gridColumn: '8', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px' }}
             title="Loyer de base HT/HC à la signature — cliquer pour classer tous les baux par loyer, tous immeubles confondus"
-            onClick={() => { if (sortBy === 'loyer') setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortBy('loyer'); setSortDir('desc') } }}>
+            onClick={e => clicTri('loyer', e)}>
             Loyer base
-            <SortIndicator active={sortBy === 'loyer'} dir={sortDir} />
+            <SortIndicator active={rangTri('loyer') > 0} dir={sensTri('loyer')} rank={sorts.length > 1 ? rangTri('loyer') : null} />
           </div>
           <div style={{ gridColumn: '9' }}/>
         </div>
@@ -10807,9 +10857,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                           row.storage_path && {
                             icon: <><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.91.37 4.15 1.02"/><polyline points="17 3 21 3 21 7"/><path d="M21 3l-8.15 8.15"/></>,
                             label: 'Réextraire', onClick: () => {
-                              const nbAv = row.document_type === 'bail'
-                                ? ((tree.find(b => b.id === row.id)?.avenants) || []).filter(a => a.storage_path && !a.data?._archived).length
-                                : 0
+                              const nbAv = row.document_type === 'avenant' ? 0
+                                : ((tree.find(b => b.id === row.id)?.avenants) || []).filter(a => !a.data?._archived).length
                               if (nbAv > 0) setChoixReextractDash({ row, nbAvenants: nbAv })
                               else setConfirmReextract(row)
                             },
@@ -11136,6 +11185,13 @@ export default function App() {
   // Recherche/filtre du dashboard remontés ici (plutôt que locaux à Dashboard)
   // pour survivre à la navigation vers une fiche détail et retour.
   const [dashSearch, setDashSearch] = useState('')
+  // Tris du dashboard : conservés par l'application (retour depuis une fiche)
+  // et dans la session du navigateur (rechargement de la page)
+  const [dashSorts, setDashSorts] = useState(() => {
+    try { const v = JSON.parse(sessionStorage.getItem('lr_dash_sorts') || 'null'); if (Array.isArray(v) && v.length && v.every(x => x && x.key && x.dir)) return v } catch (_) {}
+    return [{ key: 'actif', dir: 'asc' }]
+  })
+  useEffect(() => { try { sessionStorage.setItem('lr_dash_sorts', JSON.stringify(dashSorts)) } catch (_) {} }, [dashSorts])
   const [dashFilter, setDashFilter] = useState('all')
   const [dashShowArchived, setDashShowArchived] = useState(false)
   const [docTypes,     setDocTypes]     = useState([])     // 'bail'|'avenant'|'' per file
@@ -12401,9 +12457,10 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                 {activeItem.storage_path && (
                   <button className="btn" disabled={!!ficheReextract}
                     onClick={() => {
-                      const nbAv = activeItem.document_type === 'bail'
-                        ? (history.find(b => b.id === activeItem.id)?.avenants || activeItem.avenants || []).filter(a => a.storage_path && !a.data?._archived).length
-                        : 0
+                      // avenants du document dans la liste (quel que soit son type
+                      // enregistré) — un avenant sans fichier source est signalé au bilan
+                      const nbAv = activeItem.document_type === 'avenant' ? 0
+                        : (history.find(b => b.id === activeItem.id)?.avenants || activeItem.avenants || []).filter(a => !a.data?._archived).length
                       if (nbAv > 0) setChoixReextract({ row: activeItem, nbAvenants: nbAv })
                       else reextractFromFiche(activeItem)
                     }}
@@ -12478,6 +12535,8 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                   onNewAvenant={id => setNewIds(prev => [...prev, id])}
                   filter={dashFilter}
                   setFilter={setDashFilter}
+                  sorts={dashSorts}
+                  setSorts={setDashSorts}
                   search={dashSearch}
                   setSearch={setDashSearch}
                   showArchived={dashShowArchived}
