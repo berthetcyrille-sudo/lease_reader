@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · tri multiple 3'
+const APP_VERSION = '21.10 · tri multiple 4'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -9929,6 +9929,8 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
     // Date d'extraction : à la seconde quand c'est le dernier critère ; AU JOUR
     // quand un autre critère la suit — sinon, aucune égalité possible, et le
     // critère suivant (ex. loyer) ne réorganiserait jamais rien.
+    const TRANCHES_LOYER = [50000, 100000, 250000, 500000, 1000000]
+    const trancheLoyer = v => { let k = 0; while (k < TRANCHES_LOYER.length && v >= TRANCHES_LOYER[k]) k++; return k }
     const jourLocal = iso => { if (!iso) return ''; const t = new Date(iso); return isNaN(t) ? String(iso).slice(0, 10) : `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}` }
     const compareSelon = (key, dir, a, b, auJour = false) => {
       if (key === 'extraction') {
@@ -9940,6 +9942,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
         if (la === null && lb === null) return 0
         if (la === null) return 1 // sans loyer : toujours en fin de liste
         if (lb === null) return -1
+        // suivi d'un autre critère : comparaison PAR TRANCHE (sinon aucune
+        // égalité, et le critère suivant ne réorganiserait jamais rien)
+        if (auJour) { const ta = trancheLoyer(la), tb = trancheLoyer(lb); return dir === 'asc' ? ta - tb : tb - ta }
         return dir === 'asc' ? la - lb : lb - la
       }
       const c = key === 'preneur' ? getPreneurName(a).localeCompare(getPreneurName(b), 'fr') : getActifName(a).localeCompare(getActifName(b), 'fr')
@@ -10329,7 +10334,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             <span key={t.key} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'var(--surface)', border: '1px solid var(--border2)', borderRadius: '999px', padding: '3px 6px 3px 10px' }}>
               <button type="button" onClick={() => setSorts(prev => prev.map(x => x.key === t.key ? { ...x, dir: x.dir === 'asc' ? 'desc' : 'asc' } : x))}
                 title="Inverser le sens" style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text)', font: 'inherit' }}>
-                {sorts.length > 1 ? `${i + 1}. ` : ''}{SORT_LABELS[t.key]}{t.key === 'extraction' && i < sorts.length - 1 ? ' (au jour)' : ''} {t.dir === 'asc' ? '↑' : '↓'}
+                {sorts.length > 1 ? `${i + 1}. ` : ''}{SORT_LABELS[t.key]}{t.key === 'extraction' && i < sorts.length - 1 ? ' (au jour)' : ''}{t.key === 'loyer' && i < sorts.length - 1 ? ' (par tranche)' : ''} {t.dir === 'asc' ? '↑' : '↓'}
               </button>
               <button type="button" aria-label={`Retirer le tri ${SORT_LABELS[t.key]}`} title="Retirer ce tri"
                 onClick={() => setSorts(prev => { const n = prev.filter(x => x.key !== t.key); return n.length ? n : [{ key: 'actif', dir: 'asc' }] })}
