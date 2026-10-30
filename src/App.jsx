@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · places de stationnement'
+const APP_VERSION = '21.10 · tableau stationnement'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3029,6 +3029,35 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   // Si aucune ligne n'a de loyer propre, calculable ou déductible (bail non
   // ventilé sur plusieurs composantes), on retombe sur le loyer global du bail
   // plutôt que d'afficher un total vide.
+  // PLACES MANQUANTES, CONFIRMÉES PAR LE LOYER : quand le nombre total de
+  // places annoncé dépasse la somme des lignes de stationnement, les places
+  // manquantes sont ajoutées à la ligne principale (prix unitaire connu, loyer
+  // non écrit) SEULEMENT si la ventilation retombe alors sur le loyer du bail
+  // (à 0,1 % près) alors qu'elle s'en écartait — deux signaux indépendants.
+  // Vécu : « 99 emplacements… comprenant 16 places électriques » ventilés
+  // 83 + 3 (99 − 16) ; avec 96 + 3, la ventilation retombe sur 1 198 680 €.
+  {
+    const totalAnnonce = Math.round(lireNombreSurface(String(parkingNbPlaces || '').split('(')[0]))
+    const sommeNb = parkComputed.reduce((t, p) => t + (p.nb || 0), 0)
+    // manque > 0 : places manquantes ; manque < 0 : places en trop (vécu :
+    // 9 annoncées, lignes 9 + 1) — même garde-fou dans les deux sens
+    const manque = totalAnnonce > 0 ? totalAnnonce - Math.round(sommeNb) : 0
+    if (declaredTotal > 0 && manque !== 0 && mainLoyerSum > 0) {
+      const princ = parkComputed.filter(p => p.unit && p.loyerSrc !== 'extrait' && p.nb > 0 && p.nb + manque > 0).sort((a, b) => b.nb - a.nb)[0]
+      if (princ) {
+        const avant = mainLoyerSum + parkComputed.reduce((t, p) => t + (p.loyer || 0), 0)
+        const apres = avant + princ.unit * manque
+        const tol = Math.max(2, declaredTotal * 0.001)
+        if (Math.abs(apres - declaredTotal) <= tol && Math.abs(avant - declaredTotal) > tol) {
+          princ.nbAvant = princ.nb
+          princ.nb = princ.nb + manque
+          princ.qty = princ.nb
+          princ.loyer = arrondi2(princ.unit * princ.nb)
+          princ.nbCorrige = true
+        }
+      }
+    }
+  }
   const parkTotalLoyer = parkComputed.reduce((acc, p) => acc + (p.loyer || 0), 0)
   // Repli sur le loyer global : il inclut en général le stationnement, déjà
   // compté dans son propre tableau — on le retire pour ne pas le compter deux
@@ -3138,7 +3167,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
         </div>
       )}
       {parkRows.length > 0 && (
-        <div style={{ marginTop: mainRows.length > 0 ? '10px' : 0 }}>
+        <div className="table-wrap" style={{ marginTop: mainRows.length > 0 ? '10px' : 0 }}>
           <table className="indemnites-table">
             <thead>
               <tr>
@@ -3149,7 +3178,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
               </tr>
             </thead>
             <tbody>
-              {parkComputed.map(({ row, nb, loyer, loyerSrc, unit, unitSrc }, i) => {
+              {parkComputed.map(({ row, nb, loyer, loyerSrc, unit, unitSrc, nbCorrige, nbAvant }, i) => {
                 const mark = src => src === 'calcule'
                   ? <span title="Calculé (prix par place × nombre de places, ou l'inverse)" style={{ fontSize: '10px', marginLeft: '3px', fontWeight: 400 }}>*</span>
                   : src === 'ecart'
@@ -3160,7 +3189,9 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                     <td style={{ fontWeight: 500 }}>{row.categorie || 'Stationnement'}</td>
                     {hasBat && <td style={{ fontWeight: 500 }}>{safeStr(row.batiment) || '—'}</td>}
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{nb > 0 ? `${nb} pl.` : '—'}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {nb > 0 ? <span title={nbCorrige ? `Corrigé : ${nbAvant} places extraites — le nombre total de places annoncé et le loyer du bail confirment ${nb}` : undefined} style={nbCorrige ? { fontStyle: 'italic', cursor: 'help' } : undefined}>{nbCorrige ? '≈ ' : ''}{nb} pl.</span> : '—'}
+                    </td>
                     {showRent && <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
                       {unit ? `${unit.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : '—'}{unit && mark(unitSrc)}
                     </td>}
@@ -4360,8 +4391,9 @@ function auditBail(row) {
   // 83 + 3 — les places électriques retranchées à tort)
   {
     const total = lireNombreSurface(String(d.parking_nb_places || '').split('(')[0])
-    const lignes = (Array.isArray(d.surfaces_detail) ? d.surfaces_detail : []).filter(r => /station|parking|emplacement/i.test(stripAccents(`${safeStr(r.categorie) || ''} ${safeStr(r.typologie) || ''}`)))
-    const somme = lignes.reduce((t, r) => t + lireNombreSurface(r.surface_m2), 0)
+    const Vq = computeVentilation(Array.isArray(d.surfaces_detail) ? d.surfaces_detail : [], d.parking_nb_places, d.loyer_signature_montant)
+    const lignes = Vq.parkComputed.map(p => ({ ...p.row, surface_m2: p.nb }))
+    const somme = Vq.parkComputed.reduce((t, p) => t + (p.nb || 0), 0)
     if (total > 0 && lignes.length && somme > 0 && Math.abs(total - somme) >= 1) issues.push({
       type: 'places_incoherentes',
       severity: 'high',
