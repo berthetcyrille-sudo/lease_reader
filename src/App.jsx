@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · règle par tranche'
+const APP_VERSION = '21.10 · diagnostic des réponses réparées'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2413,6 +2413,16 @@ function cleanJson(str, { fixEscapedStructure = false } = {}) {
 // thinkingBudget > 0 : raisonnement activé avec un budget EXPLICITE, réservé
 // aux appels courts où le calcul compte (lecture des échéances) — la réponse y
 // est petite, donc pas de risque de troncature ; max_tokens est relevé d'autant.
+// Nom de la lecture d'après sa consigne (diagnostic des réponses réparées)
+function nomLecture(prompt) {
+  const p = String(prompt || '')
+  if (typeof BREAK_PROMPT !== 'undefined' && p === BREAK_PROMPT) return 'échéances'
+  if (typeof FINANCIAL_PROMPT !== 'undefined' && p === FINANCIAL_PROMPT) return 'financière'
+  if (typeof LOYER_VARIABLE_PROMPT !== 'undefined' && p === LOYER_VARIABLE_PROMPT) return 'loyer variable'
+  if (/ECHEANCIER|calendrier du bail AVANT/i.test(p.slice(0, 400))) return "échéancier d'avenant"
+  if (/avenant/i.test(p.slice(0, 300))) return 'avenant'
+  return 'principale'
+}
 async function callClaude(base64, mediaType, prompt, timeoutMs = 120000, { thinkingBudget = 0 } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -2475,11 +2485,18 @@ async function callClaude(base64, mediaType, prompt, timeoutMs = 120000, { think
   try { return sanitizeExtracted(JSON.parse(unescaped)) } catch (_) {}
   // Dernier recours : l'IA corrige la SEULE syntaxe du JSON (appel texte, sans
   // le document — coût faible), plutôt que de perdre l'extraction déjà payée.
+  // passage fautif (pour le diagnostic) : ~60 caractères autour de l'erreur
+  let passage = null
+  try { JSON.parse(repaired) } catch (e3) {
+    const pos = parseInt(e3.message.match(/position (\d+)/)?.[1] || '-1')
+    if (pos >= 0) passage = repaired.slice(Math.max(0, pos - 60), pos + 40).replace(/\s+/g, ' ')
+  }
   try {
     const fixed = await repairJsonViaClaude(jsonStr)
     // Réponse réparée par l'IA : signalée, pour que la fiche invite à vérifier
-    // (une réparation peut omettre ou altérer des éléments).
-    if (fixed) return { ...sanitizeExtracted(fixed), _json_repare: true }
+    // (une réparation peut omettre ou altérer des éléments) — avec la lecture
+    // en cause et le passage fautif
+    if (fixed) return { ...sanitizeExtracted(fixed), _json_repare: true, _json_repare_lectures: [nomLecture(prompt)], _json_repare_passage: passage }
   } catch (_) {}
   try { JSON.parse(repaired) } catch (e2) {
     const pos = parseInt(e2.message.match(/position (\d+)/)?.[1] || '0')
@@ -4605,7 +4622,7 @@ function auditBail(row) {
   }
 
   // 2quinquies. Réponse de l'IA réparée automatiquement lors de l'extraction
-  if (d._json_repare) issues.push({ type: 'json_repare', severity: 'high', detail: "La réponse de l'IA était mal formée lors de la dernière extraction et a été réparée automatiquement : des données peuvent manquer ou être altérées. Réextraction recommandée." })
+  if (d._json_repare) issues.push({ type: 'json_repare', severity: 'high', detail: (Array.isArray(d._json_repare_lectures) && d._json_repare_lectures.length ? `Lecture en cause : ${d._json_repare_lectures.join(', ')}. ` : '') + "La réponse de l'IA était mal formée lors de la dernière extraction et a été réparée automatiquement : des données peuvent manquer ou être altérées. Réextraction recommandée." })
 
   // 2quater. Avenants : numéro déclaré (titre, nom de fichier) contraire à
   // l'ordre des dates de signature — date de signature mal extraite, erreur
@@ -6708,6 +6725,12 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
       {item.data?._json_repare && (
         <div style={{ margin: '0 0 14px', padding: '10px 14px', borderRadius: '8px', background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: '13px', lineHeight: 1.5 }}>
           <strong>Extraction à vérifier :</strong> la réponse de l'IA était mal formée lors de cette extraction et a été réparée automatiquement — certaines données peuvent manquer ou être altérées. Relancez la réextraction.
+          {Array.isArray(item.data?._json_repare_lectures) && item.data._json_repare_lectures.length > 0 && (
+            <div style={{ marginTop: '6px', fontSize: '12px' }}>
+              Lecture en cause : <strong>{item.data._json_repare_lectures.join(', ')}</strong>
+              {item.data._json_repare_passage && <> — passage fautif : <code style={{ fontSize: '11.5px', background: 'rgba(0,0,0,.05)', padding: '1px 4px', borderRadius: '3px' }}>{item.data._json_repare_passage}</code></>}
+            </div>
+          )}
         </div>
       )}
       {/* Fiche d'avenant : ce qu'il modifie, et les échéances du bail après lui */}
@@ -9011,7 +9034,7 @@ async function reextractOne(row, onProgress) {
         // indemnité/compensation, lues ensemble dans la même clause) — fait foi
         // sur break_options, y compris quand elle est vide (aucune sortie possible).
         if (Array.isArray(breakResult?.echeances_sortie)) {
-        if (breakResult?._json_repare) extracted._json_repare = true
+        if (breakResult?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(breakResult._json_repare_lectures || [])])]; if (breakResult._json_repare_passage) extracted._json_repare_passage = breakResult._json_repare_passage }
           extracted.echeances_sortie = breakResult.echeances_sortie
           extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
         }
@@ -9022,7 +9045,7 @@ async function reextractOne(row, onProgress) {
           if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
           if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
           if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
-          if (f?._json_repare) extracted._json_repare = true
+          if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
           if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
           if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
           if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
@@ -9038,7 +9061,7 @@ async function reextractOne(row, onProgress) {
           if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
           if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
           if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
-          if (f?._json_repare) extracted._json_repare = true
+          if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
           if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
           if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
           if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
@@ -9147,7 +9170,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
             // indemnité/compensation, lues ensemble dans la même clause) — fait foi
             // sur break_options, y compris quand elle est vide (aucune sortie possible).
             if (Array.isArray(breakResult?.echeances_sortie)) {
-            if (breakResult?._json_repare) extracted._json_repare = true
+            if (breakResult?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(breakResult._json_repare_lectures || [])])]; if (breakResult._json_repare_passage) extracted._json_repare_passage = breakResult._json_repare_passage }
               extracted.echeances_sortie = breakResult.echeances_sortie
               extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
             }
@@ -9158,7 +9181,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
               if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
               if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
-              if (f?._json_repare) extracted._json_repare = true
+              if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
               if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
               if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
               if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
@@ -9174,7 +9197,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
               if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
               if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
-              if (f?._json_repare) extracted._json_repare = true
+              if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
               if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
               if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
               if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
@@ -10035,7 +10058,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
           // indemnité/compensation, lues ensemble dans la même clause) — fait foi
           // sur break_options, y compris quand elle est vide (aucune sortie possible).
           if (Array.isArray(breakResult?.echeances_sortie)) {
-          if (breakResult?._json_repare) extracted._json_repare = true
+          if (breakResult?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(breakResult._json_repare_lectures || [])])]; if (breakResult._json_repare_passage) extracted._json_repare_passage = breakResult._json_repare_passage }
             extracted.echeances_sortie = breakResult.echeances_sortie
             extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
           }
@@ -10046,7 +10069,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
             if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
-            if (f?._json_repare) extracted._json_repare = true
+            if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
@@ -10062,7 +10085,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
             if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
-            if (f?._json_repare) extracted._json_repare = true
+            if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
@@ -12149,7 +12172,7 @@ export default function App() {
           // indemnité/compensation, lues ensemble dans la même clause) — fait foi
           // sur break_options, y compris quand elle est vide (aucune sortie possible).
           if (Array.isArray(breakResult?.echeances_sortie)) {
-          if (breakResult?._json_repare) extracted._json_repare = true
+          if (breakResult?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(breakResult._json_repare_lectures || [])])]; if (breakResult._json_repare_passage) extracted._json_repare_passage = breakResult._json_repare_passage }
             extracted.echeances_sortie = breakResult.echeances_sortie
             extracted.break_options = Array.isArray(breakResult.break_options) ? breakResult.break_options : []
           }
@@ -12160,7 +12183,7 @@ export default function App() {
             if (f.loyer_signature_montant) extracted.loyer_signature_montant = f.loyer_signature_montant
             if (f.loyer_signature) extracted.loyer_signature = f.loyer_signature
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
-            if (f?._json_repare) extracted._json_repare = true
+            if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
@@ -12219,7 +12242,7 @@ export default function App() {
             if (f.loyer_signature_montant) mods.loyer_signature_montant = f.loyer_signature_montant
             if (f.loyer_signature) mods.loyer_signature = f.loyer_signature
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
-            if (f?._json_repare) extracted._json_repare = true
+            if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
