@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · choix de réextraction 3'
+const APP_VERSION = '21.10 · fichiers sources manquants'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4354,6 +4354,18 @@ function auditBail(row) {
     }
   } catch (_) {}
 
+  // 2decies. Fichier source manquant (bail ou avenants) : ni consultation du
+  // document, ni réextraction possibles tant que le PDF n'est pas rattaché
+  {
+    const avSans = (Array.isArray(row.avenants) ? row.avenants : []).filter(a => !a.data?._archived && !safeStr(a.storage_path))
+    const bailSans = !safeStr(row.storage_path)
+    if (bailSans || avSans.length) issues.push({
+      type: 'fichier_source_absent',
+      severity: 'medium',
+      detail: [bailSans ? 'le bail n\'a pas de fichier source rattaché' : null, avSans.length ? `${avSans.length} avenant${avSans.length > 1 ? 's' : ''} sans fichier source (${avSans.map(a => a.file_name).join(' ; ')})` : null].filter(Boolean).join(' ; ').replace(/^./, c => c.toUpperCase()) + ' — dans le dashboard, menu de la ligne › « Joindre le fichier source et réextraire ».',
+    })
+  }
+
   // 2octies. Lecture dédiée aux échéances en échec lors de l'extraction
   if (d._echeances_non_lues) issues.push({ type: 'echeances_non_lues', severity: 'high', detail: `La lecture dédiée à la clause de durée et de résiliation a échoué lors de la dernière extraction (${safeStr(d._echeances_non_lues).slice(0, 120)}) — échéances et date de fin issues de la seule lecture principale. Réextraction recommandée.` })
 
@@ -8363,6 +8375,7 @@ const QC_THEMES = [
   { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
   { key: 'avenants', label: 'Avenants', types: ['avenant_anterieur_au_bail', 'avenant_sans_signature', 'avenants_ordre', 'date_effet_avenants_contradictoires'] },
   { key: 'doublons', label: 'Doublons', types: ['doublon_suspect'] },
+  { key: 'fichiers', label: 'Fichiers sources manquants', types: ['fichier_source_absent'] },
   { key: 'extraction', label: 'Extraction à refaire', types: ['json_repare', 'echeances_non_lues', 'echeancier_avenant_non_lu'] },
 ]
 const qcThemeOf = type => QC_THEMES.find(t => t.types.includes(type))?.key || 'autres'
