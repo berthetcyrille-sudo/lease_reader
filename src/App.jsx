@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · tri multiple 4'
+const APP_VERSION = '21.10 · places de stationnement'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -147,6 +147,7 @@ REGLES PAR CHAMP:
 - franchise: OBLIGATOIRE DES QUE franchise_periodes CONTIENT AU MOINS UNE ENTREE — ne jamais laisser ce champ a null si franchise_periodes n'est pas vide (verification mecanique : si l'un est rempli, l'autre doit l'etre aussi). Texte VERBEUX reprenant fidelement la redaction de la clause de franchise telle qu'ecrite dans le bail (contrairement a franchise_periodes, qui est structure et chiffre, ce champ est un resume en langage courant, proche du texte original, sans etre un copier-coller integral) — sert de verification visuelle en regard du detail chiffre de franchise_periodes, pour que l'utilisateur puisse reperer un ecart ENTRE LE TEXTE DU BAIL ET LE TABLEAU STRUCTURE : ce champ doit donc etre redige INDEPENDAMMENT, a partir de ta propre lecture de la clause, PAS en reformulant ou en resumant les lignes que tu as toi-meme mises dans franchise_periodes — sinon il ne peut plus jamais reveler un desaccord entre les deux, ce qui annule son utilite. Inclure le montant total et la decomposition telle que redigee (ex: "Franchise initiale de 14 mois, soit un total de 39.135,83 € HT/HC, appliquee en 4 tranches de 3,5 mois a la prise d'effet puis a chaque date anniversaire du bail pendant 3 ans"). null UNIQUEMENT si franchise_periodes est aussi vide (aucune franchise dans le bail).
 - participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. libelle OBLIGATOIRE.
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
+  STATIONNEMENT — TOTAL ET SOUS-CATEGORIES: un total suivi de « dont » / « comprenant » INCLUT toutes les sous-categories citees (PMR, places electriques, places reservees…) : elles detaillent le total, elles ne s'y ajoutent pas et ne s'en retranchent pas. Ventiler surfaces_detail (lignes Stationnement) par LOCALISATION ou par PRIX uniquement, et la somme des lignes doit egaler le total annonce. Ex: « 99 emplacements dont 2 places reservees au local de sprinklage, et comprenant 2 PMR en sous-sol, 16 places pour vehicules electriques en sous-sol et 3 PMR en exterieur » → parking_nb_places = \"99 places (96 en sous-sol + 3 en exterieur)\" ; lignes : Stationnement sous-sol 96, Stationnement exterieur 3 — JAMAIS 99 − 16 = 83.
 - depot_garantie_montant / depot_garantie_duree_mois / depot_garantie: depot_garantie_montant = montant chiffre du depot de garantie classique SI le bail l'exprime en euros (montant fixe ou resultant d'un calcul deja fait dans le texte). depot_garantie_duree_mois: SEPAREMENT, si le bail exprime (aussi ou uniquement) ce depot en nombre de mois de loyer (formulation frequente: "depot de garantie egal a X mois de loyer HT/HC", "correspondant a X mois de loyer principal"), isoler ce nombre ici au format court, ex: "3 mois de loyer HT/HC". Les deux champs montant et duree_mois peuvent coexister (certains baux donnent les deux) ou n'exister que l'un des deux. ATTENTION CAS FREQUENT: quand la clause dit que le depot de garantie est SUBSTITUE/REMPLACE par une GAPD ("le Preneur substitue au depot de garantie une garantie autonome a premiere demande correspondant a X mois de loyer"), le nombre de mois qui suit appartient a la GAPD (gapd_duree_mois), PAS au depot de garantie classique — laisser depot_garantie_montant et depot_garantie_duree_mois a null dans ce cas, meme si "X mois" apparait dans la meme phrase que "depot de garantie". depot_garantie: texte des modalites completes (conditions de restitution, indexation du depot, mention de la substitution le cas echeant, etc.).
 - gapd_montant / gapd: si le bail prevoit, EN COMPLEMENT du depot de garantie classique (depot_garantie_montant/depot_garantie), une GARANTIE AUTONOME A PREMIERE DEMANDE (GAPD) — une garantie bancaire distincte ou complementaire, souvent mobilisable "a premiere demande" independamment de toute contestation, generalement mise en place par un etablissement bancaire au profit du Bailleur. NE PAS confondre avec le simple depot de garantie (qui reste dans depot_garantie_montant/depot_garantie) ni avec un cautionnement personnel/solidaire (qui va dans le champ garant). gapd_montant: montant chiffre brut de la GAPD si mentionne. gapd: texte des modalites completes (etablissement emetteur si nomme, duree de validite, conditions de mobilisation, articulation avec le depot de garantie classique). null pour les deux champs si aucune GAPD n'est mentionnee — la tres grande majorite des baux n'en ont pas, ne pas en deduire une simplement parce qu'un depot de garantie classique existe. RAPPEL: des que le champ gapd est renseigne (non-null), penser a inclure sa page dans _pages (cle "gapd") comme pour tout autre champ simple renseigne — cette clause est facile a oublier car souvent absente, ne pas la sauter une fois qu'elle est bien presente.
 - gapd_duree_mois: UNIQUEMENT si une GAPD existe (voir gapd_montant/gapd ci-dessus). Isole le nombre de mois de loyer que represente le montant de la GAPD, quand le bail l'exprime ainsi (formulation frequente: "garantie autonome a premiere demande d'un montant egal a X mois de loyer HT/HC", "correspondant a X mois de loyer principal", ou "le Preneur substitue au depot de garantie une GAPD correspondant a X mois de loyer" — dans ce dernier cas de substitution, X mois va ICI, pas dans depot_garantie_duree_mois). Format court, ex: "3 mois de loyer HT/HC" ou juste "3 mois" si l'assiette n'est pas precisee. null si la GAPD est exprimee uniquement en montant fixe sans reference a un nombre de mois de loyer, ou si aucune GAPD n'existe.
@@ -4354,6 +4355,20 @@ function auditBail(row) {
     }
   } catch (_) {}
 
+  // 2undecies. Nombre total de places ≠ somme des lignes de stationnement
+  // (vécu : 99 emplacements « comprenant » 16 places électriques, ventilés
+  // 83 + 3 — les places électriques retranchées à tort)
+  {
+    const total = lireNombreSurface(String(d.parking_nb_places || '').split('(')[0])
+    const lignes = (Array.isArray(d.surfaces_detail) ? d.surfaces_detail : []).filter(r => /station|parking|emplacement/i.test(stripAccents(`${safeStr(r.categorie) || ''} ${safeStr(r.typologie) || ''}`)))
+    const somme = lignes.reduce((t, r) => t + lireNombreSurface(r.surface_m2), 0)
+    if (total > 0 && lignes.length && somme > 0 && Math.abs(total - somme) >= 1) issues.push({
+      type: 'places_incoherentes',
+      severity: 'high',
+      detail: `Nombre de places annoncé (${Math.round(total)}) différent de la somme des lignes de stationnement (${Math.round(somme)}, soit ${lignes.map(r => Math.round(lireNombreSurface(r.surface_m2))).join(' + ')}) — écart de ${Math.round(Math.abs(total - somme))} place${Math.abs(total - somme) >= 2 ? 's' : ''}. Une sous-catégorie (PMR, électriques…) a peut-être été retranchée ou oubliée : à vérifier, ou réextraire.`,
+    })
+  }
+
   // 2decies. Fichier source manquant (bail ou avenants) : ni consultation du
   // document, ni réextraction possibles tant que le PDF n'est pas rattaché
   {
@@ -8371,7 +8386,7 @@ function ReextractProgressModal({ progress }) {
 const QC_THEMES = [
   { key: 'breaks', label: 'Breaks et échéances', types: ['dates_anniversaires_incoherentes', 'break_a_tout_moment_datee', 'break_ancien_calcul', 'break_apres_terme', 'break_format', 'break_jour_anniversaire', 'breaks_incomplets', 'indemnite_orpheline', 'echeance_attendue_absente'] },
   { key: 'dates', label: 'Dates et durées', types: ['champ_date_pollue', 'champ_duree_pollue', 'date_fin_incoherente', 'duree_ferme_incoherente', 'duree_ferme_ambigue', 'duree_ferme_indeterminee', 'effet_conditionnel', 'signature_posterieure_effet'] },
-  { key: 'surfaces', label: 'Surfaces et loyer', types: ['surface_incoherente', 'surface_loyer_incoherent', 'loyer_ecart_ventilation'] },
+  { key: 'surfaces', label: 'Surfaces et loyer', types: ['surface_incoherente', 'surface_loyer_incoherent', 'loyer_ecart_ventilation', 'places_incoherentes'] },
   { key: 'franchises', label: 'Franchises', types: ['franchise_excessive', 'franchise_incomplete'] },
   { key: 'avenants', label: 'Avenants', types: ['avenant_anterieur_au_bail', 'avenant_sans_signature', 'avenants_ordre', 'date_effet_avenants_contradictoires'] },
   { key: 'doublons', label: 'Doublons', types: ['doublon_suspect'] },
