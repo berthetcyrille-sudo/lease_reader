@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · CQ franchises au mois exonéré'
+const APP_VERSION = '21.10 · montant franchise : durée d’abord'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -947,8 +947,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
     const q = franchiseEquivalence(r, loyerAnnuel, rieAn)
     return {
       date_debut: safeStr(r.date_debut) || null,
-      date_fin: safeStr(r.date_fin) || franchiseDateFinCalculee(r, franchiseMonthsEffective(r, loyerAnnuel, rieAn)) || null,
-      date_fin_calculee: (!safeStr(r.date_fin) && !!franchiseDateFinCalculee(r, franchiseMonthsEffective(r, loyerAnnuel, rieAn))) || undefined,
+      date_fin: franchiseDateFinCalculee(r, franchiseMonthsEffective(r, loyerAnnuel, rieAn)) || safeStr(r.date_fin) || null,
+      date_fin_calculee: !!franchiseDateFinCalculee(r, franchiseMonthsEffective(r, loyerAnnuel, rieAn)) || undefined,
       recalee: r._recale || undefined, dates_origine: r._dates_origine || undefined,
       surface_assiette: safeStr(r.surface_assiette) || null, indexation_incluse: safeStr(r.indexation_incluse) || null,
       montant: montantFranchise(r, loyerAnnuel, rieAn).montant, montant_calcule: montantFranchise(r, loyerAnnuel, rieAn).calcule || undefined,
@@ -1029,8 +1029,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
         type: abat ? 'Abattement' : (isConditionalFranchise(r) ? 'Franchise conditionnelle' : 'Franchise'),
         conditionnelle: isConditionalFranchise(r),
         date_debut: safeStr(r.date_debut) || null,
-        date_fin: safeStr(r.date_fin) || finCalc || null,
-        date_fin_calculee: (!safeStr(r.date_fin) && !!finCalc) || undefined,
+        date_fin: finCalc || safeStr(r.date_fin) || null,
+        date_fin_calculee: !!finCalc || undefined,
         duree: abat ? (safeStr(r.duree) || null) : ((q && (q.incoherent || /recalcul/i.test(String(r.duree || '')))) ? `≈ ${fmtMoisFranchise(q.eq)}` : (safeStr(r.duree) || null)),
         mois_de_loyer: mois ? Math.round(mois * 10) / 10 : null,
         surface_assiette: safeStr(r.surface_assiette) || null,
@@ -3705,16 +3705,23 @@ function montantFranchise(row, loyerAnnuel, rieLoyer = 0) {
   const horsRie = /hors\s+(la\s+)?(redevance\s+)?(rie|restaurant)/.test(txt)
   const base = (horsRie && rieLoyer > 0 && loyerAnnuel > rieLoyer) ? loyerAnnuel - rieLoyer : loyerAnnuel
   if (!(base > 0)) return { montant: parseAmount(brut), calcule: true, chargesNonChiffrees }
+  // Priorité à la DURÉE exonérée (mois, semaines) ; les dates ne servent que
+  // si leur écart correspond à cette durée (elles délimitent alors la
+  // franchise elle-même — vécu : 3 semaines du 10/12 au 31/12) ou en
+  // l'absence de durée. Vécu : « 1 mois par an » daté sur toute l'année
+  // d'application → 1 mois de loyer, pas 12.
   const d0 = parseFR(normalizeDate(safeStr(row.date_debut))), d1 = parseFR(normalizeDate(safeStr(row.date_fin)))
+  const jours = (d0 && d1 && d1 >= d0) ? Math.round((d1 - d0) / 86400000) + 1 : null
+  const mois = parseMonthsCount(row.duree)
+  const sem = (String(row.duree || '').match(/(\d+(?:[.,]\d+)?)\s*semaines?/i) || [])[1]
+  const joursDuree = mois ? mois * 30.44 : (sem ? parseFloat(sem.replace(',', '.')) * 7 : null)
   let montant = null, methode = null
-  if (d0 && d1 && d1 >= d0) {
-    const jours = Math.round((d1 - d0) / 86400000) + 1
+  if (jours && (!joursDuree || Math.abs(jours - joursDuree) <= Math.max(3, joursDuree * 0.15))) {
     montant = base * jours / 365; methode = `${jours} jours × loyer annuel ÷ 365`
-  } else {
-    const mois = parseMonthsCount(row.duree)
-    const sem = (String(row.duree || '').match(/(\d+(?:[.,]\d+)?)\s*semaines?/i) || [])[1]
-    if (mois) { montant = base * mois / 12; methode = `${String(mois).replace('.', ',')} mois × loyer annuel ÷ 12` }
-    else if (sem) { const n = parseFloat(sem.replace(',', '.')); montant = base * n * 7 / 365; methode = `${n} semaine(s) × 7 jours × loyer annuel ÷ 365` }
+  } else if (mois) {
+    montant = base * mois / 12; methode = `${String(mois).replace('.', ',')} mois × loyer annuel ÷ 12`
+  } else if (sem) {
+    const n = parseFloat(sem.replace(',', '.')); montant = base * n * 7 / 365; methode = `${n} semaine(s) × 7 jours × loyer annuel ÷ 365`
   }
   return { montant: montant ? arrondi2(montant) : parseAmount(brut), calcule: true, methode, chargesNonChiffrees }
 }
@@ -3757,10 +3764,19 @@ function franchiseMonthsEffective(row, loyerAnnuel, rieLoyer = 0) {
 // mois de loyer exonérés (partie entière en mois, reste en jours), veille.
 function franchiseDateFinCalculee(row, mois) {
   if (!mois || mois <= 0) return null
-  const fin = normalizeDate(safeStr(row?.date_fin))
-  if (fin && /^\d{2}\/\d{2}\/\d{4}$/.test(fin)) return null
   const deb = parseFR(normalizeDate(safeStr(row?.date_debut)))
   if (!deb) return null
+  const fin = normalizeDate(safeStr(row?.date_fin))
+  if (fin && /^\d{2}\/\d{2}\/\d{4}$/.test(fin)) {
+    // Une date de fin extraite est conservée, SAUF si elle borne l'année
+    // d'application et non la franchise : durée écrite en mois / semaines
+    // nettement plus courte que l'écart des dates (vécu : « 1 mois par an »
+    // daté du 01/10 au 30/09 → fin au 31/10)
+    const duree = parseMonthsCount(row?.duree) || ((String(row?.duree || '').match(/(\d+(?:[.,]\d+)?)\s*semaines?/i) || [])[1] ? parseFloat(String(row.duree).match(/(\d+(?:[.,]\d+)?)\s*semaines?/i)[1].replace(',', '.')) * 7 / 30.44 : null)
+    const f = parseFR(fin)
+    const ecartJ = f ? Math.round((f - deb) / 86400000) + 1 : null
+    if (!duree || !ecartJ || ecartJ <= duree * 30.44 * 1.15 + 3) return null
+  }
   const whole = Math.floor(mois), frac = mois - whole
   const afterWhole = new Date(deb.getFullYear(), deb.getMonth() + whole, deb.getDate())
   const daysInMonth = new Date(afterWhole.getFullYear(), afterWhole.getMonth() + 1, 0).getDate()
@@ -3914,7 +3930,7 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
                 const finCalc = row._type !== 'abattement' ? franchiseDateFinCalculee(row, franchiseMonthsEffective(row, loyerAnnuel, rieLoyer)) : null
                 return (
                   <td title={finCalc ? 'Calculée : date de début + mois de loyer exonérés (la clause ne précise pas la date de fin)' : (row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_fin || '—'}` : undefined)}>
-                    {row.date_fin || (finCalc ? <span style={{ fontStyle: 'italic' }}>≈ {finCalc}</span> : '—')}
+                    {finCalc ? <span style={{ fontStyle: 'italic' }} title={row.date_fin ? `Calculée : début + durée exonérée (la date extraite, ${row.date_fin}, borne l'année d'application)` : undefined}>≈ {finCalc}</span> : (row.date_fin || '—')}
                   </td>
                 )
               })()}
