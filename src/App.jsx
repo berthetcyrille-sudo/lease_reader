@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · surface de ligne cohérente'
+const APP_VERSION = '21.10 · surface de ligne cohérente 2'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2918,7 +2918,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   // vide ou égale au total des autres locaux. Une ligne "RIE" portant une
   // surface PROPRE et différente (ex: un lot de 1 024 m² au 1er étage) est une
   // vraie surface louée, mal catégorisée — elle compte dans le total.
-  const surfOf = r => isPark(r) ? lireNombreSurface(r.surface_m2) : surfaceLigne(r)
+  const surfOf = r => isPark(r) ? lireNombreSurface(r.surface_m2) : surfaceLigne(r, safe)
   const othersSurf = safe.filter(r => !isRieLabel(r) && !isPark(r)).reduce((t, r) => t + surfOf(r), 0)
   const isRie = r => {
     if (!isRieLabel(r)) return false
@@ -2938,7 +2938,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   const unitPrice = r => {
     if (r.prix_unitaire) return parseAmount(r.prix_unitaire)
     const loyer = parseAmount(r.loyer_annuel)
-    const surf  = surfaceLigne(r)
+    const surf  = surfaceLigne(r, safe)
     // Only calculate if BOTH are explicitly provided
     if (loyer !== null && loyer > 0 && surf > 0) return arrondi2(loyer / surf)
     return null // Cannot calculate - don't show
@@ -2947,11 +2947,11 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
     const explicit = parseAmount(r.loyer_annuel)
     if (explicit) return { value: explicit, computed: false }
     const up = unitPrice(r)
-    const surf = surfaceLigne(r)
+    const surf = surfaceLigne(r, safe)
     if (up && surf > 0) return { value: up * surf, computed: true }
     return { value: null, computed: false }
   }
-  const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + surfaceLigne(r), 0)
+  const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + surfaceLigne(r, safe), 0)
   // Lignes complétées, locaux et stationnement :
   // - prix extrait, sinon déduit du loyer de la ligne ; loyer extrait, sinon
   //   prix × quantité (surface ou nombre de places) — marqués "calcule" ;
@@ -2961,7 +2961,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   //   global porte sur une seule composante (30 000 € pour 240 m² de bureaux
   //   → 125 €/m²), ou stationnement au prix non extrait.
   const mainComputed = mainRows.map(row => {
-    const qty = surfaceLigne(row)
+    const qty = surfaceLigne(row, safe)
     const surfaceCorrigee = Math.abs(qty - lireNombreSurface(row.surface_m2)) > 0.01
     const explicitLoyer = parseAmount(row.loyer_annuel)
     const up = unitPrice(row)
@@ -3426,11 +3426,21 @@ function placesStationnement(d) {
 // alors loyer ÷ prix. Vécu (BEFA Millesime) : 4 527 m² — le total de la
 // désignation, infrastructure comprise — collés sur la ligne « superstructure »
 // à 500 €/m² pour 2 218 100 € (soit 4 436,2 m²).
-function surfaceLigne(r) {
+function surfaceLigne(r, lignes = null) {
   const sv = lireNombreSurface(r?.surface_m2)
   const L = parseAmount(r?.loyer_annuel), P = parseAmount(r?.prix_unitaire)
-  if (sv > 0 && L && P && P > 0 && Math.abs(sv * P - L) > Math.max(1, L * 0.005)) return Math.round(L / P * 100) / 100
-  return sv
+  if (!(sv > 0 && L && P && P > 0) || Math.abs(sv * P - L) <= Math.max(1, L * 0.005)) return sv
+  const cible = L / P
+  // Loyer GLOBAL d'une catégorie collé sur un seul lot (vécu : LINEA, loyer
+  // de tous les bureaux sur la ligne R+8) : loyer ÷ prix retombe sur la somme
+  // des lots de la catégorie — ce n'est pas la surface de la ligne qui est
+  // fausse, la répartition au prorata s'en charge : surface inchangée.
+  if (Array.isArray(lignes) && lignes.length > 1) {
+    const cat = x => stripAccents(String(x?.categorie || x?.typologie || '')).toLowerCase().trim()
+    const sommeCat = lignes.filter(x => cat(x) === cat(r) && !/station|parking|emplacement/.test(cat(x))).reduce((t, x) => t + lireNombreSurface(x?.surface_m2), 0)
+    if (sommeCat > sv && Math.abs(cible - sommeCat) <= Math.max(1, sommeCat * 0.005)) return sv
+  }
+  return Math.round(cible * 100) / 100
 }
 
 // SURFACE TOTALE LOUÉE — fonction commune (fiche, dashboard, État locatif,
@@ -3445,9 +3455,9 @@ function surfaceTotaleLouee(d) {
   const txt = r => stripAccents(`${safeStr(r.categorie) || ''} ${safeStr(r.typologie) || ''} ${safeStr(r.niveau) || ''}`).toLowerCase()
   const isPark = r => /station|parking|emplacement/.test(txt(r))
   const isRie = r => /\brie\b|restaura/.test(txt(r)) && !/industri/.test(txt(r))
-  const lignes = rows.filter(r => !isPark(r) && !isRie(r) && surfaceLigne(r) > 0)
+  const lignes = rows.filter(r => !isPark(r) && !isRie(r) && surfaceLigne(r, rows) > 0)
   if (!ext || lignes.length < 2) return { m2: ext, terrasse: 0, ajouts: [] }
-  const total = lignes.reduce((t, r) => t + surfaceLigne(r), 0)
+  const total = lignes.reduce((t, r) => t + surfaceLigne(r, rows), 0)
   if (total <= ext + 1) return { m2: ext, terrasse: 0, ajouts: [] } // la référence couvre déjà tout
   // Une partie des lignes reconstitue la surface de référence, et chacune des
   // AUTRES a un loyer propre → elles s'ajoutent (terrasse, infrastructure,
@@ -3459,15 +3469,15 @@ function surfaceTotaleLouee(d) {
   let meilleur = null
   for (let mask = 1; mask < (1 << n) - 1; mask++) {
     let somme = 0
-    for (let i = 0; i < n; i++) if (mask & (1 << i)) somme += surfaceLigne(lignes[i])
+    for (let i = 0; i < n; i++) if (mask & (1 << i)) somme += surfaceLigne(lignes[i], rows)
     if (Math.abs(somme - ext) > Math.max(1, ext * 0.005)) continue
     const restes = lignes.filter((_, i) => !(mask & (1 << i)))
     if (restes.length && restes.every(aLoyer)) { meilleur = restes; break }
   }
   if (!meilleur) return { m2: ext, terrasse: 0, ajouts: [] }
-  const ajout = meilleur.reduce((t, r) => t + surfaceLigne(r), 0)
-  const ajouts = meilleur.map(r => ({ libelle: safeStr(r.niveau) || safeStr(r.categorie) || 'surface', m2: Math.round(surfaceLigne(r) * 100) / 100, terrasse: /terrass|rooftop/.test(txt(r)) }))
-  return { m2: Math.round((ext + ajout) * 100) / 100, terrasse: Math.round(meilleur.filter(r => /terrass|rooftop/.test(txt(r))).reduce((t, r) => t + surfaceLigne(r), 0) * 100) / 100, ajouts }
+  const ajout = meilleur.reduce((t, r) => t + surfaceLigne(r, rows), 0)
+  const ajouts = meilleur.map(r => ({ libelle: safeStr(r.niveau) || safeStr(r.categorie) || 'surface', m2: Math.round(surfaceLigne(r, rows) * 100) / 100, terrasse: /terrass|rooftop/.test(txt(r)) }))
+  return { m2: Math.round((ext + ajout) * 100) / 100, terrasse: Math.round(meilleur.filter(r => /terrass|rooftop/.test(txt(r))).reduce((t, r) => t + surfaceLigne(r, rows), 0) * 100) / 100, ajouts }
 }
 
 // CLAUSE RECETTE (loyer variable) — lecture commune : loyer exclusivement
@@ -5651,7 +5661,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
         const totalM2 = surfaceTotaleLouee(d).m2 || 0
         surface = (detailRows.length === 1 && totalM2 > 0)
           ? totalM2
-          : detailRows.reduce((a, r) => a + surfaceLigne(r), 0)
+          : detailRows.reduce((a, r) => a + surfaceLigne(r, Array.isArray(d.surfaces_detail) ? d.surfaces_detail : detailRows), 0)
       } else {
         const info = extractFloorInfo(d.adresse)
         locationLabel = info ? info.label : (d.immeuble || d.adresse || 'Lot non localisé')
