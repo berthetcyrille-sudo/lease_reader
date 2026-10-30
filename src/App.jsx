@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · étiquette sur une ligne'
+const APP_VERSION = '21.10 · barème du loyer variable'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -229,11 +229,16 @@ POUR CHAQUE PÉRIODE (1re année, 2e et 3e années, à partir de la 4e année, e
 - montant : le chiffre s'il est fixé, sinon null ;
 - regle : la règle de calcul quand le montant n'est pas un chiffre fixe (ex : "80 % du loyer réel de l'année précédente", "65 % du loyer réel N-1, plancher de 200 €/m²") ;
 - plancher : le montant plancher de la période s'il y en a un (ex : 170720).
+BARÈME PAR TRANCHES (quand le loyer dépend du chiffre d'affaires / revenu par tranches) : liste "bareme" de tranches {"de": seuil bas ou null, "a": seuil haut ou null, "loyer": formule COURTE en français}, et "periodicite" de l'assiette ("trimestrielle" ou "annuelle"). Ex : « loyer trimestriel : si le revenu ≤ 88 827,75 €, 0 € ; si ≤ 127 000 €, 100 % du revenu − 88 827,75 € ; au-delà, 100 % du revenu − 88 827,75 € − 35 % × (revenu − 88 827,75 € − 39 000 €) » → "periodicite":"trimestrielle","bareme":[{"de":null,"a":88827.75,"loyer":"0 €"},{"de":88827.75,"a":127000,"loyer":"100 % de la part au-delà de 88 827,75 €"},{"de":127000,"a":null,"loyer":"100 % de la part au-delà de 88 827,75 €, diminué de 35 % de la part au-delà de 127 827,75 €"}].
+PROVISION : "provision":{"montant":"15000","periodicite":"trimestrielle | annuelle | mensuelle","regularisation":"ex: le trimestre suivant"} — le montant TEL QU'ÉCRIT avec sa périodicité (ne pas le convertir). Dans montants_par_periode, un montant est toujours ANNUEL : une provision trimestrielle de 15 000 € y figure pour 60000, nature provision.
+INDEXATION DES SEUILS : "indexation_seuils": l'indice qui indexe les seuils / montants du barème (ex : "ILAT") ou null.
 MÉCANISME du loyer variable : "additionnel" s'il S'AJOUTE au minimum (surloyer, « en plus du loyer minimum garanti »), "plus_eleve" si l'on paie le plus élevé du minimum et du variable.
 sans_lmg = true UNIQUEMENT si le bail exclut tout minimum sur TOUTE sa durée.
 
 Exemple : « Loyer de base 170 720 € HT. Toutefois, pour les 3 premières années : 1re année, uniquement le loyer variable, réglé sur la base prévisionnelle de 200 000 € ; 2e et 3e années, loyer minimum garanti de 80 % du loyer réel de l'année précédente, plus le loyer variable ; à compter de la 4e année, loyer de base de 65 % du loyer réel de l'année précédente, sans pouvoir être inférieur à 200 €/m² soit 170 720 €. Loyer variable additionnel de 8 % HT du chiffre d'affaires HT » →
 {"type":"CA","taux":"8%","assiette":"Chiffre d'affaires HT","mecanisme":"additionnel","sans_lmg":false,"lmg":null,"montants_par_periode":[{"periode":"1re annee","montant":"200000","regle":null,"plancher":null,"nature":"provision"},{"periode":"2e et 3e annees","montant":null,"regle":"80 % du loyer reel de l'annee precedente","plancher":null,"nature":"minimum"},{"periode":"a partir de la 4e annee","montant":"170720","regle":"65 % du loyer reel de l'annee precedente, plancher de 200 €/m²","plancher":"170720","nature":"minimum"}],"plancher":null,"plafond":null,"regles":"texte complet et fidèle de toutes les règles"}
+
+Ajoute au JSON les clés "periodicite", "bareme", "provision" et "indexation_seuils" (null / [] si sans objet).
 
 Réponds UNIQUEMENT avec ce JSON minifié sur UNE ligne, sans markdown.`
 
@@ -1329,7 +1334,7 @@ function exportControlesToExcel(tree) {
     'ID', 'Type', 'Bail lié (ID)', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur', 'Fichier', 'Avenant n°', 'Date de signature',
     "Date d'effet", ...rep(nBreaks, i => [`Break ${i}`]), ...rep(nCond, i => [`Break conditionnelle ${i} - Date`, `Break conditionnelle ${i} - Condition`]), 'Date de fin',
     'Loyer de base (régime de croisière)', 'Structure du loyer', 'Loyer à la signature (facial)', 'Loyer extrait', 'Total calcul par typologie', 'Écart (calcul − facial)', ...typos.map(t => `Loyer ${t}`),
-    ...(hasVar ? ['Loyer variable - Mécanisme', 'Loyer variable - Taux', 'Loyer variable - Assiette'] : []),
+    ...(hasVar ? ['Loyer variable - Mécanisme', 'Loyer variable - Taux', 'Loyer variable - Assiette', 'Loyer variable - Barème', 'Loyer variable - Provision'] : []),
     ...rep(nEch, i => [`Échéancier ${i} - Période`, `Échéancier ${i} - Nature`, `Échéancier ${i} - Règle`, `Échéancier ${i} - Montant annuel`]),
     'Franchises acquises (mois de loyer)', 'Franchises et abattements acquis (€)', 'Franchises conditionnelles (mois de loyer)', 'Franchises et abattements conditionnels (€)',
     ...rep(nRed, i => [`Réduction ${i} - Type`, `Réduction ${i} - Début`, `Réduction ${i} - Fin`, `Réduction ${i} - Durée`, `Réduction ${i} - Mois de loyer`, `Réduction ${i} - Montant`, `Réduction ${i} - Assiette`, `Réduction ${i} - Condition`]),
@@ -1354,7 +1359,11 @@ function exportControlesToExcel(tree) {
       val(vv.date_fin),
       val(vv.structure_loyer?.loyer_base), MODE_LOYER_LABEL[vv.structure_loyer?.mode] || '',
       val(lf.montant), val(lf.montant_extrait), val(lf.total_ventilation), ecart, ...typos.map(t => val((lf.par_typologie || {})[t])),
-      ...(hasVar ? [vv.structure_loyer?.variable?.mecanisme === 'additionnel' ? 'Additionnel (surloyer)' : (vv.structure_loyer?.variable?.mecanisme === 'plus_eleve' ? 'Le plus élevé des deux' : ''), val(vv.structure_loyer?.variable?.taux), val(vv.structure_loyer?.variable?.assiette)] : []),
+      ...(hasVar ? (() => { const V = vv.structure_loyer?.variable || {}; return [
+        V.mecanisme === 'additionnel' ? 'Additionnel (surloyer)' : (V.mecanisme === 'plus_eleve' ? 'Le plus élevé des deux' : ''), val(V.taux), val(V.assiette),
+        (Array.isArray(V.bareme) ? V.bareme : []).map(t => `${t.de == null ? `≤ ${t.a}` : (t.a == null ? `> ${t.de}` : `${t.de}–${t.a}`)} : ${t.loyer}`).join(' ; ') + (V.periodicite ? ` (${V.periodicite})` : '') + (V.indexation_seuils ? ` — seuils indexés ${V.indexation_seuils}` : ''),
+        V.provision ? `${V.provision.montant} €${V.provision.periodicite ? ` / ${V.provision.periodicite}` : ''}` : '',
+      ] })() : []),
       ...rep(nEch, i => { const e = (vv.structure_loyer?.echeancier || [])[i - 1]; return e ? [val(e.periode || [e.debut && `à partir du ${e.debut}`, e.fin && `jusqu'au ${e.fin}`].filter(Boolean).join(' ')), (NATURE_ECHEANCE_LABEL[e.nature] || e.nature) + (e.a_confirmer ? ' (à confirmer)' : ''), val(e.regle), val(e.montant)] : ['', '', '', ''] }),
       val(vv.franchise_totale_acquise?.mois || ''), val(vv.franchise_totale_acquise?.montant || ''), val(vv.franchise_totale_conditionnelle?.mois || ''), val(vv.franchise_totale_conditionnelle?.montant || ''),
       ...rep(nRed, i => { const r = (vv.reductions || [])[i - 1]; return r ? [r.type, val(r.date_debut), val(r.date_fin) + (r.date_fin_calculee ? ' (calculée)' : ''), val(r.duree), val(r.mois_de_loyer), val(r.montant), val(r.surface_assiette), (val(r.condition) + (r.recalee ? ' [dates recalées]' : '')).trim()] : ['', '', '', '', '', '', '', ''] }),
@@ -3585,7 +3594,13 @@ function structureLoyer(d) {
     .sort((a, b) => toSortableDateAv(a.debut || '').localeCompare(toSortableDateAv(b.debut || '')))
   const croisiere = list => { const l = list.filter(e => e.montant); return l.length ? l[l.length - 1].montant : null }
   if (LV) {
+    const bareme = (Array.isArray(LV.lv.bareme) ? LV.lv.bareme : []).map(t => ({ de: parseAmount(t?.de), a: parseAmount(t?.a), loyer: cleanTxt(t?.loyer) || null })).filter(t => t.loyer)
+    const pv = LV.lv.provision && typeof LV.lv.provision === 'object' ? LV.lv.provision : null
     const variable = {
+      periodicite: cleanTxt(LV.lv.periodicite) || null,
+      bareme,
+      provision: pv && parseAmount(pv.montant) ? { montant: parseAmount(pv.montant), periodicite: cleanTxt(pv.periodicite) || null, regularisation: cleanTxt(pv.regularisation) || null } : null,
+      indexation_seuils: cleanTxt(LV.lv.indexation_seuils) || null,
       mecanisme: LV.mecanisme,
       taux: safeStr(LV.lv.taux) || null, assiette: safeStr(LV.lv.assiette) || null,
       plancher: parseAmount(LV.lv.plancher), plafond: parseAmount(LV.lv.plafond), regles: safeStr(LV.lv.regles) || null,
@@ -7431,7 +7446,38 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
               {V.plancher && <Field label="Plancher" value={fmtEur(V.plancher)} />}
               {V.plafond && <Field label="Plafond" value={fmtEur(V.plafond)} />}
             </div>
-            {SL.echeancier.length > 0 && (
+            {/* Repères courts : provision, indexation des seuils, minimum garanti */}
+            {(V.provision || V.indexation_seuils || SL.mode === 'variable_seul') && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                {V.provision && <span className="pill" style={{ background: 'var(--accent-bg)', color: 'var(--text)', border: '1px solid var(--border2)' }}>
+                  Provision : {fmtEur2(V.provision.montant)} HT{V.provision.periodicite ? ` par ${V.provision.periodicite.replace(/le$/, '').replace(/trimestriel+/, 'trimestre').replace(/annuel+/, 'an').replace(/mensuel+/, 'mois')}` : ''}{V.provision.regularisation ? `, régularisée ${V.provision.regularisation}` : ''}
+                </span>}
+                {V.indexation_seuils && <span className="pill" style={{ background: 'var(--surface2)', color: 'var(--text2)', border: '1px solid var(--border)' }}>Seuils indexés sur l'{V.indexation_seuils}</span>}
+                {SL.mode === 'variable_seul' && <span className="pill" style={{ background: 'var(--surface2)', color: 'var(--text2)', border: '1px solid var(--border)' }}>Aucun loyer minimum garanti</span>}
+              </div>
+            )}
+            {/* Barème par tranches */}
+            {Array.isArray(V.bareme) && V.bareme.length > 0 && (
+              <div className="table-wrap" style={{ marginBottom: '10px' }}>
+                <table className="indemnites-table">
+                  <thead><tr>
+                    <th>Revenu {V.periodicite ? `du ${V.periodicite.startsWith('tri') ? 'trimestre' : (V.periodicite.startsWith('men') ? 'mois' : "de l'année")}` : ''}</th>
+                    <th>Loyer {V.periodicite ? `du ${V.periodicite.startsWith('tri') ? 'trimestre' : (V.periodicite.startsWith('men') ? 'mois' : "de l'année")}` : ''}</th>
+                  </tr></thead>
+                  <tbody>
+                    {V.bareme.map((t, i) => (
+                      <tr key={i}>
+                        <td style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
+                          {t.de == null && t.a != null ? `jusqu'à ${fmtEur2(t.a)}` : (t.de != null && t.a == null ? `au-delà de ${fmtEur2(t.de)}` : (t.de != null && t.a != null ? `de ${fmtEur2(t.de)} à ${fmtEur2(t.a)}` : '—'))}
+                        </td>
+                        <td>{t.loyer}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {SL.echeancier.length > 0 && !(V.provision && SL.echeancier.length === 1 && SL.echeancier[0].nature === 'provision' && Array.isArray(V.bareme) && V.bareme.length > 0) && (
               <div className="table-wrap" style={{ marginBottom: '10px' }}>
                 <table className="indemnites-table">
                   <thead><tr><th>Période</th><th>Nature</th>{SL.echeancier.some(r => r.regle) && <th>Règle de calcul</th>}<th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th></tr></thead>
@@ -7442,7 +7488,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                         <td title={r.nature === 'provision' ? "Acompte versé dans l'attente du loyer définitif, puis régularisé" : (r.nature === 'minimum' ? "Montant dû quel que soit le chiffre d'affaires" : undefined)}>
                           {NATURE_ECHEANCE_LABEL[r.nature] || r.nature}{r.a_confirmer ? ' — à confirmer par réextraction' : ''}
                         </td>
-                        {SL.echeancier.some(x => x.regle) && <td style={{ color: 'var(--text2)' }}>{r.regle || '—'}</td>}
+                        {SL.echeancier.some(x => x.regle) && <td style={{ color: 'var(--text2)' }} title={r.regle && r.regle.length > 140 ? r.regle : undefined}>{r.regle ? (r.regle.length > 140 ? `${r.regle.slice(0, 137).trim()}…` : r.regle) : '—'}</td>}
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>
                           {r.montant ? fmtEur2(r.montant) : <span style={{ fontWeight: 400, color: 'var(--text3)' }}>selon la règle</span>}
                           {r.plancher && r.montant && r.plancher === r.montant ? <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>plancher</span> : null}
@@ -13263,3 +13309,5 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
     </>
   )
 }
+
+                                  
