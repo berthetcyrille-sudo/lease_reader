@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · paliers sans doublon'
+const APP_VERSION = '21.10 · règles du loyer variable'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1281,8 +1281,8 @@ function exportControlesToExcel(tree) {
     'ID', 'Type', 'Bail lié (ID)', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur', 'Fichier', 'Avenant n°', 'Date de signature',
     "Date d'effet", ...rep(nBreaks, i => [`Break ${i}`]), ...rep(nCond, i => [`Break conditionnelle ${i} - Date`, `Break conditionnelle ${i} - Condition`]), 'Date de fin',
     'Loyer de base (régime de croisière)', 'Structure du loyer', 'Loyer à la signature (facial)', 'Loyer extrait', 'Total calcul par typologie', 'Écart (calcul − facial)', ...typos.map(t => `Loyer ${t}`),
-    ...(hasVar ? ['Loyer variable - Taux', 'Loyer variable - Assiette'] : []),
-    ...rep(nEch, i => [`Échéancier ${i} - Période`, `Échéancier ${i} - Nature`, `Échéancier ${i} - Montant annuel`]),
+    ...(hasVar ? ['Loyer variable - Mécanisme', 'Loyer variable - Taux', 'Loyer variable - Assiette'] : []),
+    ...rep(nEch, i => [`Échéancier ${i} - Période`, `Échéancier ${i} - Nature`, `Échéancier ${i} - Règle`, `Échéancier ${i} - Montant annuel`]),
     'Franchises acquises (mois de loyer)', 'Franchises et abattements acquis (€)', 'Franchises conditionnelles (mois de loyer)', 'Franchises et abattements conditionnels (€)',
     ...rep(nRed, i => [`Réduction ${i} - Type`, `Réduction ${i} - Début`, `Réduction ${i} - Fin`, `Réduction ${i} - Durée`, `Réduction ${i} - Mois de loyer`, `Réduction ${i} - Montant`, `Réduction ${i} - Assiette`, `Réduction ${i} - Condition`]),
     ...rep(nInd, i => [`Indemnité ${i} - Terme`, `Indemnité ${i} - Due par`, `Indemnité ${i} - Motif`, `Indemnité ${i} - Montant`, `Indemnité ${i} - Calcul`]),
@@ -1306,8 +1306,8 @@ function exportControlesToExcel(tree) {
       val(vv.date_fin),
       val(vv.structure_loyer?.loyer_base), MODE_LOYER_LABEL[vv.structure_loyer?.mode] || '',
       val(lf.montant), val(lf.montant_extrait), val(lf.total_ventilation), ecart, ...typos.map(t => val((lf.par_typologie || {})[t])),
-      ...(hasVar ? [val(vv.structure_loyer?.variable?.taux), val(vv.structure_loyer?.variable?.assiette)] : []),
-      ...rep(nEch, i => { const e = (vv.structure_loyer?.echeancier || [])[i - 1]; return e ? [val(e.periode || [e.debut && `à partir du ${e.debut}`, e.fin && `jusqu'au ${e.fin}`].filter(Boolean).join(' ')), (NATURE_ECHEANCE_LABEL[e.nature] || e.nature) + (e.a_confirmer ? ' (à confirmer)' : ''), val(e.montant)] : ['', '', ''] }),
+      ...(hasVar ? [vv.structure_loyer?.variable?.mecanisme === 'additionnel' ? 'Additionnel (surloyer)' : (vv.structure_loyer?.variable?.mecanisme === 'plus_eleve' ? 'Le plus élevé des deux' : ''), val(vv.structure_loyer?.variable?.taux), val(vv.structure_loyer?.variable?.assiette)] : []),
+      ...rep(nEch, i => { const e = (vv.structure_loyer?.echeancier || [])[i - 1]; return e ? [val(e.periode || [e.debut && `à partir du ${e.debut}`, e.fin && `jusqu'au ${e.fin}`].filter(Boolean).join(' ')), (NATURE_ECHEANCE_LABEL[e.nature] || e.nature) + (e.a_confirmer ? ' (à confirmer)' : ''), val(e.regle), val(e.montant)] : ['', '', '', ''] }),
       val(vv.franchise_totale_acquise?.mois || ''), val(vv.franchise_totale_acquise?.montant || ''), val(vv.franchise_totale_conditionnelle?.mois || ''), val(vv.franchise_totale_conditionnelle?.montant || ''),
       ...rep(nRed, i => { const r = (vv.reductions || [])[i - 1]; return r ? [r.type, val(r.date_debut), val(r.date_fin) + (r.date_fin_calculee ? ' (calculée)' : ''), val(r.duree), val(r.mois_de_loyer), val(r.montant), val(r.surface_assiette), (val(r.condition) + (r.recalee ? ' [dates recalées]' : '')).trim()] : ['', '', '', '', '', '', '', ''] }),
       ...rep(nInd, i => { const r = (vv.indemnites_terme || [])[i - 1]; return r ? [val(r.terme), val(r.due_par), val(r.motif), val(r.montant), val(r.calcul)] : ['', '', '', '', ''] }),
@@ -1411,7 +1411,7 @@ paliers_loyer: tableau si le loyer evolue par etapes a des dates definies (ex: l
 
 abattements: tableau de toutes les reductions temporaires de loyer DISTINCTES d'une franchise (ex: abattement RIE, reduction liee a des travaux, loyer minoré conditionnel pour un motif autre qu'une franchise commerciale). CAS TRES FREQUENT A NE JAMAIS OUBLIER: une "REDUCTION DE LOYER" chiffree en montant pour une ou plusieurs annees, sans le mot "franchise" (ex: "le BAILLEUR consent au PRENEUR une reduction du loyer de base pour la premiere annee et du loyer indexe la seconde annee : la premiere annee d'un montant de 8.700,00 € hors taxe ; la deuxieme annee d'un montant de 5.220,00 €") → une ligne PAR ANNEE dans abattements : {"date_debut":"<debut de l'annee 1>","date_fin":"<fin de l'annee 1>","montant_annuel":"8700","description":"Reduction de loyer de base 1ere annee"} puis {"date_debut":"<debut de l'annee 2>","date_fin":"<fin de l'annee 2>","montant_annuel":"5220","description":"Reduction du loyer indexe 2eme annee"} (montant_annuel = montant de la reduction pour l'annee, l'annee courant a compter de la date d'effet). Une telle reduction s'AJOUTE aux franchises eventuelles du meme bail : un bail peut avoir A LA FOIS des franchises (franchise_periodes) ET une reduction de loyer (abattements) — ne jamais omettre l'une parce que l'autre existe. ATTENTION DOUBLON: si une clause utilise le mot "franchise" (meme partielle) ou decrit une exoneration totale de loyer sur une periode donnee, elle va UNIQUEMENT dans franchise_periodes — NE JAMAIS la dupliquer ici. IMPORTANT: renseigner ce tableau MEME SI l'information est deja decrite en texte libre ailleurs (notamment dans le champ RIE) — les deux champs sont INDEPENDANTS et doivent TOUS LES DEUX etre remplis quand l'info existe ; decrire une clause de quote-part RIE non due dans le champ RIE ne dispense JAMAIS de l'ajouter aussi ici sous forme structuree si elle correspond a une reduction temporaire chiffrable (montant/periode). Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","montant_annuel":"12345","description":"ex: reduction RIE jusqu a mise en service","page":N}] — page = numero de page du PDF ou figure la clause (obligatoire, comme pour franchise_periodes). montant_annuel = le TAUX ANNUEL normalement du qui est temporairement supprime (PAS le montant total de la periode — l'affichage se charge de proratiser selon la duree). EXEMPLE TYPE (clause RIE transitoire tres frequente): "Aucune redevance ni aucun loyer portant sur la quote-part de jouissance du RIE ne seront dus par le PRENEUR jusqu'a la date a laquelle le PRENEUR aura acces au RIE de l'Immeuble" + ailleurs dans le bail la quote-part RIE incluse dans le loyer est chiffree a X €/an → creer une ligne {"date_debut":"<date_effet>","date_fin":"<date d'acces prevue au RIE definitif, ex: 01/09/2022>","montant_annuel":"<X, le montant annuel de la quote-part RIE normalement due>","description":"Quote-part RIE non due jusqu'a l'acces au RIE de l'Immeuble"}. [] si aucun abattement distinct d'une franchise.
 
-loyer_variable: si le bail contient une clause de loyer variable ou indexe sur le CA/chiffre d affaires (clause recette). Format: {\"type\":\"CA ou autre\",\"taux\":\"ex: 6,5%\",\"assiette\":\"ex: CA HT realise dans ou a partir des Locaux\",\"sans_lmg\":true si le bail exclut EXPRESSEMENT tout loyer minimum garanti (\"a l'exclusion de tout loyer minimum garanti\", \"un seul loyer variable\"), false sinon,\"lmg\":\"montant annuel du loyer minimum garanti, ou null\",\"montants_par_periode\":[{\"periode\":\"ex: annee 1 / 2022 / annees 1 a 3\",\"montant\":\"104146.87\",\"nature\":\"provision OU minimum\"}],\"plancher\":\"montant brut ou null\",\"plafond\":\"montant brut ou null\",\"regles\":\"texte complet de la formule et des conditions de declenchement\"}. NATURE: \"provision\" = acompte verse dans l'attente du loyer definitif puis regularise (\"provision ... dans l'attente de la determination du loyer annuel definitif\") ; \"minimum\" = montant plancher qui reste du quel que soit le CA. Ne jamais qualifier une provision de minimum. null si pas de loyer variable.
+loyer_variable: si le bail contient une clause de loyer variable ou indexe sur le CA/chiffre d affaires (clause recette). Format: {\"type\":\"CA ou autre\",\"taux\":\"ex: 6,5%\",\"assiette\":\"ex: CA HT realise dans ou a partir des Locaux\",\"sans_lmg\":true si le bail exclut EXPRESSEMENT tout loyer minimum garanti (\"a l'exclusion de tout loyer minimum garanti\", \"un seul loyer variable\"), false sinon,\"lmg\":\"montant annuel du loyer minimum garanti, ou null\",\"mecanisme\":\"additionnel (le loyer variable / surloyer S'AJOUTE au minimum) OU plus_eleve (on paie le plus eleve du minimum et du variable) ou null\",\"montants_par_periode\":[{\"periode\":\"ex: annee 1 / 2022 / annees 2 et 3 / a partir de la 4e annee\",\"montant\":\"104146.87 ou null si le montant est defini par une regle\",\"regle\":\"regle de calcul quand le montant n'est pas un chiffre fixe, ex: 80 % du loyer reel de l'annee precedente ; 65 % du loyer reel N-1 avec un plancher de 200 €/m² (170 720 €) — sinon null\",\"plancher\":\"montant plancher de la periode ou null\",\"nature\":\"provision OU minimum\"}],\"plancher\":\"montant brut ou null\",\"plafond\":\"montant brut ou null\",\"regles\":\"texte complet de la formule et des conditions de declenchement\"}. PERIODES: lister CHAQUE periode de la clause, y compris celles dont le minimum est defini par une REGLE (pourcentage du loyer reel de l'annee precedente, du CA, etc.) — montant null et regle remplie, plancher s'il y en a un. Ex: « 1re annee : uniquement le loyer variable, regle sur la base previsionnelle de 200 000 € ; 2e et 3e annees : minimum garanti de 80 % du loyer reel de l'annee precedente, plus le loyer variable ; a partir de la 4e annee : loyer de base de 65 % du loyer reel N-1, sans pouvoir etre inferieur a 170 720 € ; loyer variable additionnel de 8 % du CA HT » → mecanisme = additionnel ; periodes = [annee 1 : montant 200000, nature provision] [annees 2 et 3 : montant null, regle 80 % du loyer reel de l'annee precedente, nature minimum] [a partir de la 4e annee : montant 170720, regle 65 % du loyer reel N-1 avec plancher de 200 €/m², plancher 170720, nature minimum]. NATURE: \"provision\" = acompte verse dans l'attente du loyer definitif puis regularise (\"provision ... dans l'attente de la determination du loyer annuel definitif\") ; \"minimum\" = montant plancher qui reste du quel que soit le CA. Ne jamais qualifier une provision de minimum. null si pas de loyer variable.
 
 franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnelles et complementaires. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"123405","surface_assiette":"ex: LC1 (701 m²)","indexation_incluse":"Non","condition":"null ou texte si conditionnelle ex: si non-delivrance de conge au 31/08/2030","page":3}]. montant: calculer si non explicite (loyer_annuel_assiette * duree_mois / 12). FRANCHISE REPARTIE EN TRANCHES (montants echelonnes): UNE LIGNE PAR TRANCHE LISTEE dans la clause — le nombre de lignes doit egaler le nombre de tranches (ex: 96.080 € a la prise d'effet puis 96.080 € a chacune des 1re a 4e dates anniversaires et 96.083 € a la 5e = 6 lignes) et la somme des montants doit egaler le total annonce (ex: 576.483 €) : verifier avant de repondre. date_debut = date de la tranche (prise d'effet, ou Neme date anniversaire = date d'effet + N ans) ; date_fin = null si la clause ne la precise pas. NE JAMAIS INVENTER de duree : si la clause ne donne que des montants, duree = \"recalcul = <montant / loyer mensuel de l'assiette, arrondi a 0,1> mois\" — l'assiette etant le loyer HORS redevance RIE si la clause le precise. DUREE = NOMBRE DE MOIS DE LOYER EXONERES, PAS la periode d'application (ne concerne QUE les clauses appelees franchise : une \"reduction de loyer\" chiffree par annee va dans abattements, pas ici) : si la franchise est un MONTANT impute sur une periode (ex: "franchise de 5.430 € HT imputee sur les loyers de la premiere annee"), la periode (12 mois) va dans date_debut/date_fin, et duree = equivalent en mois de loyer, ecrit "recalcul = <montant / loyer mensuel arrondi a 0,1> mois" (ex: 5430 / (47060/12) → "recalcul = 1,4 mois") — JAMAIS "12 mois". ATTENTION DISTINCTION AVEC mise_a_disposition: une franchise reduit un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero. NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation avant la date d'effet officielle du bail, "pas de loyer ni charges dus"), meme si le texte l'appelle "franchise" et meme si elle est ventilee par lot avec des dates differentes — cela va dans le champ dedie mise_a_disposition, pas ici. ATTENTION CAS INVERSE FREQUENT: quand plusieurs montants de franchise sont donnes a des dates anniversaires successives (ex: un montant "à compter du" 15/09/2025, un autre "à compter du" 15/09/2026, etc.) SANS duree ni date de fin explicite pour chaque tranche, NE JAMAIS supposer 12 mois entre deux echeances — c'est presque toujours un montant equivalent a quelques semaines/mois de loyer accorde CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an), pas une exoneration continue toute l'annee. Calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)) puis date_fin = date_debut + duree_mois mois - 1 jour. N'utiliser 12 mois que si le texte le dit explicitement. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — (a) si la duree est explicite et le montant manquant: reprendre la duree telle quelle dans "duree", calculer montant = duree_mois * (loyer_annuel_base_HT_HC/12) et ecrire "recalcul = <montant> €" dans "montant" (pas un chiffre brut). (b) si le montant est explicite et la duree manquante: montant reste un chiffre brut normal, calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC/12)) et ecrire "recalcul = <duree_mois> mois" dans "duree" (pas une phrase). Si les deux sont explicites, les reprendre tels quels sans marqueur. Jamais de formule detaillee type "A / B = C".
 
@@ -3326,8 +3326,14 @@ function loyerVariableInfo(d) {
   const sansLmg = !lmg && (lv.sans_lmg === true || /(exclusion de tout loyer minimum|sans (aucun )?loyer minimum|aucun loyer minimum|un seul loyer variable|exclusivement variable)/.test(txt))
   const periodes = (Array.isArray(lv.montants_par_periode) ? lv.montants_par_periode : []).map(m => ({
     periode: safeStr(m.periode) || null, montant: parseAmount(m.montant), nature: /provision|acompte/i.test(safeStr(m.nature) || '') ? 'provision' : 'minimum',
-  })).filter(m => m.montant)
-  return { lv, sansLmg, lmg, periodes }
+    regle: cleanTxt(m.regle) || null, plancher: parseAmount(m.plancher) || null,
+  })).filter(m => m.montant || m.regle)
+  const mecanisme = /additionnel|s.ajoute|surloyer/i.test(stripAccents(safeStr(lv.mecanisme) || '')) ? 'additionnel'
+    : (/plus.eleve|plus_eleve|maximum/i.test(stripAccents(safeStr(lv.mecanisme) || '')) ? 'plus_eleve'
+      : (/surloyer|additionnel/.test(txt) ? 'additionnel' : null))
+  // une période à minimum garanti exclut le « loyer exclusivement variable »
+  const sansLmgFinal = sansLmg && !periodes.some(m => m.nature === 'minimum')
+  return { lv, sansLmg: sansLmgFinal, lmg, periodes, mecanisme }
 }
 
 // PALIERS → ABATTEMENTS : quand le bail fixe un LOYER DE RÉFÉRENCE et des
@@ -3385,12 +3391,13 @@ function structureLoyer(d) {
   const croisiere = list => { const l = list.filter(e => e.montant); return l.length ? l[l.length - 1].montant : null }
   if (LV) {
     const variable = {
+      mecanisme: LV.mecanisme,
       taux: safeStr(LV.lv.taux) || null, assiette: safeStr(LV.lv.assiette) || null,
       plancher: parseAmount(LV.lv.plancher), plafond: parseAmount(LV.lv.plafond), regles: safeStr(LV.lv.regles) || null,
     }
     if (LV.sansLmg) {
       const ech = LV.periodes.length
-        ? LV.periodes.map(m => ({ periode: m.periode, debut: null, fin: null, montant: m.montant, nature: m.nature }))
+        ? LV.periodes.map(m => ({ periode: m.periode, debut: null, fin: null, montant: m.montant, nature: m.nature, regle: m.regle, plancher: m.plancher }))
         : (lf.extrait ? [{ periode: 'Première année', debut: null, fin: null, montant: lf.extrait, nature: 'provision', a_confirmer: true }] : [])
       return { mode: 'variable_seul', loyer_base: 0, mention: 'cf. section Loyer variable', echeancier: ech, variable }
     }
@@ -3398,7 +3405,7 @@ function structureLoyer(d) {
     const sameAmounts = (a, b) => a.length === b.length && a.map(x => Math.round(x.montant)).sort().join() === b.map(x => Math.round(x.montant)).sort().join()
     let ech
     if (paliers.length && (!per.length || sameAmounts(paliers, per))) ech = paliers.map(p => ({ ...p, nature: 'minimum' }))
-    else if (per.length) ech = per.map(m => ({ periode: m.periode, debut: null, fin: null, montant: m.montant, nature: m.nature }))
+    else if (per.length) ech = per.map(m => ({ periode: m.periode, debut: null, fin: null, montant: m.montant || m.plancher || null, nature: m.nature, regle: m.regle, plancher: m.plancher }))
     else ech = LV.lmg ? [{ periode: null, debut: null, fin: null, montant: LV.lmg, nature: 'minimum' }] : []
     const base = croisiere(ech.filter(e => e.nature !== 'provision')) || LV.lmg || lf.montant
     return { mode: 'variable_lmg', loyer_base: base, mention: 'cf. section Loyer variable', echeancier: ech.length > 1 ? ech : (ech.length === 1 && ech[0].periode ? ech : []), variable }
@@ -7206,6 +7213,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
             <div className="sec-hd"><div className="sec-label">Loyer variable</div></div>
             <div className="gx" style={{ marginBottom: '10px' }}>
               <Field label="Structure" value={MODE_LOYER_LABEL[SL.mode] || '—'} />
+              {V.mecanisme && <Field label="Mécanisme" value={V.mecanisme === 'additionnel' ? 'Additionnel : le loyer variable s\'ajoute au minimum' : 'Le plus élevé du minimum et du loyer variable'} />}
               {V.taux && <Field label="Taux" value={V.taux} />}
               {V.assiette && <Field label="Assiette" value={V.assiette} />}
               {V.plancher && <Field label="Plancher" value={fmtEur(V.plancher)} />}
@@ -7214,7 +7222,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
             {SL.echeancier.length > 0 && (
               <div className="table-wrap" style={{ marginBottom: '10px' }}>
                 <table className="indemnites-table">
-                  <thead><tr><th>Période</th><th>Nature</th><th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th></tr></thead>
+                  <thead><tr><th>Période</th><th>Nature</th>{SL.echeancier.some(r => r.regle) && <th>Règle de calcul</th>}<th style={{ textAlign: 'right' }}>Montant annuel HT/HC</th></tr></thead>
                   <tbody>
                     {SL.echeancier.map((r, i) => (
                       <tr key={i}>
@@ -7222,8 +7230,10 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                         <td title={r.nature === 'provision' ? "Acompte versé dans l'attente du loyer définitif, puis régularisé" : (r.nature === 'minimum' ? "Montant dû quel que soit le chiffre d'affaires" : undefined)}>
                           {NATURE_ECHEANCE_LABEL[r.nature] || r.nature}{r.a_confirmer ? ' — à confirmer par réextraction' : ''}
                         </td>
+                        {SL.echeancier.some(x => x.regle) && <td style={{ color: 'var(--text2)' }}>{r.regle || '—'}</td>}
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                          {fmtEur2(r.montant)}
+                          {r.montant ? fmtEur2(r.montant) : <span style={{ fontWeight: 400, color: 'var(--text3)' }}>selon la règle</span>}
+                          {r.plancher && r.montant && r.plancher === r.montant ? <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>plancher</span> : null}
                           {SL.mode === 'variable_lmg' && i === SL.echeancier.length - 1 && SL.echeancier.length > 1 && <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>régime de croisière</span>}
                         </td>
                       </tr>
