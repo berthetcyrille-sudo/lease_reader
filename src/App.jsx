@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · barème du loyer variable'
+const APP_VERSION = '21.10 · règle par tranche'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3572,6 +3572,32 @@ function abattementsDesPaliers(d) {
     description: `Loyer progressif : ${fmtEur(p.montant)} au lieu de ${fmtEur(R)}${p.periode ? ` (${p.periode})` : ''}`,
     _issu_palier: true,
   }))
+}
+
+// Découpe d'une règle de loyer variable ÉNUMÉRÉE (« (i) si … ; (ii) si … ;
+// (iii) si … ») en une ligne par tranche — affichage lisible sans
+// réextraction, quand le barème n'a pas été extrait en tant que tel.
+function decouperRegleParTranches(txt) {
+  const t = safeStr(txt)
+  if (!t) return null
+  const re = /\(\s*(?:i{1,3}|iv|v|vi{1,3}|ix|x|[1-9]|[a-h])\s*\)\s*/gi
+  const idx = []
+  let m
+  while ((m = re.exec(t))) idx.push({ i: m.index, fin: m.index + m[0].length })
+  if (idx.length >= 2) {
+    const intro = t.slice(0, idx[0].i).replace(/[\s:;,-]+$/, '').trim()
+    const tranches = idx.map((x, k) => t.slice(x.fin, k + 1 < idx.length ? idx[k + 1].i : undefined).replace(/^[\s;,.]+|[\s;,]+$/g, '').trim())
+    // la dernière tranche peut porter la suite du texte (provision…) : coupée à la 1re phrase
+    const derniere = tranches[tranches.length - 1]
+    const pt = derniere.search(/\.\s+[A-ZÉ]/)
+    const suite = pt > 0 ? derniere.slice(pt + 1).trim() : ''
+    if (pt > 0) tranches[tranches.length - 1] = derniere.slice(0, pt).trim()
+    return { intro, tranches: tranches.filter(Boolean), suite }
+  }
+  // « si … ; si … » sans numérotation
+  const parts = t.split(/;\s*(?=si\b)/i)
+  if (parts.length >= 2) return { intro: '', tranches: parts.map(x => x.trim()), suite: '' }
+  return null
 }
 
 // STRUCTURE DU LOYER — source unique (fiche, dashboard, État locatif, base,
@@ -7488,7 +7514,10 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                         <td title={r.nature === 'provision' ? "Acompte versé dans l'attente du loyer définitif, puis régularisé" : (r.nature === 'minimum' ? "Montant dû quel que soit le chiffre d'affaires" : undefined)}>
                           {NATURE_ECHEANCE_LABEL[r.nature] || r.nature}{r.a_confirmer ? ' — à confirmer par réextraction' : ''}
                         </td>
-                        {SL.echeancier.some(x => x.regle) && <td style={{ color: 'var(--text2)' }} title={r.regle && r.regle.length > 140 ? r.regle : undefined}>{r.regle ? (r.regle.length > 140 ? `${r.regle.slice(0, 137).trim()}…` : r.regle) : '—'}</td>}
+                        {SL.echeancier.some(x => x.regle) && (() => {
+                          const dec = decouperRegleParTranches(r.regle)
+                          return <td style={{ color: 'var(--text2)' }}>{dec ? `${dec.intro || 'Loyer par tranches'} — voir les tranches ci-dessous` : (r.regle || '—')}</td>
+                        })()}
                         <td style={{ textAlign: 'right', fontWeight: 600 }}>
                           {r.montant ? fmtEur2(r.montant) : <span style={{ fontWeight: 400, color: 'var(--text3)' }}>selon la règle</span>}
                           {r.plancher && r.montant && r.plancher === r.montant ? <span style={{ fontSize: '10.5px', fontWeight: 500, color: 'var(--text3)', marginLeft: '6px' }}>plancher</span> : null}
@@ -7500,6 +7529,21 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                 </table>
               </div>
             )}
+            {!(Array.isArray(V.bareme) && V.bareme.length) && (() => {
+              const src = (SL.echeancier.find(r => decouperRegleParTranches(r.regle)) || {}).regle || V.regles
+              const dec = decouperRegleParTranches(src)
+              if (!dec || dec.tranches.length < 2) return null
+              return (
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 16px', marginBottom: '10px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.08em', color: 'var(--text2)', marginBottom: '8px' }}>RÈGLE PAR TRANCHE</div>
+                  {dec.intro && <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '6px' }}>{dec.intro}</div>}
+                  <ol style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {dec.tranches.map((x, i) => <li key={i} style={{ fontSize: '13px', color: 'var(--text)', lineHeight: 1.5 }}>{x}</li>)}
+                  </ol>
+                  {dec.suite && <div style={{ fontSize: '12.5px', color: 'var(--text2)', marginTop: '8px', lineHeight: 1.5 }}>{dec.suite}</div>}
+                </div>
+              )
+            })()}
             {V.regles && (
               <details>
                 <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--accent)', fontWeight: 600 }}>Texte intégral de la clause</summary>
@@ -13309,5 +13353,3 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
     </>
   )
 }
-
-                                  
