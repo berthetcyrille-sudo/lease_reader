@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · emplacements en m²'
+const APP_VERSION = '21.10 · durées décimales'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1650,8 +1650,9 @@ const DUREE_NUM_WORDS = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, 
 function parseDureeMonths(text) {
   const t = stripAccents(String(text || '')).toLowerCase()
   if (!t) return null
-  const num = `\\b(\\d+|${Object.keys(DUREE_NUM_WORDS).join('|')})`
-  const toN = x => /^\d+$/.test(x) ? parseInt(x) : DUREE_NUM_WORDS[x]
+  // décimales comprises : « 9 ans et 3,5 mois » (vécu : lu « 5 mois »)
+  const num = `\\b(\\d+(?:[.,]\\d+)?|${Object.keys(DUREE_NUM_WORDS).join('|')})`
+  const toN = x => /^\d+(?:[.,]\d+)?$/.test(x) ? parseFloat(x.replace(',', '.')) : DUREE_NUM_WORDS[x]
   const y = t.match(new RegExp(`${num}\\s*(?:\\(\\s*\\d+\\s*\\)\\s*)?(?:ans?|annees?)\\b`))
   const mo = t.match(new RegExp(`${num}\\s*(?:\\(\\s*\\d+\\s*\\)\\s*)?mois\\b`))
   const months = (y ? toN(y[1]) * 12 : 0) + (mo ? toN(mo[1]) : 0)
@@ -1701,7 +1702,8 @@ function computeDateFinFromDuree(date_effet_str, duree_totale_str) {
   if (!effet) return null
   const months = parseDureeMonths(duree_totale_str)
   if (!months) return null
-  return fmtFR(new Date(effet.getFullYear(), effet.getMonth() + months, effet.getDate() - 1))
+  const entiers = Math.floor(months), jours = Math.round((months - entiers) * 30.44)
+  return fmtFR(new Date(effet.getFullYear(), effet.getMonth() + entiers, effet.getDate() - 1 + jours))
 }
 
 function filterBreaksByDureeFerme(breaks, date_effet_str, duree_ferme_str) {
@@ -1713,8 +1715,8 @@ function filterBreaksByDureeFerme(breaks, date_effet_str, duree_ferme_str) {
   // contiguïté attendue entre le chiffre et "ans"/"mois" et le calcul entier
   // est silencieusement ignoré (years=months=0 → aucun filtrage n'a lieu).
   // \b après ans/mois exclu "années"/"moisson" etc. par erreur.
-  const ymatch = dfm.match(/\(?(\d+)\)?\s*ans?\b/i), mmatch = dfm.match(/\(?(\d+)\)?\s*mois\b/i)
-  const years = ymatch ? parseInt(ymatch[1]) : 0, months = mmatch ? parseInt(mmatch[1]) : 0
+  const ymatch = dfm.match(/\(?(\d+)\)?\s*ans?\b/i), mmatch = dfm.match(/\(?(\d+(?:[.,]\d+)?)\)?\s*mois\b/i)
+  const years = ymatch ? parseInt(ymatch[1]) : 0, months = mmatch ? Math.floor(parseFloat(mmatch[1].replace(',', '.'))) : 0
   if (!effet || (years === 0 && months === 0)) return breaks
   const minBreak = new Date(effet.getFullYear() + years, effet.getMonth() + months, effet.getDate() - 1)
   return breaks.filter(b => { const bd = parseFR(b); return bd && bd >= minBreak })
@@ -5257,11 +5259,12 @@ function donneesSignature(row) {
 // années, un (1) mois et quinze (15) jours" → { mois: 109, jours: 15,
 // texte: "9 ans, 1 mois et 15 jours" }.
 function lireDuree(txt) {
-  const mois = parseDureeMonths(txt)
-  if (!mois) return null
+  const moisF = parseDureeMonths(txt)
+  if (!moisF) return null
+  const mois = Math.floor(moisF)
   const t = stripAccents(String(txt || '')).toLowerCase()
   const mj = t.match(/\(?(\d{1,3})\)?\s*jours?/)
-  const jours = mj ? parseInt(mj[1]) : 0
+  const jours = (mj ? parseInt(mj[1]) : 0) + Math.round((moisF - mois) * 30.44)
   const base = formatDureeMonths(mois)
   const texte = jours ? `${base.includes(' et ') ? base.replace(' et ', ', ') : base} et ${jours} jour${jours > 1 ? 's' : ''}` : base
   return { mois, jours, cle: mois * 31 + jours, texte }
