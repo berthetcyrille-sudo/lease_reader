@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · stationnement deux-roues'
+const APP_VERSION = '21.10 · surface de ligne cohérente'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2918,7 +2918,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   // vide ou égale au total des autres locaux. Une ligne "RIE" portant une
   // surface PROPRE et différente (ex: un lot de 1 024 m² au 1er étage) est une
   // vraie surface louée, mal catégorisée — elle compte dans le total.
-  const surfOf = r => lireNombreSurface(r.surface_m2)
+  const surfOf = r => isPark(r) ? lireNombreSurface(r.surface_m2) : surfaceLigne(r)
   const othersSurf = safe.filter(r => !isRieLabel(r) && !isPark(r)).reduce((t, r) => t + surfOf(r), 0)
   const isRie = r => {
     if (!isRieLabel(r)) return false
@@ -2938,7 +2938,7 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   const unitPrice = r => {
     if (r.prix_unitaire) return parseAmount(r.prix_unitaire)
     const loyer = parseAmount(r.loyer_annuel)
-    const surf  = parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0
+    const surf  = surfaceLigne(r)
     // Only calculate if BOTH are explicitly provided
     if (loyer !== null && loyer > 0 && surf > 0) return arrondi2(loyer / surf)
     return null // Cannot calculate - don't show
@@ -2947,11 +2947,11 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
     const explicit = parseAmount(r.loyer_annuel)
     if (explicit) return { value: explicit, computed: false }
     const up = unitPrice(r)
-    const surf = parseFloat(String(r.surface_m2 || '').replace(',', '.')) || 0
+    const surf = surfaceLigne(r)
     if (up && surf > 0) return { value: up * surf, computed: true }
     return { value: null, computed: false }
   }
-  const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + lireNombreSurface(r.surface_m2), 0)
+  const total = mainRows.filter(r => !isRie(r)).reduce((acc, r) => acc + surfaceLigne(r), 0)
   // Lignes complétées, locaux et stationnement :
   // - prix extrait, sinon déduit du loyer de la ligne ; loyer extrait, sinon
   //   prix × quantité (surface ou nombre de places) — marqués "calcule" ;
@@ -2961,13 +2961,14 @@ function computeVentilation(surfaces, parkingNbPlaces, totalLoyerDeclared) {
   //   global porte sur une seule composante (30 000 € pour 240 m² de bureaux
   //   → 125 €/m²), ou stationnement au prix non extrait.
   const mainComputed = mainRows.map(row => {
-    const qty = parseFloat(String(row.surface_m2 || '').replace(/\s/g, '').replace(',', '.')) || 0
+    const qty = surfaceLigne(row)
+    const surfaceCorrigee = Math.abs(qty - lireNombreSurface(row.surface_m2)) > 0.01
     const explicitLoyer = parseAmount(row.loyer_annuel)
     const up = unitPrice(row)
     let loyer = explicitLoyer || (up && qty > 0 ? up * qty : null)
     const loyerSrc = explicitLoyer ? 'extrait' : (loyer ? 'calcule' : null)
     const unitSrc = up ? (row.prix_unitaire ? 'extrait' : 'calcule') : null
-    return { row, qty, loyer: loyer || null, loyerSrc, unit: up || null, unitSrc }
+    return { row, qty, loyer: loyer || null, loyerSrc, unit: up || null, unitSrc, surfaceCorrigee, surfaceExtraite: surfaceCorrigee ? lireNombreSurface(row.surface_m2) : null }
   })
   const parkComputed = parkRows.map(row => {
     const fallbackNb = (!row.surface_m2 && parkRows.length === 1) ? parseParkingNbFallback(parkingNbPlaces) : null
@@ -3089,7 +3090,7 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
   // Écart entre la somme du détail et la surface totale déclarée du bail —
   // typiquement une quote-part de parties communes (« Surface Exploitée »,
   // SUBL, surface utile...) non ventilée ligne par ligne.
-  const declared = parseFloat(String(totalDeclared || '').replace(',', '.')) || 0
+  const declared = lireNombreSurface(totalDeclared)
   const commonAreaGap = declared > 0 && total > 0 ? declared - total : 0
   const hasNotableGap = Math.abs(commonAreaGap) > Math.max(1, declared * 0.01)
 
@@ -3120,7 +3121,11 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
                     <td style={{ fontWeight: 500 }}>{row.categorie || row.typologie || '—'}{isRie(row) && <span title="Redevance calculée sur la surface de bureaux — non comptée en plus dans le total de surface" style={{ fontSize: '10px', marginLeft: '3px', color: 'var(--text3)', cursor: 'help' }}>†</span>}{isMiscatRie(row) && <span title="Surface propre, distincte des bureaux : comptée comme surface louée. La catégorie « RIE » est probablement erronée — réextraire le bail." style={{ fontSize: '10px', marginLeft: '4px', color: 'var(--accent)', cursor: 'help', fontWeight: 600 }}>⚠ catégorie à vérifier</span>}</td>
                     {hasBat && <td style={{ fontWeight: 500 }}>{safeStr(row.batiment) || '—'}</td>}
                     <td style={{ color: 'var(--text2)' }}>{row.niveau || row.localisation || '—'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 500 }}>{fmtSurface(row.surface_m2) || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                      {(() => { const mc = mainComputed.find(x => x.row === row); return mc?.surfaceCorrigee
+                        ? <span title={`Corrigée : ${fmtSurface(mc.surfaceExtraite)} extraits, incohérents avec le loyer et le prix au m² de la ligne (loyer ÷ prix = ${fmtSurface(mc.qty)})`} style={{ fontStyle: 'italic', cursor: 'help' }}>≈ {fmtSurface(mc.qty)}</span>
+                        : (fmtSurface(row.surface_m2) || '—') })()}
+                    </td>
                     {showRent && <td style={{ textAlign: 'right', color: unit ? 'var(--text)' : 'var(--text3)', fontStyle: unit && unitSrc !== 'extrait' ? 'italic' : 'normal' }}>
                       {unit ? `${unit.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : '—'}{unit && mark(unitSrc)}
                     </td>}
@@ -3416,6 +3421,18 @@ function placesStationnement(d) {
   }))
 }
 
+// SURFACE D'UNE LIGNE (locaux) : la surface extraite, sauf si elle contredit
+// le loyer et le prix au m² ÉCRITS de la même ligne — la surface juste est
+// alors loyer ÷ prix. Vécu (BEFA Millesime) : 4 527 m² — le total de la
+// désignation, infrastructure comprise — collés sur la ligne « superstructure »
+// à 500 €/m² pour 2 218 100 € (soit 4 436,2 m²).
+function surfaceLigne(r) {
+  const sv = lireNombreSurface(r?.surface_m2)
+  const L = parseAmount(r?.loyer_annuel), P = parseAmount(r?.prix_unitaire)
+  if (sv > 0 && L && P && P > 0 && Math.abs(sv * P - L) > Math.max(1, L * 0.005)) return Math.round(L / P * 100) / 100
+  return sv
+}
+
 // SURFACE TOTALE LOUÉE — fonction commune (fiche, dashboard, État locatif,
 // contrôle qualité, base, export) : la surface de référence extraite, à
 // laquelle s'ajoute une TERRASSE louée avec un loyer propre quand cette surface
@@ -3426,16 +3443,31 @@ function surfaceTotaleLouee(d) {
   const ext = num(d?.surface_totale_m2) || null
   const rows = Array.isArray(d?.surfaces_detail) ? d.surfaces_detail : []
   const txt = r => stripAccents(`${safeStr(r.categorie) || ''} ${safeStr(r.typologie) || ''} ${safeStr(r.niveau) || ''}`).toLowerCase()
-  const isTerr = r => /terrass|rooftop/.test(txt(r))
   const isPark = r => /station|parking|emplacement/.test(txt(r))
   const isRie = r => /\brie\b|restaura/.test(txt(r)) && !/industri/.test(txt(r))
-  const terr = rows.filter(r => isTerr(r) && (parseAmount(r.loyer_annuel) || parseAmount(r.prix_unitaire)))
-  const sTerr = terr.reduce((t, r) => t + num(r.surface_m2), 0)
-  if (!ext || !sTerr) return { m2: ext, terrasse: 0 }
-  const autres = rows.filter(r => !isTerr(r) && !isPark(r) && !isRie(r)).reduce((t, r) => t + num(r.surface_m2), 0)
-  // la surface de référence correspond aux locaux HORS terrasse → on l'ajoute
-  if (autres > 0 && Math.abs(autres - ext) <= Math.max(1, ext * 0.005)) return { m2: Math.round((ext + sTerr) * 100) / 100, terrasse: Math.round(sTerr * 100) / 100 }
-  return { m2: ext, terrasse: 0 }
+  const lignes = rows.filter(r => !isPark(r) && !isRie(r) && surfaceLigne(r) > 0)
+  if (!ext || lignes.length < 2) return { m2: ext, terrasse: 0, ajouts: [] }
+  const total = lignes.reduce((t, r) => t + surfaceLigne(r), 0)
+  if (total <= ext + 1) return { m2: ext, terrasse: 0, ajouts: [] } // la référence couvre déjà tout
+  // Une partie des lignes reconstitue la surface de référence, et chacune des
+  // AUTRES a un loyer propre → elles s'ajoutent (terrasse, infrastructure,
+  // archives, réserve… — vécu : Lille HASHTAG + 224,60 m² de terrasse ;
+  // Millesime + 91,10 m² d'infrastructure à 350 €/m²)
+  const aLoyer = r => !!(parseAmount(r.loyer_annuel) || parseAmount(r.prix_unitaire))
+  const n = lignes.length
+  if (n > 14) return { m2: ext, terrasse: 0, ajouts: [] }
+  let meilleur = null
+  for (let mask = 1; mask < (1 << n) - 1; mask++) {
+    let somme = 0
+    for (let i = 0; i < n; i++) if (mask & (1 << i)) somme += surfaceLigne(lignes[i])
+    if (Math.abs(somme - ext) > Math.max(1, ext * 0.005)) continue
+    const restes = lignes.filter((_, i) => !(mask & (1 << i)))
+    if (restes.length && restes.every(aLoyer)) { meilleur = restes; break }
+  }
+  if (!meilleur) return { m2: ext, terrasse: 0, ajouts: [] }
+  const ajout = meilleur.reduce((t, r) => t + surfaceLigne(r), 0)
+  const ajouts = meilleur.map(r => ({ libelle: safeStr(r.niveau) || safeStr(r.categorie) || 'surface', m2: Math.round(surfaceLigne(r) * 100) / 100, terrasse: /terrass|rooftop/.test(txt(r)) }))
+  return { m2: Math.round((ext + ajout) * 100) / 100, terrasse: Math.round(meilleur.filter(r => /terrass|rooftop/.test(txt(r))).reduce((t, r) => t + surfaceLigne(r), 0) * 100) / 100, ajouts }
 }
 
 // CLAUSE RECETTE (loyer variable) — lecture commune : loyer exclusivement
@@ -5619,7 +5651,7 @@ function EtatLocatifModal({ building, bails, onClose }) {
         const totalM2 = surfaceTotaleLouee(d).m2 || 0
         surface = (detailRows.length === 1 && totalM2 > 0)
           ? totalM2
-          : detailRows.reduce((a, r) => a + lireNombreSurface(r.surface_m2), 0)
+          : detailRows.reduce((a, r) => a + surfaceLigne(r), 0)
       } else {
         const info = extractFloorInfo(d.adresse)
         locationLabel = info ? info.label : (d.immeuble || d.adresse || 'Lot non localisé')
@@ -6877,8 +6909,8 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                     </div>
                   ) : (
                     <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span title={stl.terrasse ? `Dont terrasse louée avec un loyer propre : ${fmtSurface(stl.terrasse)} (surface de référence extraite : ${fmtSurface(d.surface_totale_m2)})` : undefined}>{fmtSurface(stl.m2 ?? d.surface_totale_m2) || '—'}</span>
-                      {stl.terrasse ? <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text3)' }}>dont terrasse {fmtSurface(stl.terrasse)}</span> : null}
+                      <span title={stl.ajouts?.length ? `Surface de référence extraite : ${fmtSurface(d.surface_totale_m2)}, plus ${stl.ajouts.map(x => `${x.libelle} ${fmtSurface(x.m2)}`).join(', ')} — louée(s) avec un loyer propre` : undefined}>{fmtSurface(stl.m2 ?? d.surface_totale_m2) || '—'}</span>
+                      {stl.ajouts?.length ? <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text3)' }}>dont {stl.ajouts.map(x => `${x.terrasse ? 'terrasse' : x.libelle} ${fmtSurface(x.m2)}`).join(', ')}</span> : null}
                       <PageJumpIcon item={item} pages={pages} field="surface_totale_m2" />
                       {onSaveManualSurface && !isAv && (
                         <button
@@ -7140,7 +7172,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
             return (
               <div style={{ marginBottom: '16px' }}>
                 <div className="field-lbl" style={{ marginBottom: '6px' }}>Ventilation du loyer par composante</div>
-                <SurfaceTable surfaces={enriched} totalDeclared={d.surface_totale_m2} totalLoyerDeclared={d.loyer_signature_montant} parkingNbPlaces={d.parking_nb_places} />
+                <SurfaceTable surfaces={enriched} totalDeclared={surfaceTotaleLouee(d).m2 ?? d.surface_totale_m2} totalLoyerDeclared={d.loyer_signature_montant} parkingNbPlaces={d.parking_nb_places} />
               </div>
             )
           })()}
