@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · régime domaine public'
+const APP_VERSION = '21.10 · sorties périmées écartées 2'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2233,6 +2233,10 @@ function getExitEvents(d) {
     .reduce((acc, e, i, arr) => {
       acc.push(e)
       if (i !== arr.length - 1) return acc
+      // échéances issues d'un ÉCHÉANCIER LU d'avenant : la liste est complète
+      // (renonciations comprises) — rien à compléter (vécu : triennale de 2023,
+      // renoncée par avenant, rajoutée par cette règle)
+      if (acc.some(x => x._date_lue)) return acc
       // Tous les textes disponibles : résumé de la clause + libellés et
       // conditions des échéances (l'IA reformule souvent le résumé).
       const cb = stripAccents([d.conditions_break, ...acc.map(x => `${x.libelle || ''} ${x.conditions || ''}`)].filter(Boolean).join(' ')).toLowerCase()
@@ -5536,9 +5540,46 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
     // ont déduit (les règles ne restent qu'en secours pour un avenant pas
     // encore relu). Les franchises recalées par le recalcul sont conservées.
     appliquerEcheancierLu(base, prev, av)
+    {
+      const E = av?.data?.echeancier_apres
+      const nd3 = v => normalizeDate(safeStr(v))
+      const sansDates = E
+        ? ((E.statut_date_effet === 'inchangee' || !E.date_effet) && nd3(E.date_fin) === nd3(prev.date_fin))
+        : !(mods.date_effet || mods.date_fin || mods.duree_totale || mods.duree_ferme)
+      ecarterSortiesPerimees(base, prev, av, sansDates)
+    }
     if (isLast) break
   }
   return base
+}
+
+// Sorties calées sur l'état en vigueur : veille d'un anniversaire de la prise
+// d'effet, ou même jour et même mois que l'expiration
+function sortiesCalees(dates, etat) {
+  const e = parseFR(normalizeDate(safeStr(etat?.date_effet))), f = parseFR(normalizeDate(safeStr(etat?.date_fin)))
+  const ds = (dates || []).map(x => parseFR(normalizeDate(safeStr(x)))).filter(Boolean)
+  if (!ds.length || (!e && !f)) return null
+  return ds.every(t => {
+    const lend = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1)
+    return (e && lend.getDate() === e.getDate() && lend.getMonth() === e.getMonth()) || (f && t.getDate() === f.getDate() && t.getMonth() === f.getMonth())
+  })
+}
+// Avenant qui ne touche à AUCUNE date (prise d'effet, durée, expiration) mais
+// redonne des sorties décalées par rapport à l'état en vigueur, alors que les
+// précédentes y étaient calées : dates recopiées d'un état périmé (vécu :
+// GROUPE SEB, second avenant ramenant les sorties au 14/06 après un premier
+// avenant qui les avait recalées au 30/04) → les sorties précédentes restent.
+function ecarterSortiesPerimees(base, prev, av, sansDates) {
+  if (!sansDates) return
+  const prevExits = getExitEvents(prev)
+  const prevDates = prevExits ? prevExits.map(e => e.date) : breaksDeLaClause(prev)
+  const curExits = getExitEvents(base)
+  const curDates = curExits ? curExits.map(e => e.date) : (Array.isArray(base.break_options) ? base.break_options : [])
+  if (!curDates.length || sortiesCalees(curDates, prev) !== false || sortiesCalees(prevDates, prev) !== true) return
+  base.break_options = Array.isArray(prev.break_options) ? [...prev.break_options] : prevDates
+  if (Array.isArray(prev.echeances_sortie)) base.echeances_sortie = prev.echeances_sortie.map(e => ({ ...e }))
+  else delete base.echeances_sortie
+  base._sortiesPerimeesEcartees = av?.id || true
 }
 
 function conserverSortiesPassees(base, prev, av) {
@@ -10938,7 +10979,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                 <div className="dash-td" style={{ alignItems: 'flex-start', paddingTop: '13px', flexDirection: 'row', gap: '4px', flexWrap: 'wrap' }}>
                   <span className={`dash-tag ${isAv ? 'dash-tag-av' : 'dash-tag-bail'}`} style={!isAv ? (BAIL_TYPE_STYLES[regimeBail(d)] || undefined) : undefined}
                     title={!isAv && d.type_bail ? d.type_bail : undefined}>
-                    {isAv ? 'Avenant' : regimeBail(d)}
+                    {isAv ? 'Avenant' : (regimeBail(d) === 'Domaine public' ? 'Dom. public' : regimeBail(d))}
                   </span>
                   {!isAv && (() => {
                     const r = riskMap.get(row.id)
@@ -12693,7 +12734,7 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
                 </svg>
                 {activeItem.document_type === 'avenant' ? 'Avenant' : (() => {
                   const l = regimeBail(activeItem.data)
-                  return l === 'Bail' ? 'Bail' : (l === 'Domaine public' ? 'Domaine public' : `Bail ${l.toLowerCase()}`)
+                  return l === 'Bail' ? 'Bail' : (l === 'Domaine public' ? 'Dom. public' : `Bail ${l.toLowerCase()}`)
                 })()}
               </div>
               <div className="result-title">{resultTitle}</div>
