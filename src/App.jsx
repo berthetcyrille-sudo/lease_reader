@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · surface de ligne cohérente 2'
+const APP_VERSION = '21.10 · CQ franchises au mois exonéré'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -4780,8 +4780,14 @@ function auditBail(row) {
   // seuil de gouvernance interne à STE, pas une règle légale. Somme TOUTES
   // les franchises (y compris conditionnelles) sur la durée ferme du bail.
   if (Array.isArray(d.franchise_periodes) && d.franchise_periodes.length > 0 && dureeFermeYears) {
-    const parseMonths = s => { const m = String(s || '').match(/(\d+(?:[.,]\d+)?)\s*mois/i); return m ? parseFloat(m[1].replace(',', '.')) : null }
-    const totalMonths = d.franchise_periodes.reduce((sum, f) => sum + (parseMonths(f.duree) || 0), 0)
+    // Mois de loyer RÉELLEMENT exonérés, calculés comme le tableau des
+    // franchises (montant ÷ loyer mensuel, tranches étalées) — pas la durée
+    // de la période d'application (vécu : 6 tranches d'environ 2 mois
+    // chacune sur des périodes de 12 mois → 72 mois au lieu de 12)
+    const loyerQ = loyerFacial(d).montant || 0
+    const rieQ = rieLoyerAnnuel(d.surfaces_detail, d.parking_nb_places, d.loyer_signature_montant)
+    const totQ = franchiseTotals(mergeLoyerReductions(d.franchise_periodes, [], d.date_effet), loyerQ, rieQ)
+    const totalMonths = Math.round(((totQ.acquise?.mois || 0) + (totQ.conditionnelle?.mois || 0)) * 10) / 10
     const threshold = 5 * dureeFermeYears
     if (totalMonths > threshold) {
       const hasConditional = d.franchise_periodes.some(f => f.condition)
