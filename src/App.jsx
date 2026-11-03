@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · extract EVEN 5'
+const APP_VERSION = '21.10 · relecture hors baux vérifiés'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -10153,10 +10153,18 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // échéancier lu, bail par bail, dans l'ordre chronologique — chacun reçoit
   // le calendrier issu du précédent.
   async function relireEcheanciersAvenants() {
-    const baux = tree.filter(b => b.document_type === 'bail')
-    const nb = baux.reduce((t, b) => t + (b.avenants || []).filter(a => a.storage_path && !a.data?._archived && !a.data?.echeancier_apres).length, 0)
-    if (!nb) { showToast('success', "Tous les avenants ont déjà leur échéancier lu."); return }
-    if (!window.confirm(`Relire l'échéancier de ${nb} avenant${nb > 1 ? 's' : ''} ?\n\nUne lecture ciblée par avenant (clause de durée et d'échéances, avec raisonnement) — de l'ordre de quelques centimes chacune. Les autres données des avenants ne sont pas modifiées.`)) return
+    // Baux PROTÉGÉS : marqués « ✓ Vérifié » au contrôle qualité, ou rattachés
+    // à un actif coché « Vérifié » dans la Synthèse — leurs avenants ne sont pas
+    // relus (pour ne pas modifier ce qui a déjà été validé)
+    const actifsVerifies = new Set((immeubles || []).filter(i => i.verified).map(i => i.name))
+    const protege = b => !!b.data?._qc_dismissed || actifsVerifies.has(b.actif_group) || (!!b.actif_group_2 && actifsVerifies.has(b.actif_group_2))
+    const aLire = a => a.storage_path && !a.data?._archived && !a.data?.echeancier_apres
+    const tous = tree.filter(b => b.document_type === 'bail')
+    const baux = tous.filter(b => !protege(b))
+    const nb = baux.reduce((t, b) => t + (b.avenants || []).filter(aLire).length, 0)
+    const nbProteges = tous.filter(protege).reduce((t, b) => t + (b.avenants || []).filter(aLire).length, 0)
+    if (!nb) { showToast('success', nbProteges ? `Aucun avenant à relire hors baux vérifiés (${nbProteges} avenant${nbProteges > 1 ? 's' : ''} de baux vérifiés laissé${nbProteges > 1 ? 's' : ''} de côté).` : "Tous les avenants ont déjà leur échéancier lu."); return }
+    if (!window.confirm(`Relire l'échéancier de ${nb} avenant${nb > 1 ? 's' : ''} ?${nbProteges ? `\n\n${nbProteges} avenant${nbProteges > 1 ? 's' : ''} de baux vérifiés (contrôle qualité ou actif coché « Vérifié ») ${nbProteges > 1 ? 'sont ignorés' : 'est ignoré'} : ${nbProteges > 1 ? 'ils restent' : 'il reste'} tel${nbProteges > 1 ? 's' : ''} quel${nbProteges > 1 ? 's' : ''}.` : ''}\n\nUne lecture ciblée par avenant (clause de durée et d'échéances, avec raisonnement) — de l'ordre de quelques centimes chacune. Les autres données des avenants ne sont pas modifiées.`)) return
     let faits = 0, echecs = 0
     const warn = e => { e.preventDefault(); e.returnValue = '' }
     window.addEventListener('beforeunload', warn)
@@ -10711,7 +10719,13 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   },
                   {
                     icon: <><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></>,
-                    label: (() => { const n = tree.filter(b => b.document_type === 'bail').reduce((t, b) => t + (b.avenants || []).filter(a => a.storage_path && !a.data?._archived && !a.data?.echeancier_apres).length, 0); return `Relire les échéanciers des avenants${n ? ` (${n} à lire)` : ''}` })(),
+                    label: (() => {
+                      const actifsVerifies = new Set((immeubles || []).filter(i => i.verified).map(i => i.name))
+                      const protege = b => !!b.data?._qc_dismissed || actifsVerifies.has(b.actif_group) || (!!b.actif_group_2 && actifsVerifies.has(b.actif_group_2))
+                      const aLire = a => a.storage_path && !a.data?._archived && !a.data?.echeancier_apres
+                      const n = tree.filter(b => b.document_type === 'bail' && !protege(b)).reduce((t, b) => t + (b.avenants || []).filter(aLire).length, 0)
+                      return `Relire les échéanciers des avenants${n ? ` (${n} à lire, hors baux vérifiés)` : ''}`
+                    })(),
                     onClick: () => { setShowToolsMenu(false); relireEcheanciersAvenants() },
                   },
                   {
