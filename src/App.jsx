@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · extract EVEN 3'
+const APP_VERSION = '21.10 · extract EVEN 5'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1326,31 +1326,59 @@ function exportEvenToExcel(tree) {
     ;[...(bail.avenants || [])].filter(a => !a.data?._archived).sort(compareAvenants).forEach(av => lignes.push({ item: av, parent: bail }))
   })
   const toSort = x => { const t = parseFR(normalizeDate(safeStr(x))); return t ? t.getTime() : 0 }
+  const nd = v => normalizeDate(safeStr(v)) || ''
+  // CHAQUE LIGNE = l'état du bail APRÈS ce document, comme à l'écran :
+  //  - bail : « Dates clés — à la signature du bail » (donneesSignature)
+  //  - avenant : « Échéances du bail après cet avenant » (chronologieAvenants)
+  const sortiesEtPenalites = (m, breaksBase) => {
+    const fin = nd(m.date_fin)
+    const cond = (() => { try { return dropRenouncedConditional(extractConditionalBreaks(m, breaksBase).filter(c => dropTermBreaks([c.date], fin).length > 0), breaksBase, null) } catch (_) { return [] } })()
+    const exits = (() => { const ex = getExitEvents(m); return ex && fin ? ex.filter(e => !e.date || dropTermBreaks([e.date], fin).length > 0) : ex })()
+    const sorties = exits ? exits.map(e => nd(e.date)).filter(Boolean) : [...breaksBase, ...cond.map(c => nd(c.date))]
+    let indem = []
+    try { indem = computeIndemnitesTerme({ ...m, break_options: breaksBase }, exits) } catch (_) { indem = [] }
+    const penalites = indem.filter(r => !/bailleur/i.test(safeStr(r.due_par)) && /^\d{2}\/\d{2}\/\d{4}$/.test(nd(r.terme)))
+      .map(r => ({ date: nd(r.terme), montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null }))
+    return { sorties: [...new Set(sorties)].sort((x, y) => toSort(x) - toSort(y)), penalites }
+  }
+  const chronos = new Map()
   const data = lignes.map(({ item, parent }) => {
     let vv = {}
     try { vv = computeValeursEnVigueur(item, parent) || {} } catch (e) { console.warn('Extract EVEN : calcul impossible', item.id, e) }
     const isAv = item.document_type === 'avenant'
     const bailData = (isAv ? parent?.data : item.data) || {}
-    // preneur en vigueur (changement de dénomination par avenant compris)
-    let preneur = safeStr(bailData.preneur) || ''
-    try { if (isAv && parent) preneur = safeStr(mergedBailData(parent, { throughAvenantId: item.id }).preneur) || preneur } catch (_) {}
-    // sorties en vigueur, breaks conditionnelles comprises (comme la fiche)
-    const sorties = [...new Set([...(vv.break_options || []), ...((vv.breaks_conditionnelles || []).map(c => c.date))].filter(Boolean))].sort((a, b) => toSort(a) - toSort(b))
-    // travaux du preneur financés par le bailleur
+    let preneur = safeStr(bailData.preneur) || '', dateEffet = '', sorties = [], penalites = [], surface = vv.surface_totale_louee
+    try {
+      if (!isAv) {
+        // état à la signature
+        const sig = donneesSignature(item).data
+        const et = etatEcheances(sig) || {}
+        dateEffet = et.date_effet || ''
+        ;({ sorties, penalites } = sortiesEtPenalites(sig, et.breaks || []))
+        surface = surfaceTotaleLouee(sig).m2 ?? surface
+      } else if (parent) {
+        // état après cet avenant
+        if (!chronos.has(parent.id)) chronos.set(parent.id, chronologieAvenants(parent))
+        const ch = (chronos.get(parent.id) || []).find(c => c.av.id === item.id)
+        const etat = mergedBailData(parent, { throughAvenantId: item.id })
+        preneur = safeStr(etat.preneur) || preneur
+        dateEffet = ch?.apres?.date_effet || nd(etat.date_effet)
+        ;({ sorties, penalites } = sortiesEtPenalites(etat, ch?.apres?.breaks || breaksDeLaClause(etat)))
+      }
+    } catch (e) { console.warn('Extract EVEN : état non calculable', item.id, e) }
+    // travaux du preneur financés par le bailleur : ceux du document lui-même
     const parts = Array.isArray(vv.participations_travaux) ? vv.participations_travaux : []
     const sommeParts = parts.reduce((t, r) => t + (r.montant || 0), 0)
     const montantTravaux = sommeParts || vv.travaux_montant || ''
-    const dateLimite = [...new Set([...parts.map(r => normalizeDate(safeStr(r.date_limite))), vv.date_limite_travaux].filter(Boolean))].join(' ; ')
-    // pénalités dues par le preneur s'il part à une échéance
-    const penalites = (vv.indemnites_terme || []).filter(r => !/bailleur/i.test(r.due_par || '') && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizeDate(safeStr(r.terme)) || ''))
+    const dateLimite = [...new Set([...parts.map(r => nd(r.date_limite)), vv.date_limite_travaux].filter(Boolean))].join(' ; ')
     const sansVide = v => (v === null || v === undefined) ? '' : v
     return [
       // nom d'ACTIF (regroupement du dashboard), à défaut le nom extrait
       '', sansVide((isAv ? parent?.actif_group : item.actif_group) || bailData.immeuble), '', '', isAv ? 'avenant' : 'bail',
-      sansVide(item.file_name), preneur, sansVide(vv.surface_totale_louee), sansVide(vv.date_effet || (isAv ? normalizeDate(safeStr(item.data?.date_signature_avenant)) : '')),
+      sansVide(item.file_name), preneur, sansVide(surface), sansVide(dateEffet),
       ...Array.from({ length: 6 }, (_, i) => sorties[i] || ''),
       montantTravaux, dateLimite,
-      penalites.map(r => normalizeDate(safeStr(r.terme))).join(' ; '),
+      penalites.map(r => r.date).join(' ; '),
       penalites.length === 1 ? sansVide(penalites[0].montant) : penalites.map(r => r.montant != null ? r.montant : (r.calcul || '—')).join(' ; '),
     ]
   })
