@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · diagnostic des réponses réparées'
+const APP_VERSION = '21.10 · extract EVEN 2'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1067,6 +1067,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
       libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: safeStr(r.date_limite) || null, remarque: cleanTxt(r.remarque) || null,
     })),
     travaux_montant: parseAmount((isAv ? mods : raw).travaux_montant),
+    date_limite_travaux: normalizeDate(safeStr((isAv ? mods : raw).date_limite_travaux)) || null,
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: arrondi2(fTot.acquise.montant) },
     franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: arrondi2(fTot.conditionnelle.montant) },
   }
@@ -1306,79 +1307,58 @@ function exportToExcel(items, fileName, selectedCols = null) {
 // conditionnels), indemnités et pénalités, participations travaux. Toutes les
 // valeurs viennent de computeValeursEnVigueur — LA fonction dont les
 // résultats sont enregistrés en base et qui alimente l'écran.
-function exportControlesToExcel(tree) {
+// EXTRACT POUR CHARGEMENT DANS EVEN — une ligne par bail puis par avenant
+// (ordre chronologique), colonnes du modèle « Extract_pour_chargement_dans_EVEN » ;
+// les codes EVEN restent vides (complétés depuis EVEN). Toutes les valeurs
+// viennent des valeurs en base (computeValeursEnVigueur), comme l'écran.
+const COLONNES_EVEN = [
+  'Code Immeuble EVEN', "Nom de l'immeuble", 'Code locataire EVEN', 'Code bail EVEN', 'Bail / avenant',
+  'Nom bail (nom du document)', 'Nom preneur', 'Surface', "Date d'effet du bail",
+  'Break 1', 'Break 2', 'Break 3', 'Break 4', 'Break 5', 'Break 6',
+  'Montant des travaux preneur financés par le bailleur', 'Date limite pour réaliser ces travaux preneur financé par le bailleur',
+  "Pénalité en cas de départ à une échéance - Date d'exercice", 'Pénalité en cas de départ à une échéance - Montant de la pénalité',
+]
+function exportEvenToExcel(tree) {
   const lignes = []
   tree.forEach(bail => {
     if (bail.document_type !== 'bail') return
     lignes.push({ item: bail, parent: null })
-    ;[...(bail.avenants || [])].sort(compareAvenants).forEach(av => lignes.push({ item: av, parent: bail }))
+    ;[...(bail.avenants || [])].filter(a => !a.data?._archived).sort(compareAvenants).forEach(av => lignes.push({ item: av, parent: bail }))
   })
-  const rows = lignes.map(({ item, parent }) => {
-    let vv = null
-    try { vv = computeValeursEnVigueur(item, parent) } catch (e) { console.warn('Export contrôles : calcul impossible', item.id, e) }
-    return { item, parent, vv: vv || {} }
-  })
-  const maxOf = f => Math.max(0, ...rows.map(r => f(r.vv)))
-  const nBreaks = maxOf(v => (v.break_options || []).length)
-  const nCond = maxOf(v => (v.breaks_conditionnelles || []).length)
-  const nRed = maxOf(v => (v.reductions || []).length)
-  const nInd = maxOf(v => (v.indemnites_terme || []).length)
-  const nAut = maxOf(v => (v.indemnites_autres || []).length)
-  const nTrav = maxOf(v => (v.participations_travaux || []).length)
-  const hasVar = rows.some(r => r.vv.structure_loyer?.variable)
-  const nEch = maxOf(v => (v.structure_loyer?.echeancier || []).length)
-  const typos = [...new Set(rows.flatMap(r => Object.keys(r.vv.loyer_facial?.par_typologie || {})))]
-    .sort((a, b) => (a === 'Stationnement') - (b === 'Stationnement') || (a === 'RIE') - (b === 'RIE') || a.localeCompare(b))
-  const rep = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1)).flat()
-  const headers = [
-    'ID', 'Type', 'Bail lié (ID)', 'Actif / Immeuble', 'Adresse', 'Ville', 'Preneur', 'Bailleur', 'Fichier', 'Avenant n°', 'Date de signature',
-    "Date d'effet", ...rep(nBreaks, i => [`Break ${i}`]), ...rep(nCond, i => [`Break conditionnelle ${i} - Date`, `Break conditionnelle ${i} - Condition`]), 'Date de fin',
-    'Loyer de base (régime de croisière)', 'Structure du loyer', 'Loyer à la signature (facial)', 'Loyer extrait', 'Total calcul par typologie', 'Écart (calcul − facial)', ...typos.map(t => `Loyer ${t}`),
-    ...(hasVar ? ['Loyer variable - Mécanisme', 'Loyer variable - Taux', 'Loyer variable - Assiette', 'Loyer variable - Barème', 'Loyer variable - Provision'] : []),
-    ...rep(nEch, i => [`Échéancier ${i} - Période`, `Échéancier ${i} - Nature`, `Échéancier ${i} - Règle`, `Échéancier ${i} - Montant annuel`]),
-    'Franchises acquises (mois de loyer)', 'Franchises et abattements acquis (€)', 'Franchises conditionnelles (mois de loyer)', 'Franchises et abattements conditionnels (€)',
-    ...rep(nRed, i => [`Réduction ${i} - Type`, `Réduction ${i} - Début`, `Réduction ${i} - Fin`, `Réduction ${i} - Durée`, `Réduction ${i} - Mois de loyer`, `Réduction ${i} - Montant`, `Réduction ${i} - Assiette`, `Réduction ${i} - Condition`]),
-    ...rep(nInd, i => [`Indemnité ${i} - Terme`, `Indemnité ${i} - Due par`, `Indemnité ${i} - Motif`, `Indemnité ${i} - Montant`, `Indemnité ${i} - Calcul`]),
-    ...rep(nAut, i => [`Autre indemnité/pénalité ${i}`]),
-    'Plafond(s) des charges', 'Travaux - Montant global', ...rep(nTrav, i => [`Travaux ${i} - Libellé`, `Travaux ${i} - Montant`, `Travaux ${i} - Date limite`, `Travaux ${i} - Remarque`]),
-  ]
-  const val = x => (x === null || x === undefined) ? '' : x
-  const data = rows.map(({ item, parent, vv }) => {
+  const toSort = x => { const t = parseFR(normalizeDate(safeStr(x))); return t ? t.getTime() : 0 }
+  const data = lignes.map(({ item, parent }) => {
+    let vv = {}
+    try { vv = computeValeursEnVigueur(item, parent) || {} } catch (e) { console.warn('Extract EVEN : calcul impossible', item.id, e) }
     const isAv = item.document_type === 'avenant'
-    const dd = item.data || {}, pd = parent?.data || {}
-    const id = isAv ? pd : dd
-    const lf = vv.loyer_facial || {}
-    const ecart = (lf.total_ventilation != null && lf.montant != null) ? Math.round((lf.total_ventilation - lf.montant) * 100) / 100 : ''
+    const bailData = (isAv ? parent?.data : item.data) || {}
+    // preneur en vigueur (changement de dénomination par avenant compris)
+    let preneur = safeStr(bailData.preneur) || ''
+    try { if (isAv && parent) preneur = safeStr(mergedBailData(parent, { throughAvenantId: item.id }).preneur) || preneur } catch (_) {}
+    // sorties en vigueur, breaks conditionnelles comprises (comme la fiche)
+    const sorties = [...new Set([...(vv.break_options || []), ...((vv.breaks_conditionnelles || []).map(c => c.date))].filter(Boolean))].sort((a, b) => toSort(a) - toSort(b))
+    // travaux du preneur financés par le bailleur
+    const parts = Array.isArray(vv.participations_travaux) ? vv.participations_travaux : []
+    const sommeParts = parts.reduce((t, r) => t + (r.montant || 0), 0)
+    const montantTravaux = sommeParts || vv.travaux_montant || ''
+    const dateLimite = [...new Set([...parts.map(r => normalizeDate(safeStr(r.date_limite))), vv.date_limite_travaux].filter(Boolean))].join(' ; ')
+    // pénalités dues par le preneur s'il part à une échéance
+    const penalites = (vv.indemnites_terme || []).filter(r => !/bailleur/i.test(r.due_par || '') && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizeDate(safeStr(r.terme)) || ''))
+    const sansVide = v => (v === null || v === undefined) ? '' : v
     return [
-      item.id, isAv ? 'Avenant' : 'Bail', isAv ? (parent?.id || '') : '',
-      safeStr((isAv ? parent : item)?.actif_group) || safeStr(id.immeuble) || '', safeStr(id.adresse) || '', safeStr(id.ville) || '',
-      safeStr(id.preneur_substitution) || shortPartyName(id.preneur) || '', shortPartyName(id.bailleur) || '', item.file_name || '',
-      isAv ? val(avenantNumeroDeclare(item)) : '', isAv ? (safeStr(dd.date_signature_avenant) || '') : (safeStr(dd.date_signature) || ''),
-      val(vv.date_effet), ...rep(nBreaks, i => [val((vv.break_options || [])[i - 1])]),
-      ...rep(nCond, i => { const c = (vv.breaks_conditionnelles || [])[i - 1]; return c ? [val(c.date), val(c.condition)] : ['', ''] }),
-      val(vv.date_fin),
-      val(vv.structure_loyer?.loyer_base), MODE_LOYER_LABEL[vv.structure_loyer?.mode] || '',
-      val(lf.montant), val(lf.montant_extrait), val(lf.total_ventilation), ecart, ...typos.map(t => val((lf.par_typologie || {})[t])),
-      ...(hasVar ? (() => { const V = vv.structure_loyer?.variable || {}; return [
-        V.mecanisme === 'additionnel' ? 'Additionnel (surloyer)' : (V.mecanisme === 'plus_eleve' ? 'Le plus élevé des deux' : ''), val(V.taux), val(V.assiette),
-        (Array.isArray(V.bareme) ? V.bareme : []).map(t => `${t.de == null ? `≤ ${t.a}` : (t.a == null ? `> ${t.de}` : `${t.de}–${t.a}`)} : ${t.loyer}`).join(' ; ') + (V.periodicite ? ` (${V.periodicite})` : '') + (V.indexation_seuils ? ` — seuils indexés ${V.indexation_seuils}` : ''),
-        V.provision ? `${V.provision.montant} €${V.provision.periodicite ? ` / ${V.provision.periodicite}` : ''}` : '',
-      ] })() : []),
-      ...rep(nEch, i => { const e = (vv.structure_loyer?.echeancier || [])[i - 1]; return e ? [val(e.periode || [e.debut && `à partir du ${e.debut}`, e.fin && `jusqu'au ${e.fin}`].filter(Boolean).join(' ')), (NATURE_ECHEANCE_LABEL[e.nature] || e.nature) + (e.a_confirmer ? ' (à confirmer)' : ''), val(e.regle), val(e.montant)] : ['', '', '', ''] }),
-      val(vv.franchise_totale_acquise?.mois || ''), val(vv.franchise_totale_acquise?.montant || ''), val(vv.franchise_totale_conditionnelle?.mois || ''), val(vv.franchise_totale_conditionnelle?.montant || ''),
-      ...rep(nRed, i => { const r = (vv.reductions || [])[i - 1]; return r ? [r.type, val(r.date_debut), val(r.date_fin) + (r.date_fin_calculee ? ' (calculée)' : ''), val(r.duree), val(r.mois_de_loyer), val(r.montant), val(r.surface_assiette), (val(r.condition) + (r.recalee ? ' [dates recalées]' : '')).trim()] : ['', '', '', '', '', '', '', ''] }),
-      ...rep(nInd, i => { const r = (vv.indemnites_terme || [])[i - 1]; return r ? [val(r.terme), val(r.due_par), val(r.motif), val(r.montant), val(r.calcul)] : ['', '', '', '', ''] }),
-      ...rep(nAut, i => { const r = (vv.indemnites_autres || [])[i - 1]; return [r ? Object.values(r).filter(x => x !== null && x !== '').join(' — ') : ''] }),
-      (vv.charges_plafonds || []).map(x => `${x.valeur}${x.type === 'augmentation annuelle' ? ' d\'augmentation annuelle' : ''}${x.assiette ? ` (${x.assiette})` : ''}`).join(' ; '),
-      val(vv.travaux_montant), ...rep(nTrav, i => { const r = (vv.participations_travaux || [])[i - 1]; return r ? [val(r.libelle), val(r.montant), val(r.date_limite), val(r.remarque)] : ['', '', '', ''] }),
+      '', sansVide(bailData.immeuble), '', '', isAv ? 'avenant' : 'bail',
+      sansVide(item.file_name), preneur, sansVide(vv.surface_totale_louee), sansVide(vv.date_effet || (isAv ? normalizeDate(safeStr(item.data?.date_signature_avenant)) : '')),
+      ...Array.from({ length: 6 }, (_, i) => sorties[i] || ''),
+      montantTravaux, dateLimite,
+      penalites.map(r => normalizeDate(safeStr(r.terme))).join(' ; '),
+      penalites.length === 1 ? sansVide(penalites[0].montant) : penalites.map(r => r.montant != null ? r.montant : (r.calcul || '—')).join(' ; '),
     ]
   })
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...data])
-  ws['!cols'] = headers.map(h => ({ wch: Math.min(40, Math.max(12, h.length + 2)) }))
-  ws['!freeze'] = { xSplit: 0, ySplit: 1 }
+  const ws = XLSX.utils.aoa_to_sheet([COLONNES_EVEN, ...data])
+  const largeurs = { 0: 24.5, 1: 25.4, 15: 30.4, 16: 38.4, 17: 36.5, 18: 42.2 }
+  ws['!cols'] = COLONNES_EVEN.map((h, i) => ({ wch: largeurs[i] || Math.min(30, Math.max(12, h.length + 2)) }))
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Contrôles')
-  const name = `LeaseReader_controles_${new Date().toISOString().slice(0, 10)}`
+  XLSX.utils.book_append_sheet(wb, ws, 'Feuil1')
+  const name = `Extract_pour_chargement_dans_EVEN_${new Date().toISOString().slice(0, 10)}`
   try {
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
     const blob = new Blob([wbout], { type: 'application/octet-stream' })
@@ -1389,7 +1369,7 @@ function exportControlesToExcel(tree) {
   } catch {
     XLSX.writeFile(wb, `${name}.xlsx`)
   }
-  return { lignes: data.length, colonnes: headers.length }
+  return { lignes: data.length, colonnes: COLONNES_EVEN.length }
 }
 
 function exportAllToExcel(tree, onErrors, selectedCols = null) {
@@ -5216,9 +5196,25 @@ function recalcDatesAfterAvenant(base, prev, mods, av = null) {
   if (Array.isArray(base.echeances_sortie) && base.echeances_sortie.length) {
     let list = base.echeances_sortie
     if (effetChanged || restated) {
+      // Repli quand le libellé ne donne pas le rang : une échéance tombant la
+      // veille d'un anniversaire de l'ANCIENNE prise d'effet est décalée d'autant
+      // sur la nouvelle (même bail), avec ses libellés et indemnités — au lieu de
+      // supprimer toutes les échéances détaillées (vécu : pénalité de départ
+      // perdue après un avenant avançant la prise d'effet).
+      const pE = parseFR(nd(prev?.date_effet)), nE = parseFR(nd(base.date_effet))
+      const pF = parseFR(nd(prev?.date_fin))
+      const memeBailE = effetChanged && !restated && pE && nE && (!pF || nE < pF) && Math.abs(nE - pE) < 3 * 365 * 86400000
+      const decaler = dateStr => {
+        const t = parseFR(nd(dateStr)); if (!t || !memeBailE) return null
+        const next = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1)
+        if (next.getDate() !== pE.getDate()) return null
+        const mm = (next.getFullYear() - pE.getFullYear()) * 12 + (next.getMonth() - pE.getMonth())
+        return fmtFR(new Date(nE.getFullYear(), nE.getMonth() + mm, nE.getDate() - 1))
+      }
       list = list.map(e => {
-        if (!e || e.type !== 'triennale') return e
-        const d2 = resolveEcheanceDateFromText(e.libelle, restated ? restatedStart : base.date_effet)
+        if (!e) return e
+        if (e.type !== 'triennale') { const dd = decaler(e.date); return dd ? { ...e, date: dd } : e }
+        const d2 = resolveEcheanceDateFromText(e.libelle, restated ? restatedStart : base.date_effet) || decaler(e.date)
         return d2 ? { ...e, date: d2 } : null
       })
       if (list.some(e => e === null)) { delete base.echeances_sortie; return } // non recalculable → ancien calcul
@@ -10691,14 +10687,14 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
                   },
                   {
                     icon: <><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></>,
-                    label: 'Export contrôles (dates, loyers, franchises, indemnités, travaux)',
+                    label: 'Extract pour chargement dans EVEN (dates, breaks, travaux, pénalités)',
                     onClick: () => {
                       setShowToolsMenu(false)
                       try {
-                        const r = exportControlesToExcel(tree)
-                        showToast('success', `Export contrôles lancé : ${r.lignes} lignes, ${r.colonnes} colonnes — vérifiez vos téléchargements.`)
+                        const r = exportEvenToExcel(tree)
+                        showToast('success', `Extract EVEN lancé : ${r.lignes} lignes, ${r.colonnes} colonnes — vérifiez vos téléchargements.`)
                       } catch (e) {
-                        console.error('Export contrôles échoué', e)
+                        console.error('Extract EVEN échoué', e)
                         showToast('error', `Échec de l'export : ${e.message || e}`)
                       }
                     },
