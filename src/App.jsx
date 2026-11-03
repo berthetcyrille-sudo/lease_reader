@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · extract EVEN 2'
+const APP_VERSION = '21.10 · extract EVEN 3'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1345,7 +1345,8 @@ function exportEvenToExcel(tree) {
     const penalites = (vv.indemnites_terme || []).filter(r => !/bailleur/i.test(r.due_par || '') && /^\d{2}\/\d{2}\/\d{4}$/.test(normalizeDate(safeStr(r.terme)) || ''))
     const sansVide = v => (v === null || v === undefined) ? '' : v
     return [
-      '', sansVide(bailData.immeuble), '', '', isAv ? 'avenant' : 'bail',
+      // nom d'ACTIF (regroupement du dashboard), à défaut le nom extrait
+      '', sansVide((isAv ? parent?.actif_group : item.actif_group) || bailData.immeuble), '', '', isAv ? 'avenant' : 'bail',
       sansVide(item.file_name), preneur, sansVide(vv.surface_totale_louee), sansVide(vv.date_effet || (isAv ? normalizeDate(safeStr(item.data?.date_signature_avenant)) : '')),
       ...Array.from({ length: 6 }, (_, i) => sorties[i] || ''),
       montantTravaux, dateLimite,
