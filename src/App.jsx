@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · tableau des franchises aligné'
+const APP_VERSION = '21.10 · franchise complémentaire conditionnelle'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3306,6 +3306,21 @@ function SurfaceTable({ surfaces, totalDeclared, totalLoyerDeclared, parkingNbPl
 // à la prise d'effet puis à chaque date anniversaire, montant réparti à parts
 // égales (la dernière absorbe l'arrondi). Fonction commune écran / base /
 // exports ; les tranches produites sont marquées _etalee (pas de re-découpage).
+// Une franchise COMPLÉMENTAIRE (supplémentaire, additionnelle) dont une
+// tranche est conditionnelle l'est en entier : la condition est souvent écrite
+// une seule fois, sur la première tranche (vécu : tranches des 7e et 8e
+// anniversaires « intuitu personae » ou « même condition que ci-dessus »,
+// classées acquises — liste coupée par un saut de page).
+function propagerConditionsFranchises(list) {
+  if (!Array.isArray(list) || list.length < 2) return list
+  const cle = r => /complementaire|supplementaire|additionnel/.test(stripAccents(`${safeStr(r?.condition) || ''} ${safeStr(r?.description) || ''} ${safeStr(r?.libelle) || ''}`).toLowerCase())
+  const franchises = list.filter(r => r && r._type !== 'abattement')
+  const condRef = franchises.find(r => cle(r) && isConditionalFranchise(r))
+  if (!condRef) return list
+  return list.map(r => (r && r._type !== 'abattement' && cle(r) && !isConditionalFranchise(r))
+    ? { ...r, _conditionnelle: true, _condition_heritee: cleanTxt(condRef.condition) || null }
+    : r)
+}
 function expandFranchisesEtalees(list, dateEffet) {
   if (!Array.isArray(list)) return list
   const out = []
@@ -3353,7 +3368,7 @@ function expandFranchisesEtalees(list, dateEffet) {
       })
     }
   })
-  return out
+  return propagerConditionsFranchises(out)
 }
 
 function mergeLoyerReductions(franchisePeriodes, abattements, dateEffet = null) {
@@ -3845,6 +3860,7 @@ function cleanTxt(v) { const t = safeStr(v); return t && !NULLISH_TXT.test(t) ? 
 // confondre avec une simple indication de calendrier ("à compter de la
 // première date anniversaire"), qui reste une franchise acquise.
 function isConditionalFranchise(row) {
+  if (row?._conditionnelle) return true
   const c = stripAccents(cleanTxt(row?.condition)).toLowerCase()
   if (!c) return false
   // renvoi à une condition déjà énoncée (vécu : tranches des 7e et 8e
@@ -4076,7 +4092,10 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
                   </span>
                 )}
               </td>
-              <td style={{ color: 'var(--text2)', fontStyle: cleanTxt(row.condition) ? 'normal' : 'italic' }}>{cleanTxt(row.condition) || '—'}</td>
+              <td style={{ color: 'var(--text2)', fontStyle: cleanTxt(row.condition) ? 'normal' : 'italic' }}>
+                {cleanTxt(row.condition) || '—'}
+                {row._condition_heritee && <div style={{ fontSize: '11.5px', color: '#9A6B00', marginTop: '2px' }} title={row._condition_heritee}>Même condition que la tranche complémentaire précédente</div>}
+              </td>
             </tr>
             {hasCond && i === rowsCertain.length - 1 && subtotalRow('Sous-total acquis', T.acquise)}
             {hasCond && i === orderedRows.length - 1 && subtotalRow('Sous-total conditionnel', T.conditionnelle, true)}
@@ -5495,7 +5514,7 @@ function chronologieAvenants(row) {
     const apres = etatEcheances(mergedBailData(row, { throughAvenantId: av.id }))
     const mods = av.data?.champs_modifies || {}
     const franchises = [
-      ...(Array.isArray(mods.franchise_periodes) ? mods.franchise_periodes : []).map(r => {
+      ...(Array.isArray(mods.franchise_periodes) ? propagerConditionsFranchises(mods.franchise_periodes) : []).map(r => {
         const loyerRef = loyerFacial(mergedBailData(row, { throughAvenantId: av.id })).montant || 0
         const mf = montantFranchise(r, loyerRef, 0)
         const dureeTxt = safeStr(r.duree) ? safeStr(r.duree).replace(/recalcul\s*=\s*/i, '≈ ').replace(/(\d)\.(\d)/, '$1,$2') : null
