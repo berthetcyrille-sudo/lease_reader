@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · renouvellements par avenant'
+const APP_VERSION = '21.10 · BEFA : prise d’effet fixée par avenant'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -5512,7 +5512,9 @@ function diffEtats(a, b, dateRef = null) {
 // franchises / abattements qu'il accorde.
 function chronologieAvenants(row) {
   const avs = (Array.isArray(row?.avenants) ? row.avenants : []).filter(a => !a.data?._archived).sort(compareAvenants)
-  const signature = etatEcheances(donneesSignature(row).data)
+  const sigRow = donneesSignature(row)
+  const signature = etatEcheances(sigRow.data)
+  const csId = sigRow.csAv?.id || null
   return avs.map((av, i) => {
     // 1er avenant : comparé à l'état « à la signature » (prise d'effet fixée
     // par levée de condition et expiration recalculée depuis elle) — pas à
@@ -5551,6 +5553,15 @@ function chronologieAvenants(row) {
           ...lignes.filter(l => l.label === 'Durée totale' || l.label === 'Durée ferme' || /supprimée/.test(l.apres)),
         ]
       }
+    }
+    // L'avenant qui FIXE la prise d'effet d'un bail qui n'en avait pas (BEFA,
+    // condition suspensive) : la fiche du bail affiche déjà cette date — une
+    // seule ligne le dit, plus les vraies autres modifications
+    if (csId && av.id === csId && apres?.date_effet) {
+      lignes = [
+        { label: "Prise d'effet fixée par l'avenant", avant: 'à fixer', apres: `${apres.date_effet} — échéances et expiration calées sur cette date` },
+        ...lignes.filter(l => l.label !== "Prise d'effet" && l.label !== 'Expiration' && !/^Break/.test(l.label)),
+      ]
     }
     return { av, numero: avenantNumeroDeclare(av) || (i + 1), avant, apres, lignes, franchises, echeancierLu: !!E, appariement }
   })
@@ -5602,7 +5613,11 @@ function avenantNumeroDeclare(av) {
 // qu'un avenant se lit : ce qu'il ne modifie pas est ce qui était en vigueur
 // à sa date, avenants précédents compris, pas le bail d'origine.
 function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null } = {}) {
-  const base = { ...(row.data || {}) }
+  // Bail dont la prise d'effet n'est fixée que par un avenant ultérieur (BEFA,
+  // condition suspensive) : le calcul part du MÊME état que la fiche — prise
+  // d'effet fixée, expiration et échéances recalculées (donneesSignature)
+  const sigCS = donneesSignature(row)
+  const base = { ...((sigCS.csAv ? sigCS.data : row.data) || {}) }
   // Provenance des champs modifiés par avenant : base._src[champ] = l'avenant
   // qui l'a fixé ou fait recalculer — sert à ouvrir le BON document (l'avenant,
   // pas le bail) depuis l'icône de page d'une carte. Non énumérable : ni copiée
@@ -5657,7 +5672,12 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
     // d'effet, durées, expiration et sorties remplacent ce que les règles
     // ont déduit (les règles ne restent qu'en secours pour un avenant pas
     // encore relu). Les franchises recalées par le recalcul sont conservées.
-    appliquerEcheancierLu(base, prev, av)
+    // Avenants signés AVANT la fixation de la prise d'effet : leur échéancier lu
+    // repose sur une date prévisionnelle (vécu : BEFA Orsay, avenant n°1 de
+    // mars 2020 lu sur le 31/07/2020 prévisionnel, prise d'effet fixée au
+    // 11/01/2021 par l'avenant n°2) — ses dates ne sont pas appliquées
+    const avantFixation = sigCS.csAv && avs.indexOf(av) < avs.findIndex(a => a.id === sigCS.csAv.id)
+    if (!avantFixation) appliquerEcheancierLu(base, prev, av)
     {
       const E = av?.data?.echeancier_apres
       const nd3 = v => normalizeDate(safeStr(v))
