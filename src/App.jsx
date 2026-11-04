@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · extract EVEN avec ID'
+const APP_VERSION = '21.10 · extract EVEN : nom saisi du preneur'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1364,7 +1364,10 @@ function exportEvenToExcel(tree) {
     try { vv = computeValeursEnVigueur(item, parent) || {} } catch (e) { console.warn('Extract EVEN : calcul impossible', item.id, e) }
     const isAv = item.document_type === 'avenant'
     const bailData = (isAv ? parent?.data : item.data) || {}
-    let preneur = safeStr(bailData.preneur) || '', dateEffet = '', sorties = [], penalites = [], surface = vv.surface_totale_louee
+    // nom du preneur comme à l'écran : le nom SAISI À LA MAIN (substitution)
+    // s'il existe, sinon le nom extrait (vécu : « Affiché comme Q-PARK » absent)
+    const nomSaisi = safeStr(bailData.preneur_substitution)
+    let preneur = nomSaisi || safeStr(bailData.preneur) || '', dateEffet = '', sorties = [], penalites = [], surface = vv.surface_totale_louee
     try {
       if (!isAv) {
         // état à la signature
@@ -1378,7 +1381,10 @@ function exportEvenToExcel(tree) {
         if (!chronos.has(parent.id)) chronos.set(parent.id, chronologieAvenants(parent))
         const ch = (chronos.get(parent.id) || []).find(c => c.av.id === item.id)
         const etat = mergedBailData(parent, { throughAvenantId: item.id })
-        preneur = safeStr(etat.preneur) || preneur
+        // un avenant qui change LUI-MÊME la dénomination l'emporte ; sinon le nom
+        // saisi pour le bail, comme sur le dashboard
+        const changeNom = safeStr(item.data?.champs_modifies?.preneur)
+        preneur = safeStr(item.data?.preneur_substitution) || (changeNom ? safeStr(etat.preneur) : (nomSaisi || safeStr(etat.preneur))) || preneur
         dateEffet = ch?.apres?.date_effet || nd(etat.date_effet)
         ;({ sorties, penalites } = sortiesEtPenalites(etat, ch?.apres?.breaks || breaksDeLaClause(etat)))
       }
