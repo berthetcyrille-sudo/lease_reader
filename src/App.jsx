@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · franchise complémentaire conditionnelle'
+const APP_VERSION = '21.10 · renouvellements par avenant'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -284,9 +284,12 @@ MÉTHODE :
 5. La date à partir de laquelle l'avenant s'applique (ex : « à compter du 15 octobre 2024, le Bailleur donne à bail des locaux complémentaires ») N'EST PAS la prise d'effet du bail : date_effet ne change que si l'avenant modifie ou fixe expressément la prise d'effet DU BAIL.
 6. Calcule les dates exactes : une échéance tombe la veille de la date anniversaire (prise d'effet 01/08/2020 + 3 ans → 31/07/2023).
 7. Si l'avenant ne touche à rien de tout cela (avenant de loyer, de surface, de destination…), recopie le calendrier d'avant tel quel avec modifie_echeancier = false.
+8. RENOUVELLEMENT : un avenant qui renouvelle le bail (« le Bail est renouvelé pour une durée de 9 années ») ouvre une NOUVELLE période — statut_date_effet = "renouvellement", date_effet = début de la nouvelle période, durée et expiration de la nouvelle période. Si l'effet est fixé « à compter de la date de signature », prends la date de la DERNIÈRE signature (ex : signé le 24/05/2017 par le bailleur et le 01/06/2017 par le preneur → 01/06/2017). Les sorties de la période précédente DISPARAISSENT : ne liste que celles de la nouvelle période, postérieures à sa prise d'effet.
+9. CLAUSE DE CONGÉ RÉÉCRITE : si l'avenant prévoit le congé « pour l'expiration de chaque période triennale », la durée ferme du bail d'origine (ex : 6 ans fermes) ne s'applique plus — durée ferme = 3 ans et TOUTES les triennales de la période sont des sorties. Ex : renouvellement de 9 ans au 01/06/2017 avec congé à chaque triennale → sorties 31/05/2020 et 31/05/2023, expiration 31/05/2026.
+10. Un avenant qui « annule et remplace » un avenant précédent reprend ses effets : établis le calendrier en appliquant le nouvel avenant à la place de l'ancien.
 
 Réponds UNIQUEMENT avec un JSON minifié sur UNE ligne, sans markdown :
-{"date_effet":"jj/mm/aaaa ou null","statut_date_effet":"inchangee|modifiee|fixee","duree_totale":"ex: 9 ans, 1 mois et 15 jours","duree_ferme":"ex: 3 ans, 1 mois et 15 jours","date_fin":"jj/mm/aaaa","sorties":[{"date":"jj/mm/aaaa","statut":"inchangee|modifiee|ajoutee","date_avant":"jj/mm/aaaa ou null","libelle":"ex: Expiration de la 2e periode triennale (reportee par l'avenant)","page":N}],"sorties_supprimees":[{"date_avant":"jj/mm/aaaa","motif":"ex: renonciation a la 2e periode triennale","page":N}],"modifie_echeancier":true,"commentaire":"une phrase"}`
+{"date_effet":"jj/mm/aaaa ou null","statut_date_effet":"inchangee|modifiee|fixee|renouvellement","duree_totale":"ex: 9 ans, 1 mois et 15 jours","duree_ferme":"ex: 3 ans, 1 mois et 15 jours","date_fin":"jj/mm/aaaa","sorties":[{"date":"jj/mm/aaaa","statut":"inchangee|modifiee|ajoutee","date_avant":"jj/mm/aaaa ou null","libelle":"ex: Expiration de la 2e periode triennale (reportee par l'avenant)","page":N}],"sorties_supprimees":[{"date_avant":"jj/mm/aaaa","motif":"ex: renonciation a la 2e periode triennale","page":N}],"modifie_echeancier":true,"commentaire":"une phrase"}`
 }
 
 // Lecture de l'échéancier après un avenant, ajoutée aux données extraites de
@@ -907,7 +910,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
   const exits = getExitEvents(eff)
   const breaks = dropTermBreaks(exits
     ? exits.map(e => e.date).filter(Boolean)
-    : breaksDeLaClause(eff), eff.date_fin)
+    : breaksDeLaClause(eff), eff.date_fin).filter(x => apresPriseEffet([x], eff.date_effet).length > 0)
   const finNorm = normalizeDate(safeStr(eff.date_fin))
   const dateFin = (finNorm && /^\d{2}\/\d{2}\/\d{4}$/.test(finNorm)) ? finNorm : (computeDateFinFromDuree(eff.date_effet, eff.duree_totale) || finNorm || null)
   const duree = k => {
@@ -1337,9 +1340,13 @@ function exportEvenToExcel(tree) {
     const sorties = exits ? exits.map(e => nd(e.date)).filter(Boolean) : [...breaksBase, ...cond.map(c => nd(c.date))]
     let indem = []
     try { indem = computeIndemnitesTerme({ ...m, break_options: breaksBase }, exits) } catch (_) { indem = [] }
+    const triees = [...new Set(sorties)].sort((x, y) => toSort(x) - toSort(y))
+    // date de la pénalité = celle de la break correspondante (« à compter du »
+    // lendemain vs break la veille — vécu : 10/03/2031 pour une break au 09/03)
+    const surBreak = dt => { const t = toSort(dt); const b = triees.find(x => Math.abs(toSort(x) - t) <= 3 * 86400000); return b || dt }
     const penalites = indem.filter(r => !/bailleur/i.test(safeStr(r.due_par)) && /^\d{2}\/\d{2}\/\d{4}$/.test(nd(r.terme)))
-      .map(r => ({ date: nd(r.terme), montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null }))
-    return { sorties: [...new Set(sorties)].sort((x, y) => toSort(x) - toSort(y)), penalites }
+      .map(r => ({ date: surBreak(nd(r.terme)), montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null }))
+    return { sorties: triees, penalites }
   }
   const chronos = new Map()
   const data = lignes.map(({ item, parent }) => {
@@ -5440,9 +5447,9 @@ function etatEcheances(m) {
   const exits = getExitEvents(m)
   const finN = normalizeDate(safeStr(m.date_fin))
   const fin = (finN && /^\d{2}\/\d{2}\/\d{4}$/.test(finN)) ? finN : (computeDateFinFromDuree(m.date_effet, m.duree_totale) || null)
-  let breaks = exits
+  let breaks = apresPriseEffet(exits
     ? exits.map(e => e.date).filter(Boolean)
-    : breaksDeLaClause({ ...m, date_fin: fin })
+    : breaksDeLaClause({ ...m, date_fin: fin }), m.date_effet)
   breaks = [...new Set(dropTermBreaks(breaks, fin).map(b => normalizeDate(safeStr(b))).filter(b => /^\d{2}\/\d{2}\/\d{4}$/.test(b)))]
     .sort((a, b) => toSortableDateAv(a).localeCompare(toSortableDateAv(b)))
   return {
@@ -5666,6 +5673,14 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
 
 // Sorties calées sur l'état en vigueur : veille d'un anniversaire de la prise
 // d'effet, ou même jour et même mois que l'expiration
+// Invariant : une sortie est toujours POSTÉRIEURE à la prise d'effet en vigueur
+// (vécu : break de 2008 conservée après le renouvellement de 2017 lu dans un
+// échéancier d'avenant — Crédit Mutuel Montigny)
+function apresPriseEffet(dates, dateEffet) {
+  const e = parseFR(normalizeDate(safeStr(dateEffet)))
+  if (!e || !Array.isArray(dates)) return dates
+  return dates.filter(x => { const t = parseFR(normalizeDate(safeStr(typeof x === 'object' && x ? x.date : x))); return !t || t > e })
+}
 function sortiesCalees(dates, etat) {
   const e = parseFR(normalizeDate(safeStr(etat?.date_effet))), f = parseFR(normalizeDate(safeStr(etat?.date_fin)))
   const ds = (dates || []).map(x => parseFR(normalizeDate(safeStr(x)))).filter(Boolean)
@@ -5700,7 +5715,11 @@ function conserverSortiesPassees(base, prev, av) {
   const exitsPrev = getExitEvents(prev)
   const avant = (exitsPrev ? exitsPrev.map(e => e.date) : breaksDeLaClause(prev)).map(x => normalizeDate(safeStr(x))).filter(x => /^\d{2}\/\d{2}\/\d{4}$/.test(x))
   const actuelles = (Array.isArray(base.break_options) ? base.break_options : []).map(x => parseFR(normalizeDate(safeStr(x)))).filter(Boolean)
-  const passees = avant.filter(x => { const t = parseFR(x); return t && t < ref && !actuelles.some(y => Math.abs(y - t) <= 3 * 86400000) })
+  // jamais une sortie antérieure à la prise d'effet EN VIGUEUR (période d'avant
+  // un renouvellement — vécu : break de 2008 conservée après un renouvellement
+  // de 2017, Crédit Mutuel Montigny)
+  const effetCourant = parseFR(normalizeDate(safeStr(base.date_effet)))
+  const passees = avant.filter(x => { const t = parseFR(x); return t && t < ref && (!effetCourant || t > effetCourant) && !actuelles.some(y => Math.abs(y - t) <= 3 * 86400000) })
   if (!passees.length) return
   base.break_options = [...passees, ...(base.break_options || [])].sort((a, b) => toSortableDateAv(normalizeDate(safeStr(a))).localeCompare(toSortableDateAv(normalizeDate(safeStr(b)))))
   if (Array.isArray(base.echeances_sortie)) {
@@ -5766,6 +5785,9 @@ function appliquerEcheancierLu(base, prev, av) {
   base._breaksDonneesParAvenant = true
   base._breakOptionsFromAvenant = true
   base._dureeFermeFromAvenant = true
+  // aucune sortie antérieure ou égale à la prise d'effet (période précédente)
+  if (Array.isArray(base.break_options)) base.break_options = apresPriseEffet(base.break_options, base.date_effet)
+  if (Array.isArray(base.echeances_sortie)) base.echeances_sortie = apresPriseEffet(base.echeances_sortie, base.date_effet)
   base._echeancierLu = true
   if (base._src) ['date_effet', 'date_fin', 'duree_totale', 'duree_ferme', 'break_options', 'echeances_sortie'].forEach(k => { base._src[k] = av })
 }
