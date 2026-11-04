@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · surfaces rappelées par avenant'
+const APP_VERSION = '21.10 · surfaces et parkings rappelés'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -5620,15 +5620,40 @@ function avenantNumeroDeclare(av) {
 // nouveau mesurage, désignation modifiée… Sinon la désignation qu'il contient
 // n'est qu'un RAPPEL et la surface du bail est conservée (vécu : renouvellement
 // Crédit Mutuel rappelant « 228 m² + mezzanine 205 m² », extrait 228 m²).
-function avenantModifieLocaux(av) {
+function texteObjetAvenant(av) {
   const d = av?.data || {}
-  const txt = stripAccents(`${safeStr(d.objet_avenant) || ''} ${safeStr(d.resume) || ''} ${safeStr(d.modifications) || ''}`).toLowerCase()
-  return /extension|reduction|reduit|surface (complementaire|supplementaire|additionnelle)|complementaire|ajout|adjonction|restitution|restitue|rend(re)? (une partie|des locaux)|mesurage|metrage|designation|nouveaux? locaux|locaux supplementaires|substitution|echange|parking|stationnement|emplacement|\blots?\b|\betages?\b/.test(txt)
+  return stripAccents(`${safeStr(d.objet_avenant) || ''} ${safeStr(d.resume) || ''} ${safeStr(d.modifications) || ''}`).toLowerCase()
 }
-function garderSurfacesSiModifiees(av, mods) {
-  if (!mods || avenantModifieLocaux(av)) return mods
-  const { surface_totale_m2, surfaces_detail, parking_nb_places, ...reste } = mods
-  return reste
+// l'avenant porte sur les SURFACES de locaux
+function avenantModifieSurfaces(av) {
+  return /extension|reduction|reduit|surface|complementaire|supplementaire|ajout|adjonction|restitution|restitue|rend(re)? (une partie|des locaux)|mesurage|metrage|designation|nouveaux? locaux|locaux supplementaires|echange de locaux|\blots?\b|\betages?\b/.test(texteObjetAvenant(av))
+}
+// l'avenant porte sur le STATIONNEMENT
+function avenantModifieParkings(av) {
+  return /parking|stationnement|emplacement|\bbox\b|places? de/.test(texteObjetAvenant(av))
+}
+function avenantModifieLocaux(av) { return avenantModifieSurfaces(av) || avenantModifieParkings(av) }
+const estLigneParking = r => /station|parking|emplacement|\bbox\b/i.test(stripAccents(`${safeStr(r?.categorie) || ''} ${safeStr(r?.typologie) || ''}`))
+// Ne garde, parmi les surfaces / parkings d'un avenant, que ce qu'il MODIFIE ;
+// le reste est un rappel. prev (état d'avant) : la partie non modifiée de la
+// ventilation y est reprise ; sans prev (fiche de l'avenant), elle est omise.
+function garderSurfacesSiModifiees(av, mods, prev = null) {
+  if (!mods) return mods
+  const surf = avenantModifieSurfaces(av), park = avenantModifieParkings(av)
+  if (surf && park) return mods
+  const out = { ...mods }
+  if (!surf) delete out.surface_totale_m2
+  if (!park) delete out.parking_nb_places
+  if (Array.isArray(mods.surfaces_detail) && mods.surfaces_detail.length) {
+    if (!surf && !park) delete out.surfaces_detail
+    else {
+      const gardees = mods.surfaces_detail.filter(r => park ? estLigneParking(r) : !estLigneParking(r))
+      const autres = (Array.isArray(prev?.surfaces_detail) ? prev.surfaces_detail : []).filter(r => park ? !estLigneParking(r) : estLigneParking(r))
+      if (gardees.length) out.surfaces_detail = [...(prev ? autres : []), ...gardees]
+      else delete out.surfaces_detail
+    }
+  }
+  return out
 }
 
 function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null } = {}) {
@@ -5654,7 +5679,7 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
   for (const av of avs) {
     if (beforeAvenantId && av.id === beforeAvenantId) break
     const isLast = throughAvenantId && av.id === throughAvenantId
-    const mods = garderSurfacesSiModifiees(av, filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, base))
+    const mods = garderSurfacesSiModifiees(av, filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, base), base)
     const prev = { ...base }
     Object.entries(mods).forEach(([k, v]) => {
       if (v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0) && k !== '_sources') {
@@ -6351,6 +6376,10 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   const isAv = item.document_type === 'avenant'
   let d = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
   d = { ...d }
+  // Avenant qui ne porte pas sur les locaux : la désignation qu'il contient
+  // n'est qu'un rappel — sa fiche n'affiche pas de surfaces, comme la base et
+  // les exports, qui conservent celles du bail (garderSurfacesSiModifiees)
+  if (isAv) d = garderSurfacesSiModifiees(item, d)
   // Un avenant qui ne redéfinit pas lui-même duree_ferme/conditions_break
   // n'a, sur SA PROPRE fiche, aucun moyen de savoir ce qui a déjà été établi
   // par le bail d'origine — sans ce repli, le calcul de breaks ci-dessous
