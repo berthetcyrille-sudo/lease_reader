@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · surfaces et parkings rappelés'
+const APP_VERSION = '21.10 · extract EVEN avec ID'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1320,7 +1320,17 @@ const COLONNES_EVEN = [
   'Break 1', 'Break 2', 'Break 3', 'Break 4', 'Break 5', 'Break 6',
   'Montant des travaux preneur financés par le bailleur', 'Date limite pour réaliser ces travaux preneur financé par le bailleur',
   "Pénalité en cas de départ à une échéance - Date d'exercice", 'Pénalité en cas de départ à une échéance - Montant de la pénalité',
+  // hors modèle EVEN (à la fin, pour ne pas décaler ses colonnes) : retrouver
+  // le document dans Lease Reader pour les contrôles visuels
+  'ID Lease Reader', 'Lien fiche Lease Reader',
 ]
+// Lien direct vers la fiche d'un document dans Lease Reader
+function lienFiche(id) {
+  if (!id) return ''
+  let base = ''
+  try { base = window.location.origin } catch (_) {}
+  return `${base}/bail/${id}`
+}
 function exportEvenToExcel(tree) {
   const lignes = []
   tree.forEach(bail => {
@@ -1387,10 +1397,17 @@ function exportEvenToExcel(tree) {
       montantTravaux, dateLimite,
       penalites.map(r => r.date).join(' ; '),
       penalites.length === 1 ? sansVide(penalites[0].montant) : penalites.map(r => r.montant != null ? r.montant : (r.calcul || '—')).join(' ; '),
+      String(item.id || '').slice(0, 8),
+      lienFiche(item.id),
     ]
   })
   const ws = XLSX.utils.aoa_to_sheet([COLONNES_EVEN, ...data])
-  const largeurs = { 0: 24.5, 1: 25.4, 15: 30.4, 16: 38.4, 17: 36.5, 18: 42.2 }
+  const colLien = COLONNES_EVEN.length - 1
+  data.forEach((l, i) => {
+    const ref = XLSX.utils.encode_cell({ r: i + 1, c: colLien })
+    if (ws[ref] && l[colLien]) ws[ref].l = { Target: l[colLien], Tooltip: 'Ouvrir la fiche dans Lease Reader' }
+  })
+  const largeurs = { 0: 24.5, 1: 25.4, 15: 30.4, 16: 38.4, 17: 36.5, 18: 42.2, 19: 14, 20: 60 }
   ws['!cols'] = COLONNES_EVEN.map((h, i) => ({ wch: largeurs[i] || Math.min(30, Math.max(12, h.length + 2)) }))
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Feuil1')
@@ -10428,7 +10445,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       mods.immeuble, mods.adresse, mods.ville, mods.preneur, mods.bailleur,
       bailRef.immeuble, bailRef.adresse, bailRef.preneur, bailRef.bailleur,
       raw.objet_avenant, raw.sous_location, mods.sous_location,
-      row.file_name, row._parentName, row.actif_group,
+      row.file_name, row._parentName, row.actif_group, row.id,
     ].filter(Boolean).join(' ').toLowerCase()
     return searchIn.includes(q)
   }
