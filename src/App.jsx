@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · franchises conditionnelles par renvoi'
+const APP_VERSION = '21.10 · tableau des franchises aligné'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3992,11 +3992,12 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
   const subtotalRow = (label, g, cond = false) => (
     <tr style={{ background: cond ? '#FDF6EA' : 'var(--surface2)' }}>
       <td colSpan={3} style={{ fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', color: cond ? '#9A6B00' : undefined }}>{label}</td>
-      <td style={{ fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', whiteSpace: 'nowrap', color: cond ? '#9A6B00' : undefined }}>
+      <td className="ft-num" style={{ fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', color: cond ? '#9A6B00' : undefined }}>
         {g.mois > 0 ? `${T.approx ? '≈ ' : ''}${fmtMoisFranchise(g.mois)}` : '—'}
       </td>
       <td />
-      <td style={{ textAlign: 'right', fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', color: cond ? '#9A6B00' : undefined }}>{g.montant > 0 ? fmtEur2(g.montant) : '—'}</td>
+      <td className="ft-num" style={{ textAlign: 'right', fontWeight: 600, padding: '7px 10px', fontSize: '12.5px', color: cond ? '#9A6B00' : undefined }}>{g.montant > 0 ? fmtEur2(g.montant) : '—'}</td>
+      <td className="ft-page" />
       <td colSpan={2} />
     </tr>
   )
@@ -4004,13 +4005,16 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
   const totalMontant = safe.reduce((sum, row) => sum + (parseAmount(row.montant) || 0), 0)
   return (
     <div className="table-wrap">
-      <table className="indemnites-table">
+      {/* alignement : cellules en haut, chiffres à largeur fixe, dates et montants sur une ligne */}
+      <style>{`.franchise-table td{vertical-align:top}.franchise-table .ft-num{font-variant-numeric:tabular-nums;white-space:nowrap}.franchise-table .ft-page{width:44px;padding-left:2px;padding-right:6px}`}</style>
+      <table className="indemnites-table franchise-table">
         <thead>
           <tr>
             <th>Type</th>
             <th>Date début</th><th>Date fin</th><th>Durée</th>
             <th>Surface assiette</th>
             <th style={{ textAlign: 'right' }}>Montant exonéré</th>
+            <th className="ft-page" aria-label="Page" />
             <th>Indexation incluse</th><th>Condition</th>
           </tr>
         </thead>
@@ -4018,7 +4022,7 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
           {orderedRows.map((row, i) => (
             <React.Fragment key={i}>
             <tr>
-              <td>
+              <td style={{ whiteSpace: 'nowrap' }}>
                 {row._type && (
                   <span className={`pill ${row._type === 'franchise' ? 'pill-green' : 'pill-blue'}`}
                     style={{ fontSize: '10.5px', ...(row._type === 'franchise' && isConditionalFranchise(row) ? { background: '#FAEEDA', color: '#9A6B00', border: '1px solid rgba(184,134,11,.3)' } : {}) }}
@@ -4027,16 +4031,16 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
                   </span>
                 )}
               </td>
-              <td title={row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_debut || '—'}` : undefined}>{row.date_debut || '—'}{row._recale && <span style={{ color: 'var(--accent)', marginLeft: '3px', fontSize: '11px' }}>↻</span>}</td>
+              <td className="ft-num" title={row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_debut || '—'}` : undefined}>{row.date_debut || '—'}{row._recale && <span style={{ color: 'var(--accent)', marginLeft: '3px', fontSize: '11px' }}>↻</span>}</td>
               {(() => {
                 const finCalc = row._type !== 'abattement' ? franchiseDateFinCalculee(row, franchiseMonthsEffective(row, loyerAnnuel, rieLoyer)) : null
                 return (
-                  <td title={finCalc ? 'Calculée : date de début + mois de loyer exonérés (la clause ne précise pas la date de fin)' : (row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_fin || '—'}` : undefined)}>
+                  <td className="ft-num" title={finCalc ? 'Calculée : date de début + mois de loyer exonérés (la clause ne précise pas la date de fin)' : (row._recale ? `Recalée — date d'origine : ${row._dates_origine?.date_fin || '—'}` : undefined)}>
                     {finCalc ? <span style={{ fontStyle: 'italic' }} title={row.date_fin ? `Calculée : début + durée exonérée (la date extraite, ${row.date_fin}, borne l'année d'application)` : undefined}>≈ {finCalc}</span> : (row.date_fin || '—')}
                   </td>
                 )
               })()}
-              <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>
+              <td className="ft-num" style={{ fontWeight: 500 }}>
                 {row._type === 'abattement' ? (row.duree || '—')
                   : incoherentDuree(row) ? (
                     <span title={`Durée extraite (${row.duree}) incohérente avec le montant exonéré — valeur affichée = montant ÷ loyer mensuel de l'assiette`} style={{ cursor: 'help' }}>
@@ -4049,8 +4053,7 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
                   ) : (row.duree || '—')}
               </td>
               <td style={{ color: 'var(--text2)' }}>{row.surface_assiette || '—'}</td>
-              <td style={{ textAlign: 'right', fontWeight: 500 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+              <td className="ft-num" style={{ textAlign: 'right', fontWeight: 500 }}>
                   {(() => {
                     if (row._type === 'abattement') return row.montant ? fmtEur2(row.montant) : '—'
                     const mf = montantFranchise(row, loyerAnnuel, rieLoyer)
@@ -4062,8 +4065,9 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
                       </span>
                     )
                   })()}
-                  <PageJumpIcon item={item} page={row.page || (row._type === 'abattement' ? (pages.abattements || pages.franchise_periodes) : pages.franchise_periodes) || null} />
-                </span>
+              </td>
+              <td className="ft-page">
+                <PageJumpIcon item={item} page={row.page || (row._type === 'abattement' ? (pages.abattements || pages.franchise_periodes) : pages.franchise_periodes) || null} />
               </td>
               <td>
                 {row.indexation_incluse && (
@@ -4092,7 +4096,8 @@ function FranchiseTable({ periodes, item, loyerAnnuel, rieLoyer = 0 }) {
                   {sub}
                 </td>
                 <td />
-                <td style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{montant > 0 ? fmtEur2(montant) : '—'}</td>
+                <td className="ft-num" style={{ textAlign: 'right', fontWeight: 600, padding: '8px 10px' }}>{montant > 0 ? fmtEur2(montant) : '—'}</td>
+                <td className="ft-page" />
                 <td colSpan={2} />
               </tr>
             )
