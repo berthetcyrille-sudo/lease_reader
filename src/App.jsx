@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · recherche dans les avenants'
+const APP_VERSION = '21.10 · surfaces rappelées par avenant'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -5615,6 +5615,22 @@ function avenantNumeroDeclare(av) {
 // précèdent sont appliqués, lui et les suivants non) — c'est sur cet état
 // qu'un avenant se lit : ce qu'il ne modifie pas est ce qui était en vigueur
 // à sa date, avenants précédents compris, pas le bail d'origine.
+// Un avenant ne modifie les SURFACES (et le stationnement) que s'il porte sur
+// les locaux : extension, réduction, surface complémentaire, restitution,
+// nouveau mesurage, désignation modifiée… Sinon la désignation qu'il contient
+// n'est qu'un RAPPEL et la surface du bail est conservée (vécu : renouvellement
+// Crédit Mutuel rappelant « 228 m² + mezzanine 205 m² », extrait 228 m²).
+function avenantModifieLocaux(av) {
+  const d = av?.data || {}
+  const txt = stripAccents(`${safeStr(d.objet_avenant) || ''} ${safeStr(d.resume) || ''} ${safeStr(d.modifications) || ''}`).toLowerCase()
+  return /extension|reduction|reduit|surface (complementaire|supplementaire|additionnelle)|complementaire|ajout|adjonction|restitution|restitue|rend(re)? (une partie|des locaux)|mesurage|metrage|designation|nouveaux? locaux|locaux supplementaires|substitution|echange|parking|stationnement|emplacement|\blots?\b|\betages?\b/.test(txt)
+}
+function garderSurfacesSiModifiees(av, mods) {
+  if (!mods || avenantModifieLocaux(av)) return mods
+  const { surface_totale_m2, surfaces_detail, parking_nb_places, ...reste } = mods
+  return reste
+}
+
 function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null } = {}) {
   // Bail dont la prise d'effet n'est fixée que par un avenant ultérieur (BEFA,
   // condition suspensive) : le calcul part du MÊME état que la fiche — prise
@@ -5638,7 +5654,7 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
   for (const av of avs) {
     if (beforeAvenantId && av.id === beforeAvenantId) break
     const isLast = throughAvenantId && av.id === throughAvenantId
-    const mods = filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, base)
+    const mods = garderSurfacesSiModifiees(av, filtrerDateEffetConfondue(av, av.data?.champs_modifies || {}, base))
     const prev = { ...base }
     Object.entries(mods).forEach(([k, v]) => {
       if (v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0) && k !== '_sources') {
@@ -5656,7 +5672,7 @@ function mergedBailData(row, { beforeAvenantId = null, throughAvenantId = null }
     // surfaces_apres (champ séparé, hors champs_modifies) reflète l'assiette
     // EXACTE post-avenant — prioritaire sur champs_modifies.surfaces_detail,
     // qui lui n'est presque jamais renseigné pour une simple extension.
-    if (Array.isArray(av.data?.surfaces_apres) && av.data.surfaces_apres.length > 0) {
+    if (Array.isArray(av.data?.surfaces_apres) && av.data.surfaces_apres.length > 0 && avenantModifieLocaux(av)) {
       base.surfaces_detail = av.data.surfaces_apres
     }
     // Avenant ancien format qui redéfinit les breaks sans echeances_sortie :
