@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · exports sans archivés'
+const APP_VERSION = '21.10 · recherche dans les avenants'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -10316,6 +10316,9 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
 
   // Build display rows based on filter and expanded state
   const displayRows = []
+  // recherche en cours : les avenants de TOUS les baux sont parcourus, même
+  // repliés (vécu : « OMNIPARC », présent seulement dans le nom d'un avenant)
+  const rechercheActive = !!search.trim()
   tree.forEach(bail => {
     // N'afficher que les bails correspondant au mode courant (actifs par
     // défaut, archivés uniquement si le bouton "Archivés" est activé).
@@ -10349,7 +10352,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
       return
     }
     displayRows.push({ ...bailRow, _avCount: avRows.length })
-    if (filter !== 'bail' && expanded[bail.id] && avRows.length > 0) {
+    if (filter !== 'bail' && (expanded[bail.id] || rechercheActive) && avRows.length > 0) {
       avRows.forEach(r => displayRows.push(r))
     }
   })
@@ -10389,8 +10392,12 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
   // (compteur d'avenants et flèche présents, mais avenants masqués car ils ne
   // contiennent pas eux-mêmes le terme recherché).
   const matchedBailIds = q ? new Set(displayRows.filter(r => r.document_type === 'bail' && rowMatchesSearch(r, q)).map(r => r.id)) : null
+  // baux dont UN AVENANT correspond : le bail reste affiché, avec cet avenant
+  const bailsParAvenant = q ? new Set(displayRows.filter(r => r._level > 0 && rowMatchesSearch(r, q)).map(r => r.parent_id || r._parentId)) : null
   const filtered = (q ? displayRows.filter(row =>
-      rowMatchesSearch(row, q) || (row._level > 0 && matchedBailIds.has(row.parent_id || row._parentId))
+      rowMatchesSearch(row, q)
+      || (row._level > 0 && matchedBailIds.has(row.parent_id || row._parentId))
+      || (row._level === 0 && row.document_type === 'bail' && bailsParAvenant.has(row.id))
     ) : displayRows)
     .filter(row => {
       if (!publicSectorOnly) return true
