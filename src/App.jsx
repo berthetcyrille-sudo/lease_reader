@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · extract EVEN : 4 breaks + expiration'
+const APP_VERSION = '21.10 · indemnités sans paiement écartées'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -3827,7 +3827,17 @@ function computeIndemnitesTerme(d, exitEvents) {
   const restitutionRows = (d.indemnites_restitution || []).filter(r =>
     !/non[\s-]?restitution|immobilisation|retard|maintien dans les lieux/i.test(`${safeStr(r.motif) || ''} ${safeStr(r.calcul) || ''}`))
   const combined = [...restitutionRows, ...(fromExits || cleanBreakIndem)]
-  return combined
+  // Une ligne SANS montant ni base de calcul, dont le motif ne décrit aucun
+  // paiement, n'est pas une indemnité : c'est une faculté de congé rangée là
+  // par erreur (vécu : « Congé délivré par le Preneur pour le 7 décembre 2032
+  // (faculté de break anticipée, préavis 6 mois) »)
+  const paiement = /rembours|indemnit|penalit|versera|verser|vers[eé]|payer|paiement|restitu|compensation|franchise|avantage|loyer|montant|somme|€|euros?\b|mois de loyer|forfait/i
+  return combined.filter(r => {
+    const m = parseAmount(r?.montant)
+    if (m) return true
+    if (safeStr(r?.calcul)) return true
+    return paiement.test(stripAccents(safeStr(r?.motif) || ''))
+  })
 }
 
 // Redevance RIE annuelle du bail, lue dans la ventilation commune
