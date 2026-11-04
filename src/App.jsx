@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · extract EVEN : nom saisi du preneur'
+const APP_VERSION = '21.10 · extract EVEN : 4 breaks + expiration'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1317,7 +1317,7 @@ function exportToExcel(items, fileName, selectedCols = null) {
 const COLONNES_EVEN = [
   'Code Immeuble EVEN', "Nom de l'immeuble", 'Code locataire EVEN', 'Code bail EVEN', 'Bail / avenant',
   'Nom bail (nom du document)', 'Nom preneur', 'Surface', "Date d'effet du bail",
-  'Break 1', 'Break 2', 'Break 3', 'Break 4', 'Break 5', 'Break 6',
+  'Break 1', 'Break 2', 'Break 3', 'Break 4', "Date d'expiration",
   'Montant des travaux preneur financés par le bailleur', 'Date limite pour réaliser ces travaux preneur financé par le bailleur',
   "Pénalité en cas de départ à une échéance - Date d'exercice", 'Pénalité en cas de départ à une échéance - Montant de la pénalité',
   // hors modèle EVEN (à la fin, pour ne pas décaler ses colonnes) : retrouver
@@ -1367,13 +1367,14 @@ function exportEvenToExcel(tree) {
     // nom du preneur comme à l'écran : le nom SAISI À LA MAIN (substitution)
     // s'il existe, sinon le nom extrait (vécu : « Affiché comme Q-PARK » absent)
     const nomSaisi = safeStr(bailData.preneur_substitution)
-    let preneur = nomSaisi || safeStr(bailData.preneur) || '', dateEffet = '', sorties = [], penalites = [], surface = vv.surface_totale_louee
+    let preneur = nomSaisi || safeStr(bailData.preneur) || '', dateEffet = '', dateFin = '', sorties = [], penalites = [], surface = vv.surface_totale_louee
     try {
       if (!isAv) {
         // état à la signature
         const sig = donneesSignature(item).data
         const et = etatEcheances(sig) || {}
         dateEffet = et.date_effet || ''
+        dateFin = et.date_fin || ''
         ;({ sorties, penalites } = sortiesEtPenalites(sig, et.breaks || []))
         surface = surfaceTotaleLouee(sig).m2 ?? surface
       } else if (parent) {
@@ -1386,6 +1387,7 @@ function exportEvenToExcel(tree) {
         const changeNom = safeStr(item.data?.champs_modifies?.preneur)
         preneur = safeStr(item.data?.preneur_substitution) || (changeNom ? safeStr(etat.preneur) : (nomSaisi || safeStr(etat.preneur))) || preneur
         dateEffet = ch?.apres?.date_effet || nd(etat.date_effet)
+        dateFin = ch?.apres?.date_fin || nd(etat.date_fin)
         ;({ sorties, penalites } = sortiesEtPenalites(etat, ch?.apres?.breaks || breaksDeLaClause(etat)))
       }
     } catch (e) { console.warn('Extract EVEN : état non calculable', item.id, e) }
@@ -1399,7 +1401,8 @@ function exportEvenToExcel(tree) {
       // nom d'ACTIF (regroupement du dashboard), à défaut le nom extrait
       '', sansVide((isAv ? parent?.actif_group : item.actif_group) || bailData.immeuble), '', '', isAv ? 'avenant' : 'bail',
       sansVide(item.file_name), preneur, sansVide(surface), sansVide(dateEffet),
-      ...Array.from({ length: 6 }, (_, i) => sorties[i] || ''),
+      ...Array.from({ length: 4 }, (_, i) => sorties[i] || ''),
+      sansVide(dateFin),
       montantTravaux, dateLimite,
       penalites.map(r => r.date).join(' ; '),
       penalites.length === 1 ? sansVide(penalites[0].montant) : penalites.map(r => r.montant != null ? r.montant : (r.calcul || '—')).join(' ; '),
@@ -1413,7 +1416,7 @@ function exportEvenToExcel(tree) {
     const ref = XLSX.utils.encode_cell({ r: i + 1, c: colLien })
     if (ws[ref] && l[colLien]) ws[ref].l = { Target: l[colLien], Tooltip: 'Ouvrir la fiche dans Lease Reader' }
   })
-  const largeurs = { 0: 24.5, 1: 25.4, 15: 30.4, 16: 38.4, 17: 36.5, 18: 42.2, 19: 14, 20: 60 }
+  const largeurs = { 0: 24.5, 1: 25.4, 13: 16, 14: 30.4, 15: 38.4, 16: 36.5, 17: 42.2, 18: 14, 19: 60 }
   ws['!cols'] = COLONNES_EVEN.map((h, i) => ({ wch: largeurs[i] || Math.min(30, Math.max(12, h.length + 2)) }))
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Feuil1')
