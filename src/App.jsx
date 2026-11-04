@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · BEFA : prise d’effet fixée par avenant'
+const APP_VERSION = '21.10 · exports sans archivés'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1324,7 +1324,7 @@ const COLONNES_EVEN = [
 function exportEvenToExcel(tree) {
   const lignes = []
   tree.forEach(bail => {
-    if (bail.document_type !== 'bail') return
+    if (bail.document_type !== 'bail' || bail.data?._archived) return // archivés exclus
     lignes.push({ item: bail, parent: null })
     ;[...(bail.avenants || [])].filter(a => !a.data?._archived).sort(compareAvenants).forEach(av => lignes.push({ item: av, parent: bail }))
   })
@@ -1412,11 +1412,14 @@ function exportAllToExcel(tree, onErrors, selectedCols = null) {
   const rows = []
   const errors = [] // { name, reason }
 
+  // documents ARCHIVÉS exclus (bail archivé → ses avenants aussi) ; les
+  // avenants orphelins sont traités plus bas, une seule fois
   tree.forEach(bail => {
+    if (bail.document_type === 'avenant' || bail.data?._archived) return
     const parentName = bail.data?.immeuble || bail.data?.adresse || bail.file_name
     const parentData = bail.data || {}
     rows.push({ item: bail, parentName: '', parentData: null, statut: 'OK' })
-    const sortedAv = [...(bail.avenants || [])].sort((a, b) => {
+    const sortedAv = [...(bail.avenants || [])].filter(a => !a.data?._archived).sort((a, b) => {
       const toS = d => { const m = String(d||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d||'') }
       return compareAvenants(a, b)
     })
@@ -1427,7 +1430,7 @@ function exportAllToExcel(tree, onErrors, selectedCols = null) {
   const bailIds = new Set(tree.map(b => b.id))
   // Also check history for orphan avenants passed separately
   // Orphans are avenants in tree with no parent → they appear as top-level with document_type=avenant
-  tree.filter(r => r.document_type === 'avenant').forEach(av => {
+  tree.filter(r => r.document_type === 'avenant' && !r.data?._archived).forEach(av => {
     errors.push({
       name: av.data?.immeuble || av.data?.adresse || av.file_name,
       reason: 'Avenant orphelin — bail parent manquant ou en erreur'
