@@ -1088,6 +1088,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
     })),
     travaux_bailleur: participationsTravaux(isAv ? modsTravaux : raw).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, remarque: cleanTxt(r.remarque) || null })),
     travaux_montant: montantTravauxHorsRefacturation(isAv ? modsTravaux : raw),
+    // participation aux travaux accordée sous forme de franchise (déjà dans les franchises)
+    travaux_en_franchise: participationsTravaux(isAv ? modsTravaux : raw).enFranchise.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant) })),
     // travaux préfinancés par le bailleur, remboursés par surloyer
     travaux_prefinances_bailleur: participationsTravaux(isAv ? modsTravaux : raw).prefinancements.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), remboursement: cleanTxt(r.remboursement || r.remarque) || null })),
     // travaux réalisés par le bailleur aux frais du preneur (dus par le preneur)
@@ -1596,8 +1598,23 @@ function montantTravauxHorsRefacturation(d) {
   const refac = [...rows.filter(r => estRefacturationAuPreneur(r) || estPrefinancementRembourse(r)), ...(Array.isArray(d?.travaux_refactures_preneur) ? d.travaux_refactures_preneur : []), ...(Array.isArray(d?.travaux_prefinances_bailleur) ? d.travaux_prefinances_bailleur : [])]
   const somme = refac.reduce((t, r) => t + (parseAmount(r?.montant) || 0), 0)
   if (refac.some(r => Math.abs((parseAmount(r.montant) || 0) - m) <= 1) || (somme && Math.abs(somme - m) <= 1)) return null
+  if (rows.some(r => estParticipationEnFranchise(r, d) && Math.abs((parseAmount(r.montant) || 0) - m) <= 1)) return null
   if (!rows.some(r => !estRefacturationAuPreneur(r) && !estPrefinancementRembourse(r) && parseAmount(r.montant)) && (texteRefacturation(d?.travaux_modalites) || textePrefinancement(d?.travaux_modalites))) return null
   return m
+}
+// PARTICIPATION AUX TRAVAUX ACCORDÉE SOUS FORME DE FRANCHISE : une ligne qui
+// n'est que la franchise de loyer elle-même (« franchise de loyer au titre de
+// la participation financière du Bailleur aux travaux », même montant que les
+// franchises) — déjà comptée dans les franchises, pas une seconde fois en
+// participation (vécu : 3 263 414 € affichés deux fois, et exportés en
+// « travaux financés par le bailleur »).
+function estParticipationEnFranchise(r, d) {
+  const t = stripAccents(`${safeStr(r?.libelle) || ''} ${safeStr(r?.remarque) || ''}`).toLowerCase()
+  if (!/franchise/.test(t) || /en sus de la franchise|en plus de la franchise|distincte? de la franchise|independamment de la franchise|outre la franchise/.test(t)) return false
+  const m = parseAmount(r?.montant)
+  const fr = (Array.isArray(d?.franchise_periodes) ? d.franchise_periodes : []).reduce((x, f) => x + (parseAmount(f?.montant) || 0), 0)
+  if (m && fr && Math.abs(m - fr) <= Math.max(2, fr * 0.01)) return true
+  return /^franchise|sous forme de (franchise|mois de franchise)|mois de franchise|franchise_periodes|reparti\w* en .{0,20}franchise/.test(t)
 }
 function participationsTravaux(d) {
   const rows = Array.isArray(d?.participations_travaux) ? d.participations_travaux : []
@@ -1626,7 +1643,8 @@ function participationsTravaux(d) {
   const pfDedies = (Array.isArray(d?.travaux_prefinances_bailleur) ? d.travaux_prefinances_bailleur : []).filter(r => r && typeof r === 'object')
   const pfMalRanges = rows.filter(estPrefinancementRembourse)
   const prefin = [...pfDedies, ...pfMalRanges.filter(r => !pfDedies.some(x => Math.abs((parseAmount(x.montant) || 0) - (parseAmount(r.montant) || 0)) <= 1))]
-  const autres = rows.filter(r => !estRefacturationAuPreneur(r) && !estPrefinancementRembourse(r))
+  const enFranchise = rows.filter(r => !estRefacturationAuPreneur(r) && !estPrefinancementRembourse(r) && estParticipationEnFranchise(r, d))
+  const autres = rows.filter(r => !estRefacturationAuPreneur(r) && !estPrefinancementRembourse(r) && !estParticipationEnFranchise(r, d))
   // montant global SANS ligne, dont les modalités décrivent une somme versée
   // par le preneur au bailleur (vécu : « Frais de Remise en État » de
   // 295 785,03 € payés par le preneur, affichés en participation du bailleur)
@@ -1638,6 +1656,7 @@ function participationsTravaux(d) {
     // date limite de remboursement : date écrite, ou délai compté depuis la
     // prise d'effet ; rien si le délai court à partir de la facture
     prefinancements: prefin.map(r => ({ ...r, date_limite: null, date_limite_texte: null })),
+    enFranchise: enFranchise.map(r => ({ ...r, date_limite: null, date_limite_texte: null })),
     refacturations: refac.map(r => { const dl = dateLimiteTravauxEnVigueur(r?.date_limite, safeStr(r?.remarque) || '', d); return { ...r, date_limite: dl.date, date_limite_texte: dl.texte } }),
   }
 }
@@ -1801,6 +1820,7 @@ function exportEvenToExcel(tree) {
       } else if (p.montant == null && p.calcul) commentaires.push(`Pénalité du ${p.date} non chiffrée : ${p.calcul.slice(0, 160)}`)
     })
     parts.forEach(r => { if (r.date_limite && r.date_limite_texte && /corrig|délai compté|déduite/.test(r.date_limite_texte)) commentaires.push(`Date limite travaux : ${r.date_limite_texte.slice(0, 200)}`) })
+    ;(Array.isArray(vv.travaux_en_franchise) ? vv.travaux_en_franchise : []).forEach(r => commentaires.push(`Participation du bailleur aux travaux accordée sous forme de franchise de loyer${r.montant ? ` (${fmtE(r.montant)})` : ''} — non portée en colonne travaux financés`))
     ;(Array.isArray(vv.travaux_prefinances_bailleur) ? vv.travaux_prefinances_bailleur : []).forEach(r => commentaires.push(`Travaux préfinancés par le bailleur, remboursés par surloyer (non portés en colonne travaux financés)${r.libelle ? ` — ${r.libelle.slice(0, 70)}` : ''}${r.montant ? ` : ${fmtE(r.montant)}` : ''}${r.remboursement ? ` ; ${r.remboursement.slice(0, 160)}` : ''}`))
     refac.forEach(r => { if (!r.date_limite && r.remarque) commentaires.push(`Travaux refacturés${r.libelle ? ` (${r.libelle.slice(0, 60)})` : ''} : ${r.remarque.slice(0, 160)}`) })
     const commentaire = commentaires.join(' | ')
@@ -7008,10 +7028,11 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
     // même prise d'effet de référence que la base (BEFA : fixée par avenant)
     const effetTravaux = priseEffetPourTravaux(item, parentRow) || d.date_effet || item.data?.date_effet
     const PT = participationsTravaux({ ...d, date_effet: effetTravaux })
-    d = { ...d, participations_travaux: PT.participations, _travaux_bailleur: PT.travauxBailleur, _refacturations: PT.refacturations, _prefinancements: PT.prefinancements }
+    d = { ...d, participations_travaux: PT.participations, _travaux_bailleur: PT.travauxBailleur, _refacturations: PT.refacturations, _prefinancements: PT.prefinancements, _enFranchise: PT.enFranchise }
     // refacturation au preneur : ni montant ni modalités dans la section
     // « Participation travaux bailleur » (présentés dans leur propre section)
-    if (d.travaux_montant && !montantTravauxHorsRefacturation({ ...d, participations_travaux: [...PT.participations, ...PT.refacturations, ...PT.prefinancements] })) d.travaux_montant = null
+    if (d.travaux_montant && !montantTravauxHorsRefacturation({ ...d, participations_travaux: [...PT.participations, ...PT.refacturations, ...PT.prefinancements, ...PT.enFranchise] })) d.travaux_montant = null
+    if (!PT.participations.length && PT.enFranchise.length && d.travaux_modalites && /franchise/i.test(d.travaux_modalites)) d.travaux_modalites = null
     if (!PT.participations.length && textePrefinancement(d.travaux_modalites)) { d._modalites_prefinancement = d.travaux_modalites; d.travaux_modalites = null }
     if (!PT.participations.length && texteRefacturation(d.travaux_modalites)) { d._modalites_refacturation = d.travaux_modalites; d.travaux_modalites = null }
     // aucune participation du bailleur (ni ligne, ni montant) : les modalités
@@ -8465,6 +8486,20 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Frais de rédaction d'actes</div></div>
           <FraisActesTable frais={d.frais_redaction_actes} />
+        </div>
+      )}
+
+      {/* Participation aux travaux accordée SOUS FORME DE FRANCHISE : rappel,
+          le montant est déjà compté dans « Franchises & abattements » */}
+      {d._enFranchise?.length > 0 && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Participation aux travaux sous forme de franchise</div></div>
+          <div style={{ fontSize: '13px', color: 'var(--text2)', lineHeight: 1.5 }}>
+            {d._enFranchise.map((r, i) => (
+              <div key={i}>{safeStr(r.libelle) || 'Participation du bailleur aux travaux'}{parseAmount(r.montant) ? ` — ${fmtEur(parseAmount(r.montant))}` : ''} <PageJumpIcon item={item} page={r.page} /></div>
+            ))}
+            <div style={{ color: 'var(--text3)', fontSize: '12px', marginTop: '4px' }}>Accordée sous forme de franchise de loyer : le montant figure dans « Franchises &amp; abattements de loyer » et n'est pas compté une seconde fois en participation.</div>
+          </div>
         </div>
       )}
 
