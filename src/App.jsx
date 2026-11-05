@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.42 · travaux facturés au preneur'
+const APP_VERSION = '21.44 · réserves ≠ date limite de participation'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1097,7 +1097,10 @@ function computeValeursEnVigueur(item, parentRow = null) {
     // date limite GLOBALE : seulement si le bail l'écrit en propre, ou si aucune
     // ligne de participation n'a sa date (sinon une mention générale des
     // modalités ajoutait une seconde date)
-    date_limite_travaux: !aParticipationBailleur(isAv ? modsTravaux : raw, isAv ? eff : null) ? null
+    // avenant : sa date limite ne compte que s'il apporte une participation, ou
+    // s'il REPORTE celle d'une participation datée du bail (vécu : date de
+    // travaux d'avenant exportée sans aucune participation)
+    date_limite_travaux: !(isAv ? (aParticipationBailleur(modsTravaux) || (parentRow && avenantReporteDateParticipation(modsTravaux) && participationDatee(mergedBailData(parentRow, { beforeAvenantId: item.id }), priseEffetPourTravaux(parentRow)))) : aParticipationBailleur(raw)) ? null
       : (!safeStr((isAv ? modsTravaux : raw).date_limite_travaux) && participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).participations.some(r => r.date_limite)) ? null
       : dateLimiteTravauxEnVigueur((isAv ? modsTravaux : raw).date_limite_travaux, safeStr((isAv ? modsTravaux : raw).travaux_modalites), { ...eff, date_effet: priseEffetTravaux }).date || null,
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: arrondi2(fTot.acquise.montant) },
@@ -1403,6 +1406,27 @@ function dateCorrigeeALaMain(texte) {
 // le bailleur ») que s'il existe une PARTICIPATION financière du bailleur
 // (vécu : avenant, travaux du preneur à ses frais, « démarrage avant le
 // 31 décembre 2024 » affiché comme date limite travaux)
+// L'état d'un bail comporte-t-il une participation DATÉE ? (un avenant qui
+// change seulement la date limite n'a de sens que dans ce cas : report)
+function participationDatee(data, priseEffet) {
+  if (!data) return false
+  try {
+    const src = { ...data, date_effet: priseEffet || data.date_effet }
+    if (participationsTravaux(src).participations.some(r => r.date_limite)) return true
+    return !!(montantTravauxHorsRefacturation(src) && dateLimiteTravauxEnVigueur(src.date_limite_travaux, safeStr(src.travaux_modalites), src).date)
+  } catch (_) { return false }
+}
+// Un avenant REPORTE-t-il la date limite d'une participation ? Il faut que son
+// propre texte parle de participation / financement ou d'un report, et pas de
+// travaux exécutés par le bailleur (vécu : avenant IBM, levée des réserves
+// par le bailleur « au plus tard le 15/03/2021, solde le 15/06/2021 »,
+// exportée comme date limite de travaux financés)
+function avenantReporteDateParticipation(mods) {
+  const t = `${safeStr(mods?.travaux_modalites) || ''} ${safeStr(mods?._modalites_classement) || ''} ${safeStr(mods?.date_limite_travaux) || ''}`
+  const x = stripAccents(t).toLowerCase()
+  if (texteTravauxDuBailleur(t) || /reserves?|malfacon|levee|reprise des/.test(x)) return false
+  return /participation|financ|enveloppe|report\w*|prorog\w*|decal\w*/.test(x)
+}
 function aParticipationBailleur(...sources) {
   return sources.some(src => {
     if (!src) return false
@@ -1874,6 +1898,7 @@ function exportEvenToExcel(tree) {
     const fmtE = n => { try { return fmtEur(n) } catch (_) { return `${n} €` } }
     const enSus = txt => { const m = /en sus (?:d[eu']\s*|des\s+)?([^.;]{3,140})/i.exec(safeStr(txt) || ''); return m ? m[1].trim() : null }
     const commentaires = []
+    if (isAv && dateLimite && !montantTravaux) commentaires.push(`Date limite des travaux financés par le bailleur reportée au ${dateLimite} par cet avenant (participation du bail inchangée)`)
     // RÉGIME hors statut des baux commerciaux : sur la ligne du bail, et sur
     // celle d'un avenant qui le change (même règle que l'étiquette de la fiche)
     try {
@@ -7128,7 +7153,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
       d.travaux_modalites = null
       d.travaux_montant = null
     }
-    if (!aParticipationBailleur(d, isAv ? parentBailData : null)) delete d.date_limite_travaux
+    if (!(isAv ? (aParticipationBailleur(d) || (parentRow && avenantReporteDateParticipation(d) && participationDatee(mergedBailData(parentRow, { beforeAvenantId: item.id }), priseEffetPourTravaux(parentRow)))) : aParticipationBailleur(d))) delete d.date_limite_travaux
     else if (!safeStr(d.date_limite_travaux) && PT.participations.some(r => r.date_limite)) { /* dates portées par les lignes */ }
     else if (d.date_limite_travaux || (!isAv && d.travaux_modalites)) {
       const dlt = dateLimiteTravauxEnVigueur(d.date_limite_travaux, safeStr(d.travaux_modalites), { ...d, date_effet: effetTravaux })
