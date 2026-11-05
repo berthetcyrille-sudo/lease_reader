@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · rappels exclus de l’extraction'
+const APP_VERSION = '21.11 · pénalités rappelées non reprises'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1058,9 +1058,10 @@ function computeValeursEnVigueur(item, parentRow = null) {
     }),
     // Tableau "Indemnités par terme" tel qu'affiché (fonction commune)
     indemnites_terme: (() => {
-      const base = isAv ? mods : raw
+      // avenant : seulement les indemnités qu'il change (pas les rappels)
+      const base = isAv ? retirerIndemnitesRappelees(item, mods, parentRow) : raw
       const dI = { ...base, date_effet: eff.date_effet, date_fin: dateFin, break_options: breaks }
-      const ex = isAv ? (Array.isArray(mods.echeances_sortie) && mods.echeances_sortie.length ? getExitEvents({ ...dI, echeances_sortie: mods.echeances_sortie }) : null) : exits
+      const ex = isAv ? (Array.isArray(base.echeances_sortie) && base.echeances_sortie.length ? getExitEvents({ ...dI, echeances_sortie: base.echeances_sortie }) : null) : exits
       return computeIndemnitesTerme(dI, ex).map(r => ({
         terme: safeStr(r.terme) || null, due_par: safeStr(r.due_par) || null, motif: safeStr(r.motif) || null,
         montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null,
@@ -1356,6 +1357,63 @@ function travauxModifiesParAvenant(mods, avant) {
   return out
 }
 
+// INDEMNITÉS DE SORTIE portées par un AVENANT : seulement ce qu'il CHANGE,
+// comme pour les travaux. Une pénalité de départ (ou une compensation de
+// maintien) simplement RAPPELÉE — même échéance à 3 jours près, même montant —
+// n'est ni affichée sur la fiche de l'avenant, ni enregistrée pour lui, ni
+// reprise sur sa ligne de l'extract EVEN : on la lirait en double (vécu :
+// 40 000 € au 27/12/2029 sur la ligne du bail ET sur celle de l'avenant).
+// Une pénalité dont l'échéance ou le montant change reste, elle, affichée.
+function montantIndemnite(r) {
+  const m = parseAmount(r?.montant)
+  if (m) return m
+  const t = safeStr(r?.calcul) || ''
+  const x = t.match(/(\d{1,3}(?:[ .\u00a0\u202f]\d{3})+|\d{4,})(?:,\d+)?\s*(?:€|euros?\b)/i)
+  return x ? parseAmount(x[1].replace(/[ .\u00a0\u202f]/g, '')) : null
+}
+function memeIndemniteSortie(a, b) {
+  if (/bailleur/i.test(safeStr(a?.due_par) || '') !== /bailleur/i.test(safeStr(b?.due_par) || '')) return false
+  const da = parseFR(normalizeDate(safeStr(a?.terme))), db = parseFR(normalizeDate(safeStr(b?.terme)))
+  const txt = v => stripAccents(safeStr(v) || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (da || db) { if (!da || !db || Math.abs(da - db) > 3 * 86400000) return false }
+  else if (!txt(a?.terme) || txt(a?.terme) !== txt(b?.terme)) return false
+  const ma = montantIndemnite(a), mb = montantIndemnite(b)
+  if (ma || mb) return !!(ma && mb && Math.abs(ma - mb) <= 1)
+  return !!txt(a?.calcul) && txt(a?.calcul) === txt(b?.calcul)
+}
+// Indemnités par terme en vigueur JUSTE AVANT un avenant (même calcul que la fiche)
+function indemnitesAvantAvenant(av, parentRow) {
+  if (!parentRow) return []
+  try {
+    const avant = mergedBailData(parentRow, { beforeAvenantId: av.id })
+    const fin = normalizeDate(safeStr(avant.date_fin))
+    const ex0 = getExitEvents(avant)
+    const ex = (ex0 && fin) ? ex0.filter(e => !e.date || dropTermBreaks([e.date], fin).length > 0) : ex0
+    const breaks = ex ? ex.map(e => e.date).filter(Boolean) : breaksDeLaClause(avant)
+    return computeIndemnitesTerme({ ...avant, break_options: breaks }, ex)
+  } catch (_) { return [] }
+}
+// Données d'un avenant sans les indemnités qu'il ne fait que rappeler
+function retirerIndemnitesRappelees(av, d, parentRow) {
+  if (!d || !parentRow) return d
+  const avant = indemnitesAvantAvenant(av, parentRow)
+  if (!avant.length) return d
+  const rappel = r => avant.some(a => memeIndemniteSortie(a, r))
+  const out = { ...d }
+  if (Array.isArray(d.indemnites_break)) out.indemnites_break = d.indemnites_break.filter(r =>
+    !rappel({ terme: resolveIndemnityBreakDate(r, d) || r?.break_date, due_par: 'Preneur', montant: r?.montant, calcul: r?.calcul }))
+  if (Array.isArray(d.indemnites_restitution)) out.indemnites_restitution = d.indemnites_restitution.filter(r => !rappel(r))
+  if (Array.isArray(d.echeances_sortie)) out.echeances_sortie = d.echeances_sortie.map(e => {
+    if (!e || typeof e !== 'object') return e
+    const terme = normalizeDate(safeStr(e.date)) || e.date
+    const x = { ...e }
+    if ((safeStr(e.indemnite_sortie) || e.montant_indemnite) && rappel({ terme, due_par: 'Preneur', montant: e.montant_indemnite, calcul: e.indemnite_sortie })) { x.indemnite_sortie = null; x.montant_indemnite = null }
+    if (safeStr(e.compensation_maintien) && rappel({ terme, due_par: 'Bailleur', montant: null, calcul: e.compensation_maintien })) x.compensation_maintien = null
+    return x
+  })
+  return out
+}
+
 // PARTICIPATION du bailleur aux travaux DU PRENEUR (financement) ≠ travaux
 // RÉALISÉS PAR LE BAILLEUR à ses frais (obligation de délivrance, travaux
 // préalables) — vécu : climatisation et percement de cloison « réalisés par
@@ -1431,6 +1489,10 @@ function exportEvenToExcel(tree) {
     return { sorties: triees, penalites }
   }
   const chronos = new Map()
+  // pénalités EN VIGUEUR sur la ligne précédente du même bail : une ligne
+  // d'avenant ne reprend que celles qu'il change (une pénalité rappelée
+  // serait lue en double) ; une pénalité supprimée sort avec un montant 0
+  const penalitesPrec = new Map()
   const data = lignes.map(({ item, parent }) => {
     let vv = {}
     try { vv = computeValeursEnVigueur(item, parent) || {} } catch (e) { console.warn('Extract EVEN : calcul impossible', item.id, e) }
@@ -1467,6 +1529,15 @@ function exportEvenToExcel(tree) {
         indice = indiceDeBase(etat)
         ;({ sorties, penalites } = sortiesEtPenalites(etat, ch?.apres?.breaks || breaksDeLaClause(etat)))
       }
+      const enVigueur = penalites
+      if (isAv && parent) {
+        const prec = penalitesPrec.get(parent.id) || []
+        const ligne = p => ({ terme: p.date, due_par: 'Preneur', montant: p.montant, calcul: p.calcul })
+        const changees = penalites.filter(p => !prec.some(q => memeIndemniteSortie(ligne(q), ligne(p))))
+        const supprimees = prec.filter(q => !penalites.some(p => memeIndemniteSortie(ligne(q), ligne(p))))
+        penalites = changees.length ? changees : supprimees.map(q => ({ date: q.date, montant: 0, calcul: null }))
+      }
+      penalitesPrec.set(isAv ? parent?.id : item.id, enVigueur)
     } catch (e) { console.warn('Extract EVEN : état non calculable', item.id, e) }
     // travaux du preneur financés par le bailleur : ceux du document lui-même
     const parts = Array.isArray(vv.participations_travaux) ? vv.participations_travaux : []
@@ -6576,6 +6647,9 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
       avDatesRecalculees = true
     }
   }
+  // Indemnités de sortie simplement rappelées par l'avenant : ni dans ses
+  // cartes d'échéances, ni dans son tableau (comme la base et l'extract EVEN)
+  if (isAv && parentRow) d = retirerIndemnitesRappelees(item, d, parentRow)
   if (!Array.isArray(d.break_options)) d.break_options = d.break_options ? [String(d.break_options)] : []
   if (!Array.isArray(d.franchise_periodes)) d.franchise_periodes = []
   if (!Array.isArray(d.frais_redaction_actes)) d.frais_redaction_actes = []
