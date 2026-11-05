@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · date limite avec délai'
+const APP_VERSION = '21.10 · extract EVEN : loyer et indice'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1022,6 +1022,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
       } catch (_) { return [] }
     })(),
     surface_totale_louee: surfaceTotaleLouee(d).m2,
+    indice_base: indiceDeBase(d),
     stationnement: placesStationnement(d).map(c => ({ nb: c.nb, m2: c.m2 || undefined, prix_unitaire: c.prix, deux_roues: c.deuxRoues || undefined, localisation: c.localisation, corrige: c.corrige || undefined })),
     charges_plafonds: plafondsCharges(d).map(x => ({ type: x.type, valeur: x.valeur, assiette: x.assiette })),
     ventilation_loyer: ventilation,
@@ -1187,25 +1188,9 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
     // renvoyé DOIT être déplié (...), sinon il tient une seule cellule et toutes
     // les colonnes suivantes sont décalées de 3 cases par rapport à leur en-tête.
     ...(() => {
-      const indice = d.indexation_indice
-      if (!indice) return ['', '', '', '']
-      if (d.indexation_valeur_base) return [indice, d.indexation_trimestre_base || '', d.indexation_valeur_base, 'bail']
-      // Compute from static table synchronously
-      const table = INSEE_STATIC[indice.toUpperCase()]
-      if (!table) return [indice, '', '', '']
-      const dateStr = d.date_signature || d.date_effet
-      const m = String(dateStr || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-      if (!m) return [indice, '', '', '']
-      const month = parseInt(m[2]), year = parseInt(m[3]), q = Math.ceil(month / 3)
-      const targetY = year, targetQ = q
-      const candidates = table.filter(row => {
-        const rm = row.q.match(/(\d)T(\d{4})/); if (!rm) return false
-        const y = parseInt(rm[2]), qq = parseInt(rm[1])
-        return y < targetY || (y === targetY && qq <= targetQ)
-      })
-      if (!candidates.length) return [indice, '', '', 'INSEE']
-      const last = candidates[candidates.length - 1]
-      return [indice, last.q, last.v, 'INSEE (table)']
+      const ib = indiceDeBase(d)
+      if (!ib) return ['', '', '', '']
+      return [ib.indice, ib.trimestre || '', ib.valeur ?? '', ib.source || '']
     })(),
     v(d.loyer_signature),
     ...fracVals,
@@ -1379,7 +1364,7 @@ function participationsTravaux(d) {
 // viennent des valeurs en base (computeValeursEnVigueur), comme l'écran.
 const COLONNES_EVEN = [
   'Code Immeuble EVEN', "Nom de l'immeuble", 'Code locataire EVEN', 'Code bail EVEN', 'Bail / avenant',
-  'Nom bail (nom du document)', 'Nom preneur', 'Surface', "Date d'effet du bail",
+  'Nom bail (nom du document)', 'Nom preneur', 'Surface', 'Loyer de base HT/HC annuel', 'Indice de référence', "Valeur de l'indice", "Date d'effet du bail",
   'Break 1', 'Break 2', 'Break 3', 'Break 4', "Date d'expiration",
   'Montant des travaux preneur financés par le bailleur', 'Date limite pour réaliser ces travaux preneur financé par le bailleur',
   "Pénalité en cas de départ à une échéance - Date d'exercice", 'Pénalité en cas de départ à une échéance - Montant de la pénalité',
@@ -1431,6 +1416,7 @@ function exportEvenToExcel(tree) {
     // s'il existe, sinon le nom extrait (vécu : « Affiché comme Q-PARK » absent)
     const nomSaisi = safeStr(bailData.preneur_substitution)
     let preneur = nomSaisi || safeStr(bailData.preneur) || '', dateEffet = '', dateFin = '', sorties = [], penalites = [], surface = vv.surface_totale_louee
+    let loyerBase = '', indice = null
     try {
       if (!isAv) {
         // état à la signature
@@ -1438,6 +1424,8 @@ function exportEvenToExcel(tree) {
         const et = etatEcheances(sig) || {}
         dateEffet = et.date_effet || ''
         dateFin = et.date_fin || ''
+        loyerBase = structureLoyer(sig).loyer_base ?? ''
+        indice = indiceDeBase(sig)
         ;({ sorties, penalites } = sortiesEtPenalites(sig, et.breaks || []))
         surface = surfaceTotaleLouee(sig).m2 ?? surface
       } else if (parent) {
@@ -1451,6 +1439,8 @@ function exportEvenToExcel(tree) {
         preneur = safeStr(item.data?.preneur_substitution) || (changeNom ? safeStr(etat.preneur) : (nomSaisi || safeStr(etat.preneur))) || preneur
         dateEffet = ch?.apres?.date_effet || nd(etat.date_effet)
         dateFin = ch?.apres?.date_fin || nd(etat.date_fin)
+        loyerBase = structureLoyer(etat).loyer_base ?? ''
+        indice = indiceDeBase(etat)
         ;({ sorties, penalites } = sortiesEtPenalites(etat, ch?.apres?.breaks || breaksDeLaClause(etat)))
       }
     } catch (e) { console.warn('Extract EVEN : état non calculable', item.id, e) }
@@ -1463,7 +1453,9 @@ function exportEvenToExcel(tree) {
     return [
       // nom d'ACTIF (regroupement du dashboard), à défaut le nom extrait
       '', sansVide((isAv ? parent?.actif_group : item.actif_group) || bailData.immeuble), '', '', isAv ? 'avenant' : 'bail',
-      sansVide(item.file_name), preneur, sansVide(surface), sansVide(dateEffet),
+      sansVide(item.file_name), preneur, sansVide(surface),
+      sansVide(loyerBase), indice ? `${indice.indice}${indice.trimestre ? ' ' + indice.trimestre : ''}` : '', indice?.valeur ?? '',
+      sansVide(dateEffet),
       ...Array.from({ length: 4 }, (_, i) => sorties[i] || ''),
       sansVide(dateFin),
       montantTravaux, dateLimite,
@@ -1479,7 +1471,7 @@ function exportEvenToExcel(tree) {
     const ref = XLSX.utils.encode_cell({ r: i + 1, c: colLien })
     if (ws[ref] && l[colLien]) ws[ref].l = { Target: l[colLien], Tooltip: 'Ouvrir la fiche dans Lease Reader' }
   })
-  const largeurs = { 0: 24.5, 1: 25.4, 13: 16, 14: 30.4, 15: 38.4, 16: 36.5, 17: 42.2, 18: 14, 19: 60 }
+  const largeurs = { 0: 24.5, 1: 25.4, 8: 16, 9: 18, 10: 12, 16: 16, 17: 30.4, 18: 38.4, 19: 36.5, 20: 42.2, 21: 14, 22: 60 }
   ws['!cols'] = COLONNES_EVEN.map((h, i) => ({ wch: largeurs[i] || Math.min(30, Math.max(12, h.length + 2)) }))
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Feuil1')
@@ -2155,6 +2147,25 @@ function dateToQuarterLabel(dateStr) {
 }
 
 // Find last published index at or before the given date from static table
+// INDICE DE BASE — fonction commune (fiche, base, exports) : la valeur ÉCRITE
+// dans le bail si elle y figure, sinon la dernière valeur publiée au trimestre
+// de la signature (à défaut de la prise d'effet), d'après la table interne.
+function indiceDeBase(d) {
+  const indice = safeStr(d?.indexation_indice)
+  if (!indice) return null
+  const vb = parseAmount(d?.indexation_valeur_base)
+  if (vb != null) return { indice, trimestre: safeStr(d.indexation_trimestre_base) || '', valeur: vb, source: 'bail' }
+  const table = INSEE_STATIC[indice.toUpperCase()]
+  const cible = dateToQuarterLabel(d?.date_signature || d?.date_effet)
+  const tm = String(cible || '').match(/(\d)T(\d{4})/)
+  if (!table || !tm) return { indice, trimestre: '', valeur: null, source: null }
+  const ty = parseInt(tm[2]), tq = parseInt(tm[1])
+  const cand = table.filter(r => { const rm = r.q.match(/(\d)T(\d{4})/); if (!rm) return false; const y = parseInt(rm[2]), q = parseInt(rm[1]); return y < ty || (y === ty && q <= tq) })
+  if (!cand.length) return { indice, trimestre: '', valeur: null, source: null }
+  const last = cand[cand.length - 1]
+  return { indice, trimestre: last.q, valeur: last.v, source: 'INSEE (table)' }
+}
+
 // Tries INSEE BDM API first, falls back to static table
 async function fetchInseeIndex(indice, dateStr) {
   const key = indice?.toUpperCase()
@@ -6572,19 +6583,11 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   const [preneurSubInput, setPreneurSubInput] = useState('')
   const [savingPreneurSub, setSavingPreneurSub] = useState(false)
   useEffect(() => {
-    setInseeIndex(null)
-    const indice = d.indexation_indice
-    if (!indice || !INSEE_SERIES[indice]) return
-    const valeurBase = parseAmount(d.indexation_valeur_base)
-    if (valeurBase != null) {
-      setInseeIndex({ value: valeurBase, label: d.indexation_trimestre_base || '', source: 'bail' })
-      return
-    }
-    setInseeLoading(true)
-    fetchInseeIndex(indice, d.date_signature || d.date_effet).then(res => {
-      setInseeIndex(res)
-      setInseeLoading(false)
-    })
+    // même valeur qu'en base et dans les exports (indiceDeBase), sans appel à
+    // l'API de l'INSEE (qui échouait en 404 et pouvait différer de l'export)
+    const ib = indiceDeBase(d)
+    setInseeIndex(ib && ib.valeur != null ? { value: ib.valeur, label: ib.trimestre, source: ib.source } : null)
+    setInseeLoading(false)
   }, [item.id, d.indexation_indice, d.indexation_valeur_base, d.date_signature])
 
   // Si un avenant confirme la date d'effet (ex: levée d'une condition
