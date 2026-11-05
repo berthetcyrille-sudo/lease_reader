@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.39 · travaux du bailleur chiffrés et datés'
+const APP_VERSION = '21.40 · date limite par ligne'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1094,7 +1094,12 @@ function computeValeursEnVigueur(item, parentRow = null) {
     travaux_prefinances_bailleur: participationsTravaux(isAv ? modsTravaux : raw).prefinancements.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), remboursement: cleanTxt(r.remboursement || r.remarque) || null })),
     // travaux réalisés par le bailleur aux frais du preneur (dus par le preneur)
     travaux_refactures_preneur: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).refacturations.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null })),
-    date_limite_travaux: !aParticipationBailleur(isAv ? modsTravaux : raw, isAv ? eff : null) ? null : dateLimiteTravauxEnVigueur((isAv ? modsTravaux : raw).date_limite_travaux, safeStr((isAv ? modsTravaux : raw).travaux_modalites), { ...eff, date_effet: priseEffetTravaux }).date || null,
+    // date limite GLOBALE : seulement si le bail l'écrit en propre, ou si aucune
+    // ligne de participation n'a sa date (sinon une mention générale des
+    // modalités ajoutait une seconde date)
+    date_limite_travaux: !aParticipationBailleur(isAv ? modsTravaux : raw, isAv ? eff : null) ? null
+      : (!safeStr((isAv ? modsTravaux : raw).date_limite_travaux) && participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).participations.some(r => r.date_limite)) ? null
+      : dateLimiteTravauxEnVigueur((isAv ? modsTravaux : raw).date_limite_travaux, safeStr((isAv ? modsTravaux : raw).travaux_modalites), { ...eff, date_effet: priseEffetTravaux }).date || null,
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: arrondi2(fTot.acquise.montant) },
     franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: arrondi2(fTot.conditionnelle.montant) },
   }
@@ -1646,12 +1651,18 @@ function estParticipationEnFranchise(r, d) {
 function participationsTravaux(d) {
   const rows = Array.isArray(d?.participations_travaux) ? d.participations_travaux : []
   const effet = normalizeDate(safeStr(d?.date_effet))
+  // Les MODALITÉS sont communes à toutes les lignes : elles ne servent à dater
+  // une ligne que s'il n'y a qu'une seule ligne chiffrée — sinon une mention
+  // générale (« avant la prise d'effet ») daterait aussi des lignes qui ont
+  // leur propre échéance (vécu : deux dates limites sur un même bail)
+  const nbChiffrees = rows.filter(x => parseAmount(x?.montant)).length
+  const textesLigne = r => `${safeStr(r?.remarque) || ''} ${nbChiffrees <= 1 ? (safeStr(d?.travaux_modalites) || '') : ''}`
   const avecDate = r => {
-    let dl = dateLimiteTravauxEnVigueur(r?.date_limite, `${safeStr(r?.remarque) || ''} ${safeStr(d?.travaux_modalites) || ''}`, d)
+    let dl = dateLimiteTravauxEnVigueur(r?.date_limite, textesLigne(r), d)
     // date limite = prise d'effet alors que les modalités prévoient un DÉLAI à
     // compter de celle-ci : recalculée à partir des modalités
     if (dl.date && dl.date === effet) {
-      const viaModalites = dateLimiteTravaux(`${safeStr(r?.remarque) || ''} ${safeStr(d?.travaux_modalites) || ''}`, d)
+      const viaModalites = dateLimiteTravaux(textesLigne(r), d)
       if (viaModalites.date && viaModalites.date !== effet) dl = { date: viaModalites.date, texte: viaModalites.texte }
     }
     // ligne SANS montant : ce n'est pas une participation chiffrée du bailleur
@@ -1823,7 +1834,8 @@ function exportEvenToExcel(tree) {
     const parts = Array.isArray(vv.participations_travaux) ? vv.participations_travaux : []
     const sommeParts = parts.reduce((t, r) => t + (r.montant || 0), 0)
     const montantTravaux = sommeParts || vv.travaux_montant || ''
-    const dateLimite = [...new Set([...parts.map(r => nd(r.date_limite)), vv.date_limite_travaux].filter(Boolean))].join(' ; ')
+    const datesLignes = parts.map(r => nd(r.date_limite)).filter(Boolean)
+    const dateLimite = [...new Set(datesLignes.length ? datesLignes : [vv.date_limite_travaux].filter(Boolean))].join(' ; ')
     // travaux refacturés au preneur : ceux du document lui-même (un avenant ne
     // reprend pas ceux qu'il ne fait que rappeler)
     const refac = Array.isArray(vv.travaux_refactures_preneur) ? vv.travaux_refactures_preneur : []
@@ -7088,6 +7100,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
       d.travaux_montant = null
     }
     if (!aParticipationBailleur(d, isAv ? parentBailData : null)) delete d.date_limite_travaux
+    else if (!safeStr(d.date_limite_travaux) && PT.participations.some(r => r.date_limite)) { /* dates portées par les lignes */ }
     else if (d.date_limite_travaux || (!isAv && d.travaux_modalites)) {
       const dlt = dateLimiteTravauxEnVigueur(d.date_limite_travaux, safeStr(d.travaux_modalites), { ...d, date_effet: effetTravaux })
       if (dlt.date) d.date_limite_travaux = dlt.date
