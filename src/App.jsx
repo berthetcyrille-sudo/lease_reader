@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.29 · sortie à tout moment'
+const APP_VERSION = '21.30 · commentaire : régime du bail'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1743,6 +1743,17 @@ function exportEvenToExcel(tree) {
     const fmtE = n => { try { return fmtEur(n) } catch (_) { return `${n} €` } }
     const enSus = txt => { const m = /en sus (?:d[eu']\s*|des\s+)?([^.;]{3,140})/i.exec(safeStr(txt) || ''); return m ? m[1].trim() : null }
     const commentaires = []
+    // RÉGIME hors statut des baux commerciaux : sur la ligne du bail, et sur
+    // celle d'un avenant qui le change (même règle que l'étiquette de la fiche)
+    try {
+      const LIB_REGIME = { Civil: 'bail civil (hors statut des baux commerciaux)', 'Dérogatoire': 'bail dérogatoire (hors statut des baux commerciaux)', 'Domaine public': "occupation du domaine public (hors statut des baux commerciaux)", Professionnel: 'bail professionnel (hors statut des baux commerciaux)' }
+      if (!isAv) { const r = regimeBail(item.data || {}); if (LIB_REGIME[r]) commentaires.push(`Régime : ${LIB_REGIME[r]}`) }
+      else if (parent) {
+        const avant = regimeBail(mergedBailData(parent, { beforeAvenantId: item.id }))
+        const apres = regimeBail(mergedBailData(parent, { throughAvenantId: item.id }))
+        if (apres !== avant && apres !== 'Bail') commentaires.push(`Régime modifié par cet avenant : ${LIB_REGIME[apres] || 'bail commercial'}`)
+      }
+    } catch (_) {}
     aToutMoment.forEach(e => commentaires.push(`Faculté de sortie à tout moment${nd(e.date) ? ` à partir du ${nd(e.date)}` : ''}${safeStr(e.preavis) ? ` (préavis : ${safeStr(e.preavis)})` : ''} — non reportée en colonne Break`))
     penalites.forEach(p => {
       if (p.supprimee) { commentaires.push(`Pénalité du ${p.date} supprimée par cet avenant`); return }
