@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.14 · délai travaux BEFA'
+const APP_VERSION = '21.16 · délai travaux recalculé'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1310,6 +1310,25 @@ function exportToExcel(items, fileName, selectedCols = null) {
 // prise d'effet quand le texte dit « avant la prise d'effet ». Le texte
 // d'origine est gardé pour l'infobulle.
 const MOIS_FR = { janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6, juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11, decembre: 12 }
+// DÉLAI COMPTÉ DEPUIS LA PRISE D'EFFET, écrit en toutes lettres (« dans un
+// délai de 12 mois à compter de la Date de Prise d'Effet », « 12 mois à compter
+// de la prise d'effet ») → prise d'effet de référence + délai − 1 jour. Le
+// délai doit être rattaché à la prise d'effet (pas un délai de paiement « à
+// compter de la réception des factures »). null sinon.
+function delaiDepuisPriseEffet(texte, d) {
+  const e = parseFR(normalizeDate(safeStr(d?.date_effet)))
+  if (!e) return null
+  const s = stripAccents(safeStr(texte) || '').toLowerCase().replace(/-/g, '_')
+  const mots = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, douze: 12, dix_huit: 18, vingt_quatre: 24, trente: 30, soixante: 60, quatre_vingt_dix: 90 }
+  const m = s.match(/\b(\d{1,3}|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|douze|dix_huit|vingt_quatre|trente|soixante|quatre_vingt_dix)\b\s*(?:\(\d+\)\s*)?(jours?|mois|ans?|annees?)\b[^.;,]{0,15}?(?:a compter|a partir|suivant|apres|des)\s+(?:de\s+|du\s+)?(?:la\s+|l.\s*)?(?:date\s+(?:de\s+)?(?:la\s+|l.\s*)?)?(?:prise d.effet|mise a disposition|entree en jouissance)/)
+  if (!m) return null
+  const n = /^\d+$/.test(m[1]) ? parseInt(m[1]) : mots[m[1]]
+  if (!n) return null
+  const u = m[2]
+  const fin = u.startsWith('jour') ? new Date(e.getFullYear(), e.getMonth(), e.getDate() + n - 1)
+    : (u === 'mois' ? new Date(e.getFullYear(), e.getMonth() + n, e.getDate() - 1) : new Date(e.getFullYear() + n, e.getMonth(), e.getDate() - 1))
+  return fmtFR(fin)
+}
 function dateLimiteTravaux(texte, d) {
   const t = safeStr(texte)
   if (!t) return { date: null, texte: null }
@@ -1321,6 +1340,8 @@ function dateLimiteTravaux(texte, d) {
   const m2 = s2.match(/(\d{1,2})(?:er)?\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)\s+(\d{4})/)
   if (m2) return { date: `${m2[1].padStart(2, '0')}/${String(MOIS_FR[m2[2]]).padStart(2, '0')}/${m2[3]}`, texte: t }
   if (/prise d.effet|mise a disposition|entree en jouissance/.test(s2)) {
+    const viaDelai = delaiDepuisPriseEffet(t, d)
+    if (viaDelai) return { date: viaDelai, texte: t }
     const e = parseFR(normalizeDate(safeStr(d?.date_effet)))
     if (e) {
       // un DÉLAI compté à partir de la prise d'effet s'y ajoute (vécu : « dans
@@ -1397,6 +1418,13 @@ function dateLimiteTravauxEnVigueur(champ, textes, d) {
   const dl = dateLimiteTravaux(champ, d)
   const corr = dateCorrigeeALaMain(textes)
   if (corr && corr !== dl.date) return { date: corr, texte: `${corr} — date corrigée à la main dans l'acte${dl.date ? ` (date imprimée barrée : ${dl.date})` : ''}` }
+  // délai écrit « N mois à compter de la prise d'effet » (champ, remarque ou
+  // modalités) : recalculé sur la prise d'effet de référence — une date mise
+  // dans le champ par l'IA repose souvent sur une date provisoire (vécu : BEFA,
+  // prise d'effet prévisionnelle remplacée par le 10/03/2025 fixé par avenant,
+  // date limite restée au 24/01/2026 au lieu du 09/03/2026)
+  const viaDelai = delaiDepuisPriseEffet(`${safeStr(champ) || ''} ; ${safeStr(textes) || ''}`, d)
+  if (viaDelai && viaDelai !== dl.date) return { date: viaDelai, texte: `${viaDelai} — délai compté depuis la prise d'effet du ${normalizeDate(safeStr(d?.date_effet))}${dl.date ? ` (date extraite : ${dl.date})` : ''}` }
   // champ vide : la date (ou le délai) écrit dans les modalités / la remarque
   // (vécu : « dans un délai de 12 mois à compter de la Date de Prise d'Effet »
   // dans les modalités, date limite jamais affichée ni exportée)
@@ -7565,9 +7593,11 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                       </button>
                     </div>
                   ) : (
-                    <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span title={stl.ajouts?.length ? `Surface de référence extraite : ${fmtSurface(d.surface_totale_m2)}, plus ${stl.ajouts.map(x => `${x.libelle} ${fmtSurface(x.m2)}`).join(', ')} — louée(s) avec un loyer propre` : undefined}>{fmtSurface(stl.m2 ?? d.surface_totale_m2) || '—'}</span>
-                      {stl.ajouts?.length ? <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text3)' }}>dont {stl.ajouts.map(x => `${x.terrasse ? 'terrasse' : x.libelle} ${fmtSurface(x.m2)}`).join(', ')}</span> : null}
+                    <div className="field-val" style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.02em', display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: '6px', rowGap: '2px' }}>
+                      {/* la valeur et son unité restent sur une ligne ; c'est la
+                          mention « dont terrasse » qui passe dessous si besoin */}
+                      <span style={{ whiteSpace: 'nowrap' }} title={stl.ajouts?.length ? `Surface de référence extraite : ${fmtSurface(d.surface_totale_m2)}, plus ${stl.ajouts.map(x => `${x.libelle} ${fmtSurface(x.m2)}`).join(', ')} — louée(s) avec un loyer propre` : undefined}>{fmtSurface(stl.m2 ?? d.surface_totale_m2) || '—'}</span>
+                      {stl.ajouts?.length ? <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text3)', whiteSpace: 'nowrap' }}>dont {stl.ajouts.map(x => `${x.terrasse ? 'terrasse' : x.libelle} ${fmtSurface(x.m2)}`).join(', ')}</span> : null}
                       <PageJumpIcon item={item} pages={pages} field="surface_totale_m2" />
                       {onSaveManualSurface && !isAv && (
                         <button
