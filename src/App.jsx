@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.18 · date limite travaux si participation'
+const APP_VERSION = '21.19 · date limite seulement si montant'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1553,6 +1553,11 @@ function participationsTravaux(d) {
       const viaModalites = dateLimiteTravaux(`${safeStr(r?.remarque) || ''} ${safeStr(d?.travaux_modalites) || ''}`, d)
       if (viaModalites.date && viaModalites.date !== effet) dl = { date: viaModalites.date, texte: viaModalites.texte }
     }
+    // ligne SANS montant : ce n'est pas une participation chiffrée du bailleur
+    // — pas de date limite (fiche, base, exports), comme pour le bail sans
+    // participation (vécu : « travaux à achever avant le 30/09/2024 » exportés
+    // avec une date limite et un montant vide)
+    if (!parseAmount(r?.montant)) return { ...r, date_limite: null, date_limite_texte: dl.date ? `Date écrite (${dl.date}) non retenue : aucun montant de participation du bailleur` : dl.texte }
     return { ...r, date_limite: dl.date, date_limite_texte: dl.texte }
   }
   return { participations: rows.filter(r => !estTravauxDuBailleur(r)).map(avecDate), travauxBailleur: rows.filter(estTravauxDuBailleur).map(avecDate) }
