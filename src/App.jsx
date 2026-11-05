@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · travaux bailleur et date limite'
+const APP_VERSION = '21.10 · date limite avec délai'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1327,8 +1327,23 @@ function dateLimiteTravaux(texte, d) {
   const m2 = s2.match(/(\d{1,2})(?:er)?\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)\s+(\d{4})/)
   if (m2) return { date: `${m2[1].padStart(2, '0')}/${String(MOIS_FR[m2[2]]).padStart(2, '0')}/${m2[3]}`, texte: t }
   if (/prise d.effet|mise a disposition|entree en jouissance/.test(s2)) {
-    const e = normalizeDate(safeStr(d?.date_effet))
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(e)) return { date: e, texte: t }
+    const e = parseFR(normalizeDate(safeStr(d?.date_effet)))
+    if (e) {
+      // un DÉLAI compté à partir de la prise d'effet s'y ajoute (vécu : « dans
+      // un délai de 12 mois à compter de la prise d'effet » → effet + 12 mois)
+      const mots = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, douze: 12, dix_huit: 18, vingt_quatre: 24, trente: 30, soixante: 60, quatre_vingt_dix: 90 }
+      const md = s2.replace(/-/g, '_').match(/(?:delai|dans les?|sous|maximum|au plus tard)[^.]{0,30}?\b(\d{1,3}|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|douze|dix_huit|vingt_quatre|trente|soixante|quatre_vingt_dix)\b\s*(?:\(\d+\)\s*)?(jours?|mois|ans?|annees?)/)
+      if (md) {
+        const n = /^\d+$/.test(md[1]) ? parseInt(md[1]) : mots[md[1]]
+        if (n) {
+          const u = md[2]
+          const fin = u.startsWith('jour') ? new Date(e.getFullYear(), e.getMonth(), e.getDate() + n - 1)
+            : (u === 'mois' ? new Date(e.getFullYear(), e.getMonth() + n, e.getDate() - 1) : new Date(e.getFullYear() + n, e.getMonth(), e.getDate() - 1))
+          return { date: fmtFR(fin), texte: t }
+        }
+      }
+      return { date: fmtFR(e), texte: t }
+    }
   }
   return { date: null, texte: t }
 }
@@ -1344,7 +1359,17 @@ function estTravauxDuBailleur(r) {
 }
 function participationsTravaux(d) {
   const rows = Array.isArray(d?.participations_travaux) ? d.participations_travaux : []
-  const avecDate = r => { const dl = dateLimiteTravaux(r?.date_limite, d); return { ...r, date_limite: dl.date, date_limite_texte: dl.texte } }
+  const effet = normalizeDate(safeStr(d?.date_effet))
+  const avecDate = r => {
+    let dl = dateLimiteTravaux(r?.date_limite, d)
+    // date limite = prise d'effet alors que les modalités prévoient un DÉLAI à
+    // compter de celle-ci : recalculée à partir des modalités
+    if (dl.date && dl.date === effet) {
+      const viaModalites = dateLimiteTravaux(`${safeStr(r?.remarque) || ''} ${safeStr(d?.travaux_modalites) || ''}`, d)
+      if (viaModalites.date && viaModalites.date !== effet) dl = { date: viaModalites.date, texte: viaModalites.texte }
+    }
+    return { ...r, date_limite: dl.date, date_limite_texte: dl.texte }
+  }
   return { participations: rows.filter(r => !estTravauxDuBailleur(r)).map(avecDate), travauxBailleur: rows.filter(estTravauxDuBailleur).map(avecDate) }
 }
 
