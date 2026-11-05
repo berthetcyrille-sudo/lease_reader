@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.11 · pénalités rappelées non reprises'
+const APP_VERSION = '21.12 · dates corrigées à la main'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -97,6 +97,7 @@ const ALL_FIELDS = SECTIONS.flatMap(s => s.fields)
 // ─── Prompts ─────────────────────────────────────────────────────────────────
 
 const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les données du bail. JSON minifié UNE SEULE LIGNE, sans markdown.
+CORRECTIONS MANUSCRITES : une mention imprimee BARREE (raturee) et remplacee par une mention ecrite A LA MAIN (souvent paraphee en marge) n'est plus en vigueur : retenir UNIQUEMENT la valeur manuscrite (date, montant, duree, surface…) dans TOUS les champs, jamais la valeur barree. Ex : « au plus tard le 30 septembre 2018 » barre et « 15 novembre 2018 » ecrit a la main → 15/11/2018.
 
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent. INTERDIT: ne JAMAIS concatener une annotation, precision ou commentaire entre parentheses dans un champ date (format strict JJ/MM/AAAA, rien d'autre) ou dans un champ duree (ex: "1 an", "9 ans" — rien d'autre). Si une information complementaire existe (ex: reconduction, plafond de duree, condition), elle DOIT aller dans son champ dedie (ex: reconduction_tacite) et nulle part ailleurs — jamais annexee en texte libre dans date_fin, date_effet ou duree_totale. Exemple INTERDIT: date_fin="31/12/2023 (renouvelable, terme absolu 31/12/2034)" — la valeur correcte est date_fin="31/12/2023" avec reconduction_tacite.date_limite_absolue="31/12/2034" ; duree_totale="1 an renouvelable par tacite reconduction, duree maximale 12 ans" est egalement INTERDIT — la valeur correcte est duree_totale="1 an".
 
@@ -171,6 +172,7 @@ ${JSON.stringify(values)}`
 }
 
 const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON minifié UNE SEULE LIGNE, sans markdown.
+CORRECTIONS MANUSCRITES : une mention imprimee BARREE (raturee) et remplacee par une mention ecrite A LA MAIN (souvent paraphee en marge) n'est plus en vigueur : retenir UNIQUEMENT la valeur manuscrite (date, montant, duree, surface…) dans TOUS les champs, jamais la valeur barree. Ex : « au plus tard le 30 septembre 2018 » barre et « 15 novembre 2018 » ecrit a la main → 15/11/2018.
 
 REGLES: Guillemets droits ASCII. Champs _montant=chiffres bruts. Dans champs_modifies: null pour les champs NON modifies par l'avenant.
 
@@ -1077,7 +1079,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
     })),
     travaux_bailleur: participationsTravaux(isAv ? modsTravaux : raw).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, remarque: cleanTxt(r.remarque) || null })),
     travaux_montant: parseAmount((isAv ? modsTravaux : raw).travaux_montant),
-    date_limite_travaux: dateLimiteTravaux((isAv ? modsTravaux : raw).date_limite_travaux, eff).date || null,
+    date_limite_travaux: dateLimiteTravauxEnVigueur((isAv ? modsTravaux : raw).date_limite_travaux, safeStr((isAv ? modsTravaux : raw).travaux_modalites), eff).date || null,
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: arrondi2(fTot.acquise.montant) },
     franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: arrondi2(fTot.conditionnelle.montant) },
   }
@@ -1337,6 +1339,32 @@ function dateLimiteTravaux(texte, d) {
   }
   return { date: null, texte: t }
 }
+// DATE CORRIGÉE À LA MAIN dans l'acte : quand le texte retenu (modalités,
+// remarque) signale qu'une date a été modifiée manuscritement / raturée, c'est
+// la date ainsi signalée qui est en vigueur, pas celle (imprimée, barrée)
+// éventuellement mise dans le champ date (vécu : « au plus tard le
+// 30 septembre 2018 » barré, « 15 novembre 2018 » écrit à la main et paraphé —
+// date limite affichée et exportée au 30/09/2018).
+function dateCorrigeeALaMain(texte) {
+  const s = stripAccents(safeStr(texte) || '').toLowerCase()
+  const re = /manuscrit\w*|a la main|surcharg\w*|ratur\w*|barre\w*|rectifi\w* a la main/g
+  const marques = [...s.matchAll(re)].map(m => m.index)
+  if (!marques.length) return null
+  const dates = []
+  for (const m of s.matchAll(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/g)) dates.push({ i: m.index, d: `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}` })
+  for (const m of s.matchAll(/(\d{1,2})(?:er)?\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)\s+(\d{4})/g)) dates.push({ i: m.index, d: `${m[1].padStart(2, '0')}/${String(MOIS_FR[m[2]]).padStart(2, '0')}/${m[3]}` })
+  let best = null
+  dates.forEach(x => marques.forEach(k => { const dist = Math.abs(k - x.i); if (dist <= 80 && (!best || dist < best.dist)) best = { d: x.d, dist } }))
+  return best ? best.d : null
+}
+// Date limite des travaux en vigueur : celle du champ, sauf correction
+// manuscrite signalée dans les modalités ou la remarque
+function dateLimiteTravauxEnVigueur(champ, textes, d) {
+  const dl = dateLimiteTravaux(champ, d)
+  const corr = dateCorrigeeALaMain(textes)
+  if (corr && corr !== dl.date) return { date: corr, texte: `${corr} — date corrigée à la main dans l'acte${dl.date ? ` (date imprimée barrée : ${dl.date})` : ''}` }
+  return dl
+}
 // Travaux portés par un AVENANT : seulement ce qu'il CHANGE par rapport à
 // l'état d'avant (participation nouvelle ou modifiée : montant, objet, date) —
 // une participation simplement RAPPELÉE ne doit pas apparaître une seconde
@@ -1428,7 +1456,7 @@ function participationsTravaux(d) {
   const rows = Array.isArray(d?.participations_travaux) ? d.participations_travaux : []
   const effet = normalizeDate(safeStr(d?.date_effet))
   const avecDate = r => {
-    let dl = dateLimiteTravaux(r?.date_limite, d)
+    let dl = dateLimiteTravauxEnVigueur(r?.date_limite, `${safeStr(r?.remarque) || ''} ${safeStr(d?.travaux_modalites) || ''}`, d)
     // date limite = prise d'effet alors que les modalités prévoient un DÉLAI à
     // compter de celle-ci : recalculée à partir des modalités
     if (dl.date && dl.date === effet) {
@@ -1620,6 +1648,7 @@ function exportAllToExcel(tree, onErrors, selectedCols = null) {
 }
 
 const BREAK_PROMPT = `Expert baux commerciaux français. Analyse UNIQUEMENT la clause de durée et de résiliation de ce bail. Retourne UNIQUEMENT un JSON minifié sur UNE SEULE LIGNE : {"date_effet":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","break_options":["jj/mm/aaaa",...],"echeances_sortie":[...]}
+CORRECTIONS MANUSCRITES : une mention imprimee BARREE (raturee) et remplacee par une mention ecrite A LA MAIN (souvent paraphee en marge) n'est plus en vigueur : retenir UNIQUEMENT la valeur manuscrite (date, montant, duree, surface…) dans TOUS les champs, jamais la valeur barree. Ex : « au plus tard le 30 septembre 2018 » barre et « 15 novembre 2018 » ecrit a la main → 15/11/2018.
 
 REGLE ABSOLUE pour date_fin : les Conditions Particulieres derogent TOUJOURS aux Conditions Generales. Si une CP fixe la duree du bail (ex: 9 ans) alors que les CG en indiquent une autre (ex: 12 ans), date_fin = date_effet + duree CP (veille de l'anniversaire). Une CP qui ne parle que de duree FERME (periode sans conge) ne change pas la duree du bail.
 REGLE ABSOLUE pour break_options : liste COMPLETE et EXHAUSTIVE.
@@ -1651,6 +1680,7 @@ REGLES :
 EXEMPLE (bail de 10 ans dont 9 fermes, effet 12/05/2026) : "Le Preneur renonce a sa faculte de resiliation triennale pour la duree ferme. Il aura la faculte de donner conge a l'expiration de la troisieme periode triennale soit le 11 mai 2035 pour la premiere fois, preavis 6 mois. Les Parties conviennent toutefois que le Preneur aura la faculte de delivrer un conge pour le 30 septembre 2033 ; il devra alors verser une indemnite correspondant aux deux derniers mois de loyer factures a la date d'envoi du conge ; ce conge devra etre delivre par acte extrajudiciaire entre neuf et six mois avant l'echeance et accompagne d'un cheque de banque" → echeances_sortie=[{"date":"30/09/2033","type":"exceptionnelle","libelle":"Conge exceptionnel convenu entre les parties","preavis":"entre 9 et 6 mois avant l'echeance, par acte extrajudiciaire","indemnite_sortie":"2 derniers mois de loyer factures a la date d'envoi du conge","montant_indemnite":null,"compensation_maintien":null,"conditions":"Conge accompagne d'un cheque de banque du montant de l'indemnite","page":8},{"date":"11/05/2035","type":"triennale","libelle":"Expiration de la 3eme periode triennale","preavis":"6 mois, par acte extrajudiciaire ou LRAR","indemnite_sortie":null,"montant_indemnite":null,"compensation_maintien":null,"conditions":null,"page":8}] et break_options=["30/09/2033","11/05/2035"].`
 
 const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
+CORRECTIONS MANUSCRITES : une mention imprimee BARREE (raturee) et remplacee par une mention ecrite A LA MAIN (souvent paraphee en marge) n'est plus en vigueur : retenir UNIQUEMENT la valeur manuscrite (date, montant, duree, surface…) dans TOUS les champs, jamais la valeur barree. Ex : « au plus tard le 30 septembre 2018 » barre et « 15 novembre 2018 » ecrit a la main → 15/11/2018.
 
 {"loyer_signature_montant":null,"loyer_signature":null,"paliers_loyer":[],"abattements":[],"loyer_variable":null,"franchise_periodes":[],"participations_travaux":[],"indemnites_break":[]}
 
@@ -6590,6 +6620,10 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   {
     const PT = participationsTravaux({ ...d, date_effet: d.date_effet || item.data?.date_effet })
     d = { ...d, participations_travaux: PT.participations, _travaux_bailleur: PT.travauxBailleur }
+    if (d.date_limite_travaux) {
+      const dlt = dateLimiteTravauxEnVigueur(d.date_limite_travaux, safeStr(d.travaux_modalites), { ...d, date_effet: d.date_effet || item.data?.date_effet })
+      if (dlt.date) d.date_limite_travaux = dlt.date
+    }
   }
   // Un avenant qui ne redéfinit pas lui-même duree_ferme/conditions_break
   // n'a, sur SA PROPRE fiche, aucun moyen de savoir ce qui a déjà été établi
