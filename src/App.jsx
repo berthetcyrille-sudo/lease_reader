@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.33 · franchise acquise malgré dédit'
+const APP_VERSION = '21.34 · dédit ≠ break conditionnelle'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2073,6 +2073,15 @@ function extractConditionalBreaks(d, cleanBreaksArr) {
   const isDefaultBoilerplate = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
   let entries = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
     .filter(ib => !isDefaultBoilerplate(safeStr(ib.motif)) && !isDefaultBoilerplate(safeStr(ib.calcul)))
+    // dédit dû si le bail prend fin AVANT une date, ou texte sans indemnité
+    // réelle : ni une faculté de sortie, ni une break conditionnelle (vécu :
+    // dédit « avant le 14/04/2029 » transformé en break conditionnelle)
+    .filter(ib => { const t = `${safeStr(ib.motif) || ''} ${safeStr(ib.calcul) || ''}`; return !dateAvantDans(t) && !sansIndemniteReelle(t, ib.montant) })
+    // dédit / restitution dû si le bail prend fin AVANT une date : sanction
+    // d'une sortie anticipée, jamais une échéance de sortie (vécu : dédit
+    // « avant le 14/04/2029 » traité comme une break conditionnelle)
+    .filter(ib => { const t = `${safeStr(ib.motif) || ''} ${safeStr(ib.calcul) || ''}`; return !(dateAvantDans(t) && /dedit|dédit|avantages? consentis|restitu|rembours/i.test(t)) })
+    .filter(ib => !sansIndemniteReelle(`${safeStr(ib.motif) || ''} ${safeStr(ib.calcul) || ''}`, ib.montant))
     .map(ib => ({ date: resolveIndemnityBreakDate(ib, d), condition: formatIndemnityForCard(ib) }))
     // Filet de sécurité : une clause de CESSION n'est pas une vraie option de
     // sortie du preneur — jamais une "break conditionnelle", même si l'IA lui
