@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.27 · indemnité en mois de loyer chiffrée'
+const APP_VERSION = '21.28 · EVEN : colonne Commentaire'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1082,7 +1082,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
     )),
     // Participation travaux bailleur, telle qu'affichée
     participations_travaux: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).participations.map(r => ({
-      libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null,
+      libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, date_limite_texte: r.date_limite_texte || undefined, remarque: cleanTxt(r.remarque) || null,
     })),
     travaux_bailleur: participationsTravaux(isAv ? modsTravaux : raw).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, remarque: cleanTxt(r.remarque) || null })),
     travaux_montant: montantTravauxHorsRefacturation(isAv ? modsTravaux : raw),
@@ -1628,6 +1628,9 @@ const COLONNES_EVEN = [
   // preneur au bailleur — à ne pas perdre, mais jamais confondues avec une
   // participation), puis de quoi retrouver le document dans Lease Reader
   'Travaux refacturés au preneur - Date limite', 'Travaux refacturés au preneur - Montant dû au bailleur',
+  // ce que les colonnes date / montant ne peuvent pas dire (montant calculé,
+  // indexation ou somme en sus, suppression par avenant, origine d'une date)
+  'Commentaire',
   'ID Lease Reader', 'Lien fiche Lease Reader',
 ]
 // Lien direct vers la fiche d'un document dans Lease Reader
@@ -1661,7 +1664,7 @@ function exportEvenToExcel(tree) {
     // lendemain vs break la veille — vécu : 10/03/2031 pour une break au 09/03)
     const surBreak = dt => { const t = toSort(dt); const b = triees.find(x => Math.abs(toSort(x) - t) <= 3 * 86400000); return b || dt }
     const penalites = indem.filter(r => !/bailleur/i.test(safeStr(r.due_par)) && /^\d{2}\/\d{2}\/\d{4}$/.test(nd(r.terme)))
-      .map(r => ({ date: surBreak(nd(r.terme)), montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null }))
+      .map(r => ({ date: surBreak(nd(r.terme)), montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null, montant_calcule: r.montant_calcule || null }))
     return { sorties: triees, penalites }
   }
   const chronos = new Map()
@@ -1718,7 +1721,7 @@ function exportEvenToExcel(tree) {
         // laissait croire à la suppression de la pénalité de 52 227,83 €)
         const texteAv = stripAccents(`${safeStr(item.data?.objet_avenant) || ''} ${JSON.stringify(item.data?.champs_modifies || {})}`).toLowerCase()
         const suppressionEcrite = /(suppr\w*|renonc\w*|annul\w*|n.est plus due|ne sera plus due)[^."]{0,60}(indemnit|penalit)|(indemnit|penalit)\w*[^."]{0,60}(suppr\w*|renonc\w*|annul\w*|n.est plus due|ne sera plus due)|sans indemnit|aucune indemnit|aucune penalit/.test(texteAv)
-        penalites = changees.length ? changees : (suppressionEcrite ? supprimees.map(q => ({ date: q.date, montant: 0, calcul: null })) : [])
+        penalites = changees.length ? changees : (suppressionEcrite ? supprimees.map(q => ({ date: q.date, montant: 0, calcul: null, supprimee: true })) : [])
       }
       penalitesPrec.set(isAv ? parent?.id : item.id, enVigueur)
     } catch (e) { console.warn('Extract EVEN : état non calculable', item.id, e) }
@@ -1732,6 +1735,21 @@ function exportEvenToExcel(tree) {
     const refac = Array.isArray(vv.travaux_refactures_preneur) ? vv.travaux_refactures_preneur : []
     const montantRefac = refac.reduce((t, r) => t + (r.montant || 0), 0) || ''
     const dateRefac = [...new Set(refac.map(r => nd(r.date_limite)).filter(Boolean))].join(' ; ')
+    // COMMENTAIRE : précisions que les colonnes date / montant ne portent pas
+    const fmtE = n => { try { return fmtEur(n) } catch (_) { return `${n} €` } }
+    const enSus = txt => { const m = /en sus (?:d[eu']\s*|des\s+)?([^.;]{3,140})/i.exec(safeStr(txt) || ''); return m ? m[1].trim() : null }
+    const commentaires = []
+    penalites.forEach(p => {
+      if (p.supprimee) { commentaires.push(`Pénalité du ${p.date} supprimée par cet avenant`); return }
+      const c = p.montant_calcule
+      if (c) {
+        const sus = c.partiel ? enSus(p.calcul) : null
+        commentaires.push(`Pénalité du ${p.date} calculée : ${String(c.mois).replace('.', ',')} mois × loyer de base ${fmtE(c.loyer)}/an = ${fmtE(p.montant)}, indexation en sus${c.partiel ? ` ; s'y ajoute${sus ? ` ${sus}` : ' une somme prévue en sus'} (non chiffré)` : ''}`)
+      } else if (p.montant == null && p.calcul) commentaires.push(`Pénalité du ${p.date} non chiffrée : ${p.calcul.slice(0, 160)}`)
+    })
+    parts.forEach(r => { if (r.date_limite && r.date_limite_texte && /corrig|délai compté|déduite/.test(r.date_limite_texte)) commentaires.push(`Date limite travaux : ${r.date_limite_texte.slice(0, 200)}`) })
+    refac.forEach(r => { if (!r.date_limite && r.remarque) commentaires.push(`Travaux refacturés${r.libelle ? ` (${r.libelle.slice(0, 60)})` : ''} : ${r.remarque.slice(0, 160)}`) })
+    const commentaire = commentaires.join(' | ')
     const sansVide = v => (v === null || v === undefined) ? '' : v
     return [
       // nom d'ACTIF (regroupement du dashboard), à défaut le nom extrait
@@ -1745,6 +1763,7 @@ function exportEvenToExcel(tree) {
       penalites.map(r => r.date).join(' ; '),
       penalites.length === 1 ? sansVide(penalites[0].montant) : penalites.map(r => r.montant != null ? r.montant : (r.calcul || '—')).join(' ; '),
       dateRefac, montantRefac,
+      commentaire,
       String(item.id || '').slice(0, 8),
       lienFiche(item.id),
     ]
@@ -1777,7 +1796,7 @@ function exportEvenToExcel(tree) {
     const ref = XLSX.utils.encode_cell({ r: i + 1, c: colLien })
     if (ws[ref] && l[colLien]) ws[ref].l = { Target: l[colLien], Tooltip: 'Ouvrir la fiche dans Lease Reader' }
   })
-  const largeurs = { 0: 24.5, 1: 25.4, 8: 16, 9: 18, 10: 12, 16: 16, 17: 38.4, 18: 30.4, 19: 36.5, 20: 42.2, 21: 28, 22: 32, 23: 14, 24: 60 }
+  const largeurs = { 0: 24.5, 1: 25.4, 8: 16, 9: 18, 10: 12, 16: 16, 17: 38.4, 18: 30.4, 19: 36.5, 20: 42.2, 21: 28, 22: 32, 23: 70, 24: 14, 25: 60 }
   ws['!cols'] = COLONNES_EVEN.map((h, i) => ({ wch: largeurs[i] || Math.min(30, Math.max(12, h.length + 2)) }))
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Feuil1')
