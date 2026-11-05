@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.34 · dédit ≠ break conditionnelle'
+const APP_VERSION = '21.37 · surloyer lu dans les modalités'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
