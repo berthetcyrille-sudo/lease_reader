@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.26 · « aucune indemnité » ignorée'
+const APP_VERSION = '21.27 · indemnité en mois de loyer chiffrée'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1073,6 +1073,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
       return computeIndemnitesTerme(dI, ex).map(r => ({
         terme: safeStr(r.terme) || null, due_par: safeStr(r.due_par) || null, motif: safeStr(r.motif) || null,
         montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null,
+        montant_calcule: r.montant_calcule ? { mois: r.montant_calcule.mois, loyer_base: r.montant_calcule.loyer, partiel: !!r.montant_calcule.partiel } : undefined,
       }))
     })(),
     // Autres indemnités et pénalités (section "Indemnités")
@@ -2658,6 +2659,25 @@ function sansIndemniteReelle(texte, montant) {
   const montantEcrit = /\d[\d\s.\u00a0\u202f]*(,\d+)?\s*(€|euros?\b)|\d+(?:[.,]\d+)?\s*mois\s+de\s+loyer|\b(un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|douze)\s+(\(\d+\)\s+)?mois\s+de\s+loyer/.test(t)
   return !montantEcrit
 }
+// INDEMNITÉ EXPRIMÉE EN MOIS DE LOYER (« 3 mois de loyer indexé HT/HC »,
+// « trois (3) mois de loyer ») sans montant écrit : chiffrée sur le loyer de
+// base du bail (même valeur que la colonne « Loyer de base » de l'extract
+// EVEN), hors indexation à venir — signalé comme calculé. partiel : le texte
+// prévoit une somme EN SUS (dédit, remboursement des avantages consentis…)
+// que ce montant ne comprend pas (vécu : 3 mois de loyer + dédit égal aux
+// avantages consentis, montant vide sur la fiche et dans l'extract).
+function montantIndemniteEnMois(texte, d) {
+  const t = stripAccents(safeStr(texte) || '').toLowerCase()
+  const mots = { un: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, douze: 12, dix_huit: 18, vingt_quatre: 24 }
+  const m = t.replace(/-/g, '_').match(/\b(\d+(?:[.,]\d+)?|un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|douze|dix_huit|vingt_quatre)\s*(?:\(\s*\d+(?:[.,]\d+)?\s*\)\s*)?mois\s+(?:de\s+franchise\s+)?de\s+loyers?\b/)
+  if (!m) return null
+  const n = mots[m[1]] ?? parseFloat(m[1].replace(',', '.'))
+  let loyer = null
+  try { loyer = parseAmount(structureLoyer(d).loyer_base) } catch (_) {}
+  if (!loyer) { try { loyer = parseAmount(loyerFacial(d).montant) } catch (_) {} }
+  if (!n || !loyer) return null
+  return { montant: Math.round(loyer * n / 12 * 100) / 100, mois: n, loyer, partiel: /en sus|dedit|avantages? consentis|en plus de|s.ajout/.test(t) }
+}
 function getExitEvents(d) {
   if (!d || !Array.isArray(d.echeances_sortie)) return null
   const toDate = v => { const s = normalizeDate(safeStr(v)); return s && /^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s : null }
@@ -2673,7 +2693,12 @@ function getExitEvents(d) {
       // vécu : 2e triennale comptée à partir d'une échéance exceptionnelle à 4
       // ans (2032) au lieu de la date d'effet (2031).
       const triDate = (e.type === 'triennale' && !e._date_lue && triennialOrdinalFromText(e.libelle)) ? resolveEcheanceDateFromText(e.libelle, d.date_effet) : null
-      return { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: sansIndemniteReelle(e.indemnite_sortie, e.montant_indemnite) ? null : empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+      const o = { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: sansIndemniteReelle(e.indemnite_sortie, e.montant_indemnite) ? null : empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+      if (o.indemnite_sortie && !parseAmount(o.montant_indemnite)) {
+        const c = montantIndemniteEnMois(o.indemnite_sortie, d)
+        if (c) { o.montant_indemnite = c.montant; o._montant_calcule = c }
+      }
+      return o
     })
     // Renonciation à la faculté triennale "pour la durée ferme" + première
     // faculté de congé à la fin de celle-ci ("pour la première fois") : les
@@ -4205,7 +4230,10 @@ function computeIndemnitesTerme(d, exitEvents) {
     !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
     !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul)) &&
     !sansIndemniteReelle(`${safeStr(row.motif) || ''} ${safeStr(row.calcul) || ''}`, row.montant)
-  ).map(row => ({ terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: row.montant, calcul: row.calcul, page: row.page }))
+  ).map(row => {
+    const c = !parseAmount(row.montant) ? montantIndemniteEnMois(`${safeStr(row.calcul) || ''} ${safeStr(row.motif) || ''}`, d) : null
+    return { terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: c ? c.montant : row.montant, montant_calcule: c || undefined, calcul: row.calcul, page: row.page }
+  })
   // Quand les échéances de sortie sont disponibles (lues avec leur texte),
   // elles remplacent indemnites_break : indemnité si départ (due par le
   // preneur) et compensation si maintien (due par le bailleur).
@@ -4213,7 +4241,7 @@ function computeIndemnitesTerme(d, exitEvents) {
   const fromExits = exitEvents ? [
     ...exitEvents.filter(e => safeStr(e.indemnite_sortie) || e.montant_indemnite).map(e => ({
       terme: exitTerme(e), due_par: 'Preneur', motif: `Indemnité si départ${safeStr(e.libelle) ? ' — ' + safeStr(e.libelle) : ''}`,
-      montant: e.montant_indemnite, calcul: safeStr(e.indemnite_sortie), page: e.page,
+      montant: e.montant_indemnite, montant_calcule: e._montant_calcule || undefined, calcul: safeStr(e.indemnite_sortie), page: e.page,
     })),
     ...exitEvents.filter(e => safeStr(e.compensation_maintien)).map(e => ({
       terme: exitTerme(e), due_par: 'Bailleur', motif: `Compensation si maintien${safeStr(e.libelle) ? ' — ' + safeStr(e.libelle) : ''}`,
@@ -7508,7 +7536,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px', fontSize: '11px', lineHeight: 1.4 }}>
                       {f.val && safeStr(f.exit.libelle) && <div style={{ color: 'var(--text3)' }}>{safeStr(f.exit.libelle)}</div>}
                       {(safeStr(f.exit.preavis) || d.notice) && <div style={{ color: 'var(--text3)' }}>Préavis : {safeStr(f.exit.preavis) || d.notice}</div>}
-                      {f.hasIndem && <div style={{ color: '#B8860B' }}><strong>Si départ :</strong> {safeStr(f.exit.indemnite_sortie) || ''}{f.exit.montant_indemnite ? `${safeStr(f.exit.indemnite_sortie) ? ' — ' : ''}${fmtEur(f.exit.montant_indemnite)}` : ''}</div>}
+                      {f.hasIndem && <div style={{ color: '#B8860B' }}><strong>Si départ :</strong> {safeStr(f.exit.indemnite_sortie) || ''}{f.exit.montant_indemnite ? `${safeStr(f.exit.indemnite_sortie) ? ' — ' : ''}${f.exit._montant_calcule ? '≈ ' : ''}${fmtEur(f.exit.montant_indemnite)}` : ''}{f.exit._montant_calcule ? <span style={{ color: 'var(--text3)', fontSize: '10.5px' }}>{` (calculé : ${String(f.exit._montant_calcule.mois).replace('.', ',')} mois × loyer de base ${fmtEur(f.exit._montant_calcule.loyer)}/an, hors indexation${f.exit._montant_calcule.partiel ? ' ; somme prévue en sus non chiffrée' : ''})`}</span> : null}</div>}
                       {f.hasComp && <div style={{ color: 'var(--success)' }}><strong>Si maintien :</strong> {safeStr(f.exit.compensation_maintien)}</div>}
                       {safeStr(f.exit.conditions) && <div style={{ color: 'var(--text2)' }}><strong>Conditions :</strong> {safeStr(f.exit.conditions)}</div>}
                     </div>
@@ -8417,7 +8445,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                       <td style={{ fontWeight: 500 }}>{safeStr(row.motif) || '—'}</td>
                       <td style={{ textAlign: 'right' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                          {row.montant ? fmtEur(row.montant) : '—'}
+                          {row.montant ? <span title={row.montant_calcule ? `Calculé par l'appli : ${String(row.montant_calcule.mois).replace('.', ',')} mois × loyer de base ${fmtEur(row.montant_calcule.loyer)}/an, hors indexation${row.montant_calcule.partiel ? ' — la somme prévue en sus (dédit, avantages consentis…) n\'est pas comprise' : ''}` : undefined} style={row.montant_calcule ? { cursor: 'help' } : undefined}>{row.montant_calcule ? '≈ ' : ''}{fmtEur(row.montant)}{row.montant_calcule?.partiel ? ' + en sus' : ''}</span> : '—'}
                           <PageJumpIcon item={item} page={row.page} />
                         </span>
                       </td>
