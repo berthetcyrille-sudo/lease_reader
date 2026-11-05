@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.12 · dates corrigées à la main'
+const APP_VERSION = '21.13 · date limite déduite des modalités'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1363,6 +1363,13 @@ function dateLimiteTravauxEnVigueur(champ, textes, d) {
   const dl = dateLimiteTravaux(champ, d)
   const corr = dateCorrigeeALaMain(textes)
   if (corr && corr !== dl.date) return { date: corr, texte: `${corr} — date corrigée à la main dans l'acte${dl.date ? ` (date imprimée barrée : ${dl.date})` : ''}` }
+  // champ vide : la date (ou le délai) écrit dans les modalités / la remarque
+  // (vécu : « dans un délai de 12 mois à compter de la Date de Prise d'Effet »
+  // dans les modalités, date limite jamais affichée ni exportée)
+  if (!dl.date && safeStr(textes)) {
+    const viaTexte = dateLimiteTravaux(textes, d)
+    if (viaTexte.date) return { date: viaTexte.date, texte: `${viaTexte.date} — déduite des modalités : ${safeStr(textes).trim()}` }
+  }
   return dl
 }
 // Travaux portés par un AVENANT : seulement ce qu'il CHANGE par rapport à
@@ -1382,6 +1389,13 @@ function travauxModifiesParAvenant(mods, avant) {
   if (mm != null && ma != null && Math.abs(ma - mm) <= 1) delete out.travaux_montant
   const da = normalizeDate(safeStr(avant?.date_limite_travaux)), dm = normalizeDate(safeStr(out.date_limite_travaux))
   if (dm && da && dm === da) delete out.date_limite_travaux
+  // modalités simplement rappelées : la date limite qu'on en déduirait serait
+  // celle déjà en vigueur — pas reprise pour l'avenant
+  if (safeStr(out.travaux_modalites)) {
+    const dAv = dateLimiteTravauxEnVigueur(out.date_limite_travaux, safeStr(out.travaux_modalites), avant).date
+    const dPrec = dateLimiteTravauxEnVigueur(avant?.date_limite_travaux, safeStr(avant?.travaux_modalites), avant).date
+    if (!dAv || dAv === dPrec) { delete out.travaux_modalites; if (!dAv || normalizeDate(safeStr(out.date_limite_travaux)) === dPrec) delete out.date_limite_travaux }
+  }
   return out
 }
 
@@ -6620,7 +6634,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   {
     const PT = participationsTravaux({ ...d, date_effet: d.date_effet || item.data?.date_effet })
     d = { ...d, participations_travaux: PT.participations, _travaux_bailleur: PT.travauxBailleur }
-    if (d.date_limite_travaux) {
+    if (d.date_limite_travaux || (!isAv && d.travaux_modalites)) {
       const dlt = dateLimiteTravauxEnVigueur(d.date_limite_travaux, safeStr(d.travaux_modalites), { ...d, date_effet: d.date_effet || item.data?.date_effet })
       if (dlt.date) d.date_limite_travaux = dlt.date
     }
