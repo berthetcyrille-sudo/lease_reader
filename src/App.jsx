@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.38 · préfinancement d’avenant'
+const APP_VERSION = '21.39 · travaux du bailleur chiffrés et datés'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1086,7 +1086,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
     participations_travaux: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).participations.map(r => ({
       libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, date_limite_texte: r.date_limite_texte || undefined, remarque: cleanTxt(r.remarque) || null,
     })),
-    travaux_bailleur: participationsTravaux(isAv ? modsTravaux : raw).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, remarque: cleanTxt(r.remarque) || null })),
+    travaux_bailleur: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null })),
     travaux_montant: montantTravauxHorsRefacturation(isAv ? modsTravaux : raw),
     // participation aux travaux accordée sous forme de franchise (déjà dans les franchises)
     travaux_en_franchise: participationsTravaux(isAv ? modsTravaux : raw).enFranchise.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant) })),
@@ -1450,6 +1450,14 @@ function dateLimiteTravauxEnVigueur(champ, textes, d) {
   // date limite restée au 24/01/2026 au lieu du 09/03/2026)
   const viaDelai = delaiDepuisPriseEffet(`${safeStr(champ) || ''} ; ${safeStr(textes) || ''}`, d)
   if (viaDelai && viaDelai !== dl.date) return { date: viaDelai, texte: `${viaDelai} — délai compté depuis la prise d'effet du ${normalizeDate(safeStr(d?.date_effet))}${dl.date ? ` (date extraite : ${dl.date})` : ''}` }
+  // « préalablement à la date d'effet », « avant la prise d'effet » : la prise
+  // d'effet de référence est la date limite
+  if (!dl.date) {
+    const tx = stripAccents(`${safeStr(champ) || ''} ${safeStr(textes) || ''}`).toLowerCase()
+    const eff = normalizeDate(safeStr(d?.date_effet))
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(eff || '') && /(prealabl\w*|avant|au plus tard)\s+(a\s+)?(la\s+|l.\s*)?(date\s+d.effet|prise d.effet|entree en jouissance|mise a disposition|date de livraison)/.test(tx))
+      return { date: eff, texte: `${eff} — travaux à réaliser avant la prise d'effet` }
+  }
   // champ vide : la date (ou le délai) écrit dans les modalités / la remarque
   // (vécu : « dans un délai de 12 mois à compter de la Date de Prise d'Effet »
   // dans les modalités, date limite jamais affichée ni exportée)
@@ -1560,8 +1568,16 @@ function retirerIndemnitesRappelees(av, d, parentRow) {
 // le Bailleur à ses frais exclusifs, montant non chiffré » présentés comme
 // participation, et exportés comme « travaux preneur financés par le bailleur »
 function estTravauxDuBailleur(r) {
-  if (parseAmount(r?.montant)) return false
   const t = stripAccents(`${safeStr(r?.libelle) || ''} ${safeStr(r?.remarque) || ''}`).toLowerCase()
+  // CHIFFRÉS : seulement si le texte dit clairement que le bailleur les
+  // exécute à sa charge, sans rien d'une participation aux travaux du preneur
+  // (vécu : remises en état « à la charge du Bailleur préalablement à la date
+  // d'effet », devis ACIBLA 11 746 € et 19 975 €, présentées en participation)
+  if (parseAmount(r?.montant)) {
+    const bailleurExecute = /(realis\w*|effectu\w*|execut\w*)\s+par le bailleur|bailleur\s+(effectuera|realisera|executera|effectue|realise|execute)\b|(travaux\s+)?a la charge (exclusive\s+)?du bailleur|aux frais (exclusifs\s+)?du bailleur/.test(t)
+    const participation = /participation|travaux (d.amenagement )?du preneur|travaux preneur|preneur\s+(realise|effectue|execute)|rembours\w*\s+(au|le)\s+preneur|vers\w*\s+au\s+preneur|enveloppe/.test(t)
+    return bailleurExecute && !participation
+  }
   return /realis\w* par le bailleur|a ses frais|aux frais (exclusifs )?du bailleur|a la charge (exclusive )?du bailleur|travaux (du |a la charge du )?bailleur|par le bailleur/.test(t)
 }
 // REFACTURATION AU PRENEUR — le cas INVERSE d'une participation : travaux
@@ -1845,6 +1861,7 @@ function exportEvenToExcel(tree) {
       } else if (p.montant == null && p.calcul) commentaires.push(`Pénalité du ${p.date} non chiffrée : ${p.calcul.slice(0, 160)}`)
     })
     parts.forEach(r => { if (r.date_limite && r.date_limite_texte && /corrig|délai compté|déduite/.test(r.date_limite_texte)) commentaires.push(`Date limite travaux : ${r.date_limite_texte.slice(0, 200)}`) })
+    ;(Array.isArray(vv.travaux_bailleur) ? vv.travaux_bailleur : []).filter(r => r.montant || r.date_limite).forEach(r => commentaires.push(`Travaux à la charge du bailleur (non portés en colonne travaux financés)${r.libelle ? ` — ${r.libelle.slice(0, 70)}` : ''}${r.montant ? ` : ${fmtE(r.montant)} HT` : ''}${r.date_limite ? `, avant le ${r.date_limite}` : ''}`))
     ;(Array.isArray(vv.travaux_en_franchise) ? vv.travaux_en_franchise : []).forEach(r => commentaires.push(`Participation du bailleur aux travaux accordée sous forme de franchise de loyer${r.montant ? ` (${fmtE(r.montant)})` : ''} — non portée en colonne travaux financés`))
     ;(Array.isArray(vv.travaux_prefinances_bailleur) ? vv.travaux_prefinances_bailleur : []).forEach(r => commentaires.push(`Travaux préfinancés par le bailleur, remboursés par surloyer (non portés en colonne travaux financés)${r.libelle ? ` — ${r.libelle.slice(0, 70)}` : ''}${r.montant ? ` : ${fmtE(r.montant)}` : ''}${r.remboursement ? ` ; ${r.remboursement.slice(0, 160)}` : ''}`))
     refac.forEach(r => { if (!r.date_limite && r.remarque) commentaires.push(`Travaux refacturés${r.libelle ? ` (${r.libelle.slice(0, 60)})` : ''} : ${r.remarque.slice(0, 160)}`) })
@@ -8589,7 +8606,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
       {(d._travaux_bailleur?.length > 0 || d._modalites_hors_participation) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">{d._travaux_bailleur?.length > 0 ? 'Travaux réalisés par le bailleur (hors participation)' : 'Travaux (sans participation du bailleur)'}</div></div>
-          {d._travaux_bailleur?.length > 0 && <BulletField label="" value={d._travaux_bailleur.map(r => `${safeStr(r.libelle) || 'Travaux'}${r.date_limite ? ` — avant le ${r.date_limite}` : ''}`).join('\n')} full />}
+          {d._travaux_bailleur?.length > 0 && <BulletField label="" value={d._travaux_bailleur.map(r => `${safeStr(r.libelle) || 'Travaux'}${parseAmount(r.montant) ? ` — ${fmtEur(parseAmount(r.montant))} HT` : ''}${r.date_limite ? ` — avant le ${r.date_limite}` : ''}`).join('\n')} full />}
           {d._modalites_hors_participation && <Field label="Modalités complètes" value={d._modalites_hors_participation} verbose />}
         </div>
       )}
