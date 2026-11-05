@@ -1599,7 +1599,14 @@ function montantTravauxHorsRefacturation(d) {
   const somme = refac.reduce((t, r) => t + (parseAmount(r?.montant) || 0), 0)
   if (refac.some(r => Math.abs((parseAmount(r.montant) || 0) - m) <= 1) || (somme && Math.abs(somme - m) <= 1)) return null
   if (rows.some(r => estParticipationEnFranchise(r, d) && Math.abs((parseAmount(r.montant) || 0) - m) <= 1)) return null
-  if (!rows.some(r => !estRefacturationAuPreneur(r) && !estPrefinancementRembourse(r) && parseAmount(r.montant)) && (texteRefacturation(d?.travaux_modalites) || textePrefinancement(d?.travaux_modalites))) return null
+  // même classement que la fiche (préfinancement lu dans les modalités compris)
+  let PT = null
+  try { PT = participationsTravaux(d) } catch (_) {}
+  if (PT) {
+    const egal = r => Math.abs((parseAmount(r?.montant) || 0) - m) <= 1
+    if ([...PT.prefinancements, ...PT.refacturations, ...PT.enFranchise].some(egal)) return null
+    if (!PT.participations.some(r => parseAmount(r.montant)) && (texteRefacturation(d?.travaux_modalites) || textePrefinancement(d?.travaux_modalites))) return null
+  } else if (!rows.some(r => !estRefacturationAuPreneur(r) && !estPrefinancementRembourse(r) && parseAmount(r.montant)) && (texteRefacturation(d?.travaux_modalites) || textePrefinancement(d?.travaux_modalites))) return null
   return m
 }
 // PARTICIPATION AUX TRAVAUX ACCORDÉE SOUS FORME DE FRANCHISE : une ligne qui
@@ -1641,10 +1648,23 @@ function participationsTravaux(d) {
   const refac = [...dedies, ...malRangees.filter(r => !dedies.some(x => Math.abs((parseAmount(x.montant) || 0) - (parseAmount(r.montant) || 0)) <= 1))]
   // préfinancements remboursés par surloyer : champ dédié + lignes mal rangées
   const pfDedies = (Array.isArray(d?.travaux_prefinances_bailleur) ? d.travaux_prefinances_bailleur : []).filter(r => r && typeof r === 'object')
-  const pfMalRanges = rows.filter(estPrefinancementRembourse)
+  // le surloyer n'est souvent écrit que dans les MODALITÉS (vécu : « si le
+  // montant des travaux s'avère inférieur à 800.000 € HT, le surloyer sera
+  // ajusté ») : la ligne dont le montant y est cité — ou la seule ligne — est
+  // alors un préfinancement, même si sa remarque n'en dit rien
+  const modPf = textePrefinancement(d?.travaux_modalites) && !texteRefacturation(d?.travaux_modalites)
+  const montantsModalites = (() => {
+    // seulement les montants des PHRASES qui parlent du surloyer
+    const t = (safeStr(d?.travaux_modalites) || '').split(/(?<=[.;])\s+/).filter(textePrefinancement).join(' ')
+    return [...t.matchAll(/(\d{1,3}(?:[ .\u00a0\u202f]\d{3})+|\d{4,})(?:,\d+)?\s*(?:€|euros?\b)/gi)].map(m => parseAmount(m[1].replace(/[ .\u00a0\u202f]/g, ''))).filter(Boolean)
+  })()
+  const candidats = rows.filter(r => !estRefacturationAuPreneur(r) && parseAmount(r.montant))
+  const viaModalites = r => modPf && parseAmount(r?.montant) && !estRefacturationAuPreneur(r) && (candidats.length === 1 || montantsModalites.some(m => Math.abs(m - parseAmount(r.montant)) <= 1))
+  const estPf = r => estPrefinancementRembourse(r) || viaModalites(r)
+  const pfMalRanges = rows.filter(estPf).map(r => estPrefinancementRembourse(r) ? r : { ...r, remboursement: safeStr(d.travaux_modalites) })
   const prefin = [...pfDedies, ...pfMalRanges.filter(r => !pfDedies.some(x => Math.abs((parseAmount(x.montant) || 0) - (parseAmount(r.montant) || 0)) <= 1))]
-  const enFranchise = rows.filter(r => !estRefacturationAuPreneur(r) && !estPrefinancementRembourse(r) && estParticipationEnFranchise(r, d))
-  const autres = rows.filter(r => !estRefacturationAuPreneur(r) && !estPrefinancementRembourse(r) && !estParticipationEnFranchise(r, d))
+  const enFranchise = rows.filter(r => !estRefacturationAuPreneur(r) && !estPf(r) && estParticipationEnFranchise(r, d))
+  const autres = rows.filter(r => !estRefacturationAuPreneur(r) && !estPf(r) && !estParticipationEnFranchise(r, d))
   // montant global SANS ligne, dont les modalités décrivent une somme versée
   // par le preneur au bailleur (vécu : « Frais de Remise en État » de
   // 295 785,03 € payés par le preneur, affichés en participation du bailleur)
