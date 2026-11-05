@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.37 · surloyer lu dans les modalités'
+const APP_VERSION = '21.38 · préfinancement d’avenant'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1489,7 +1489,10 @@ function travauxModifiesParAvenant(mods, avant) {
   if (safeStr(out.travaux_modalites)) {
     const dAv = dateLimiteTravauxEnVigueur(out.date_limite_travaux, safeStr(out.travaux_modalites), avant).date
     const dPrec = dateLimiteTravauxEnVigueur(avant?.date_limite_travaux, safeStr(avant?.travaux_modalites), avant).date
-    if (!dAv || dAv === dPrec) { delete out.travaux_modalites; if (!dAv || normalizeDate(safeStr(out.date_limite_travaux)) === dPrec) delete out.date_limite_travaux }
+    // les modalités restent connues pour CLASSER les lignes (surloyer,
+    // refacturation…) — seule la date qu'on en déduirait est écartée (vécu :
+    // préfinancement d'avenant « surloyer ajusté » exporté en participation)
+    if (!dAv || dAv === dPrec) { out._modalites_classement = out.travaux_modalites; delete out.travaux_modalites; if (!dAv || normalizeDate(safeStr(out.date_limite_travaux)) === dPrec) delete out.date_limite_travaux }
   }
   return out
 }
@@ -1605,7 +1608,8 @@ function montantTravauxHorsRefacturation(d) {
   if (PT) {
     const egal = r => Math.abs((parseAmount(r?.montant) || 0) - m) <= 1
     if ([...PT.prefinancements, ...PT.refacturations, ...PT.enFranchise].some(egal)) return null
-    if (!PT.participations.some(r => parseAmount(r.montant)) && (texteRefacturation(d?.travaux_modalites) || textePrefinancement(d?.travaux_modalites))) return null
+    const mc = safeStr(d?.travaux_modalites) || safeStr(d?._modalites_classement) || ''
+    if (!PT.participations.some(r => parseAmount(r.montant)) && (texteRefacturation(mc) || textePrefinancement(mc))) return null
   } else if (!rows.some(r => !estRefacturationAuPreneur(r) && !estPrefinancementRembourse(r) && parseAmount(r.montant)) && (texteRefacturation(d?.travaux_modalites) || textePrefinancement(d?.travaux_modalites))) return null
   return m
 }
@@ -1652,24 +1656,25 @@ function participationsTravaux(d) {
   // montant des travaux s'avère inférieur à 800.000 € HT, le surloyer sera
   // ajusté ») : la ligne dont le montant y est cité — ou la seule ligne — est
   // alors un préfinancement, même si sa remarque n'en dit rien
-  const modPf = textePrefinancement(d?.travaux_modalites) && !texteRefacturation(d?.travaux_modalites)
+  const modClass = safeStr(d?.travaux_modalites) || safeStr(d?._modalites_classement) || ''
+  const modPf = textePrefinancement(modClass) && !texteRefacturation(modClass)
   const montantsModalites = (() => {
     // seulement les montants des PHRASES qui parlent du surloyer
-    const t = (safeStr(d?.travaux_modalites) || '').split(/(?<=[.;])\s+/).filter(textePrefinancement).join(' ')
+    const t = modClass.split(/(?<=[.;])\s+/).filter(textePrefinancement).join(' ')
     return [...t.matchAll(/(\d{1,3}(?:[ .\u00a0\u202f]\d{3})+|\d{4,})(?:,\d+)?\s*(?:€|euros?\b)/gi)].map(m => parseAmount(m[1].replace(/[ .\u00a0\u202f]/g, ''))).filter(Boolean)
   })()
   const candidats = rows.filter(r => !estRefacturationAuPreneur(r) && parseAmount(r.montant))
   const viaModalites = r => modPf && parseAmount(r?.montant) && !estRefacturationAuPreneur(r) && (candidats.length === 1 || montantsModalites.some(m => Math.abs(m - parseAmount(r.montant)) <= 1))
   const estPf = r => estPrefinancementRembourse(r) || viaModalites(r)
-  const pfMalRanges = rows.filter(estPf).map(r => estPrefinancementRembourse(r) ? r : { ...r, remboursement: safeStr(d.travaux_modalites) })
+  const pfMalRanges = rows.filter(estPf).map(r => estPrefinancementRembourse(r) ? r : { ...r, remboursement: modClass })
   const prefin = [...pfDedies, ...pfMalRanges.filter(r => !pfDedies.some(x => Math.abs((parseAmount(x.montant) || 0) - (parseAmount(r.montant) || 0)) <= 1))]
   const enFranchise = rows.filter(r => !estRefacturationAuPreneur(r) && !estPf(r) && estParticipationEnFranchise(r, d))
   const autres = rows.filter(r => !estRefacturationAuPreneur(r) && !estPf(r) && !estParticipationEnFranchise(r, d))
   // montant global SANS ligne, dont les modalités décrivent une somme versée
   // par le preneur au bailleur (vécu : « Frais de Remise en État » de
   // 295 785,03 € payés par le preneur, affichés en participation du bailleur)
-  if (!refac.length && !autres.length && parseAmount(d?.travaux_montant) && texteRefacturation(d?.travaux_modalites) && !textePrefinancement(d?.travaux_modalites))
-    refac.push({ libelle: 'Somme versée par le preneur au bailleur (voir modalités)', montant: parseAmount(d.travaux_montant), remarque: safeStr(d.travaux_modalites) })
+  if (!refac.length && !autres.length && parseAmount(d?.travaux_montant) && texteRefacturation(modClass) && !textePrefinancement(modClass))
+    refac.push({ libelle: 'Somme versée par le preneur au bailleur (voir modalités)', montant: parseAmount(d.travaux_montant), remarque: modClass })
   return {
     participations: autres.filter(r => !estTravauxDuBailleur(r)).map(avecDate),
     travauxBailleur: autres.filter(estTravauxDuBailleur).map(avecDate),
