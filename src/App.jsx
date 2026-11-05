@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · indemnités sans paiement écartées'
+const APP_VERSION = '21.10 · travaux bailleur et date limite'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -145,7 +145,7 @@ REGLES PAR CHAMP:
 - charges_force_majeure: la clause du bail relative a la FORCE MAJEURE (meme principe de l'art. 1755 du Code civil que pour la vetuste). Format: {"refacturee":"Oui","detail":"texte precisant les modalites"}. Meme logique que charges_vetuste. null si le bail n'aborde pas la force majeure.
 - franchise_periodes: TOUTES les franchises, y compris conditionnelles. [{\"date_debut\":\"jj/mm/aaaa\",\"date_fin\":\"jj/mm/aaaa\",\"duree\":\"6 mois\",\"montant\":\"123405\",\"surface_assiette\":\"LC1 (701 m²)\",\"indexation_incluse\":\"Non\",\"condition\":null,\"page\":3}]. montant=chiffres bruts (calcule si non explicite: loyer_annuel_assiette*duree_mois/12). condition=texte si conditionnelle, null sinon. Pour une franchise conditionnelle repartie en plusieurs tranches, RECOPIER LA CONDITION EN ENTIER sur CHAQUE tranche (jamais « meme condition que ci-dessus ») ; les tranches d'une franchise acquise ont condition null. FRANCHISE REPARTIE EN TRANCHES (montants echelonnes): UNE LIGNE PAR TRANCHE LISTEE dans la clause — le nombre de lignes doit egaler le nombre de tranches (ex: 96.080 € a la prise d'effet puis 96.080 € a chacune des 1re a 4e dates anniversaires et 96.083 € a la 5e = 6 lignes) et la somme des montants doit egaler le total annonce (ex: 576.483 €) : verifier avant de repondre. date_debut = date de la tranche (prise d'effet, ou Neme date anniversaire = date d'effet + N ans) ; date_fin = null si la clause ne la precise pas. NE JAMAIS INVENTER de duree : si la clause ne donne que des montants, duree = \"recalcul = <montant / loyer mensuel de l'assiette, arrondi a 0,1> mois\" — l'assiette etant le loyer HORS redevance RIE si la clause le precise. DUREE = NOMBRE DE MOIS DE LOYER EXONERES, PAS la periode d'application (ne concerne QUE les clauses appelees franchise : une \"reduction de loyer\" chiffree par annee va dans abattements, pas ici) : si la franchise est un MONTANT impute sur une periode (ex: \"franchise de 5.430 € HT imputee sur les loyers de la premiere annee\"), la periode (12 mois) va dans date_debut/date_fin et duree = equivalent en mois de loyer, ecrit \"recalcul = <montant / loyer mensuel arrondi a 0,1> mois\" (ex: 5430 / (47060/12) → \"recalcul = 1,4 mois\") — JAMAIS \"12 mois\". ATTENTION DOUBLON FREQUENT A EVITER: quand le bail donne un montant GLOBAL de franchise PUIS le detail de ce meme montant ventile en plusieurs tranches (ex: \"franchise initiale de quatorze (14) mois, soit un montant total de 39.135,83 €, qui sera appliquee comme suit : 3,5 mois a compter de la date d'effet ; 3,5 mois a compter de la premiere date anniversaire ; ...\"), NE CREER QU'UNE LIGNE PAR TRANCHE INDIVIDUELLE — ne jamais ajouter EN PLUS une ligne reprenant le total global (14 mois / 39.135,83 €) : ce total n'est que la somme des tranches deja listees individuellement, l'ajouter en ligne supplementaire cree un double comptage. Le montant global (avec sa redaction complete) va dans le champ texte \"franchise\" ci-dessous, jamais comme ligne supplementaire de franchise_periodes. ATTENTION DISTINCTION AVEC mise_a_disposition: une "franchise de loyer" reduit ou annule un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero (sinon il n'y a rien a "franchiser"). NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation des locaux avant la date d'effet officielle du bail, ou avant que le loyer ne soit contractuellement du, souvent formulee "mise a disposition anticipee a titre gratuit", "pas de loyer ni charges dus pendant cette periode") — meme si le texte utilise par erreur ou par extension le mot "franchise" pour la designer, meme si elle est ventilee par lot/etage avec des dates differentes. Ces periodes de mise a disposition anticipee vont dans le champ dedie mise_a_disposition (objet unique) — si plusieurs lots ont des dates de mise a disposition differentes, resumer l'ensemble dans le champ texte "conditions" de mise_a_disposition (avec le detail par lot) plutot que de les eclater dans franchise_periodes avec un montant a zero. ATTENTION CAS INVERSE FREQUENT: quand le texte donne plusieurs montants de franchise a des DATES ANNIVERSAIRES successives (ex: "133.943 € HT/HC de franchise à compter du 15 septembre 2025 ; 133.943 € à compter du 15 septembre 2026 ; ...") SANS préciser explicitement une durée ni une date de fin pour chaque tranche, NE JAMAIS supposer que chaque tranche dure 12 mois (jusqu'à la date anniversaire suivante) — c'est presque toujours FAUX. Ces montants correspondent generalement chacun a quelques semaines/mois de loyer accordes CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an pendant 3 ans), pas une exoneration continue toute l'annee. Calculer la VRAIE duree en mois: duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), puis date_fin = date_debut + duree_mois mois - 1 jour (PAS la veille de la prochaine date anniversaire, sauf si duree_mois calculee y correspond par coincidence). N'utiliser une duree de 12 mois entre deux echeances que si le texte le dit EXPLICITEMENT (ex: "pendant les 12 mois suivants" ecrit noir sur blanc). FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — deux cas: (a) si la DUREE est explicitement ecrite dans le bail (ex: "2,5 mois", "3 mois") et que c'est le MONTANT qui manque: reprendre la duree TELLE QUELLE dans "duree" (ex: "2,5 mois"), et calculer montant = duree_mois * (loyer_annuel_base_HT_HC / 12), en ecrivant dans "montant" la chaine "recalcul = <montant> €" (ex: "recalcul = 116116 €") plutot qu'un chiffre brut, pour signaler que c'est deduit et non ecrit dans le bail. (b) si le MONTANT est explicitement ecrit et que c'est la DUREE qui manque: montant reste un chiffre brut normal (ex: "116116"), et calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)), en ecrivant dans "duree" la chaine "recalcul = <duree_mois> mois" (ex: "recalcul = 2,11 mois") plutot qu'une phrase. Si duree ET montant sont TOUS LES DEUX explicites dans le texte, les reprendre tels quels sans aucun marqueur "recalcul". Ne jamais utiliser une formule detaillee du type "Champ calculé = A / B = C" — uniquement le resultat final precede de "recalcul =".
 - franchise: OBLIGATOIRE DES QUE franchise_periodes CONTIENT AU MOINS UNE ENTREE — ne jamais laisser ce champ a null si franchise_periodes n'est pas vide (verification mecanique : si l'un est rempli, l'autre doit l'etre aussi). Texte VERBEUX reprenant fidelement la redaction de la clause de franchise telle qu'ecrite dans le bail (contrairement a franchise_periodes, qui est structure et chiffre, ce champ est un resume en langage courant, proche du texte original, sans etre un copier-coller integral) — sert de verification visuelle en regard du detail chiffre de franchise_periodes, pour que l'utilisateur puisse reperer un ecart ENTRE LE TEXTE DU BAIL ET LE TABLEAU STRUCTURE : ce champ doit donc etre redige INDEPENDAMMENT, a partir de ta propre lecture de la clause, PAS en reformulant ou en resumant les lignes que tu as toi-meme mises dans franchise_periodes — sinon il ne peut plus jamais reveler un desaccord entre les deux, ce qui annule son utilite. Inclure le montant total et la decomposition telle que redigee (ex: "Franchise initiale de 14 mois, soit un total de 39.135,83 € HT/HC, appliquee en 4 tranches de 3,5 mois a la prise d'effet puis a chaque date anniversaire du bail pendant 3 ans"). null UNIQUEMENT si franchise_periodes est aussi vide (aucune franchise dans le bail).
-- participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. libelle OBLIGATOIRE.
+- participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux DU PRENEUR (financement par le bailleur des amenagements du preneur ; JAMAIS des travaux REALISES PAR LE BAILLEUR lui-meme a ses frais, ex: climatisation, renovation ou percement realises par le bailleur avant la prise d'effet). date_limite = une DATE jj/mm/aaaa (si le bail dit « avant la prise d'effet », mettre la date de prise d'effet) (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. libelle OBLIGATOIRE.
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
   STATIONNEMENT — TOTAL ET SOUS-CATEGORIES: un total suivi de « dont » / « comprenant » INCLUT toutes les sous-categories citees (PMR, places electriques, places reservees…) : elles detaillent le total, elles ne s'y ajoutent pas et ne s'en retranchent pas. Ventiler surfaces_detail (lignes Stationnement) par LOCALISATION ou par PRIX uniquement, et la somme des lignes doit egaler le total annonce. Ex: « 99 emplacements dont 2 places reservees au local de sprinklage, et comprenant 2 PMR en sous-sol, 16 places pour vehicules electriques en sous-sol et 3 PMR en exterieur » → parking_nb_places = \"99 places (96 en sous-sol + 3 en exterieur)\" ; lignes : Stationnement sous-sol 96, Stationnement exterieur 3 — JAMAIS 99 − 16 = 83.
   DEUX-ROUES: les places pour deux-roues / velos / motos ont leur propre ligne surfaces_detail avec categorie \"Stationnement deux-roues\" (jamais confondues avec les places voitures), et parking_nb_places les distingue : ex \"42 places voitures + 9 places deux-roues\".
@@ -198,7 +198,7 @@ REGLES PAR CHAMP (champs_modifies):
 - date_effet: champ SOUVENT LAISSE A TORT rempli par erreur — a remplir UNIQUEMENT si cet avenant REDEFINIT la date de prise d'effet GLOBALE du bail dans son ensemble (typiquement : reformulation complete de l'article CP2/DUREE-PRISE D'EFFET, ou constat d'achevement/mise a disposition qui fixait jusque-la une date conditionnelle — voir date_effet_condition ci-dessous). NE JAMAIS y mettre une date qui n'est que la date d'effet d'une MODIFICATION PARTIELLE du bail deja en cours (ex: date a laquelle des locaux complementaires sont pris a bail en plus des locaux existants, date de restitution/liberation d'un lot, date a partir de laquelle un nouveau loyer recalcule s'applique suite a un changement de surface, date d'entree en vigueur d'une clause modifiee comme la destination des locaux) — ces dates concernent UNIQUEMENT la modification en question, pas le bail dans son ensemble, et ne doivent PAS toucher a date_effet (qui reste celle du bail d'origine, inchangee). Si l'avenant reprend/recopie telle quelle la clause CP2-DUREE-PRISE D'EFFET du bail SANS en changer la date de depart, NE PAS remplir date_effet non plus (rien n'est modifie, c'est une simple citation/confirmation de l'existant). En cas de doute entre "modification partielle avec sa propre date d'effet" et "redefinition de la date d'effet du bail entier", TOUJOURS pencher vers null — l'absence de mise a jour est sans consequence, alors qu'une fausse date d'effet fausse tout l'echeancier du bail (breaks, date de fin, indexation).
 - date_effet_condition: mettre a null des que cet avenant fixe une date_effet calendaire ferme (le plus frequent : l'avenant constate la realisation de l'evenement, ex: signature de l'Acte de Vente, et fixe donc la vraie date de prise d'effet dans champs_modifies.date_effet) — dans ce cas champs_modifies.date_effet remplace definitivement la mention conditionnelle. Ne renseigner date_effet_condition que si cet avenant modifie ou reformule le texte de la condition dont depend la prise d'effet SANS encore fournir de date calendaire ferme. null si non aborde par cet avenant.
 - conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","date_limite_levee":"jj/mm/aaaa ou null","statut":"levee/en cours/non precise","page":2}]. date_limite_levee: meme regle que dans le prompt d'extraction du bail — chercher systematiquement cette date (ou la calculer si exprimee en delai relatif depuis la date de l'avenant). Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
-- participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
+- participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux DU PRENEUR (financement par le bailleur des amenagements du preneur ; JAMAIS des travaux REALISES PAR LE BAILLEUR lui-meme a ses frais, ex: climatisation, renovation ou percement realises par le bailleur avant la prise d'effet). date_limite = une DATE jj/mm/aaaa (si le bail dit « avant la prise d'effet », mettre la date de prise d'effet) avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
 - numero_avenant: numero de l'avenant tel qu'ecrit dans son titre ou en tete (ex: \"Avenant n°3 au bail\" → 3), en chiffre. null si l'avenant n'est pas numerote. Ne pas le deduire de l'ordre des autres avenants.
 - _pages: objet AU MEME NIVEAU que champs_modifies (pas dedans) avec le numero de PAGE du PDF ou se trouve chaque champ RENSEIGNE (non-null) de champs_modifies, plus objet_avenant, date_effet_avenant et date_signature_avenant si applicable. Format: {"loyer_signature_montant":2,"date_effet_avenant":1,"objet_avenant":1}. Ne pas inclure les champs restes null.`
@@ -1066,11 +1066,12 @@ function computeValeursEnVigueur(item, parentRow = null) {
       typeof r === 'object' && r ? Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'page').map(([k, v2]) => [k, typeof v2 === 'object' ? safeStr(v2) : v2])) : { texte: safeStr(r) }
     )),
     // Participation travaux bailleur, telle qu'affichée
-    participations_travaux: (Array.isArray((isAv ? mods : raw).participations_travaux) ? (isAv ? mods : raw).participations_travaux : []).map(r => ({
-      libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: safeStr(r.date_limite) || null, remarque: cleanTxt(r.remarque) || null,
+    participations_travaux: participationsTravaux({ ...(isAv ? mods : raw), date_effet: eff.date_effet }).participations.map(r => ({
+      libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null,
     })),
+    travaux_bailleur: participationsTravaux(isAv ? mods : raw).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, remarque: cleanTxt(r.remarque) || null })),
     travaux_montant: parseAmount((isAv ? mods : raw).travaux_montant),
-    date_limite_travaux: normalizeDate(safeStr((isAv ? mods : raw).date_limite_travaux)) || null,
+    date_limite_travaux: dateLimiteTravaux((isAv ? mods : raw).date_limite_travaux, eff).date || null,
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: arrondi2(fTot.acquise.montant) },
     franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: arrondi2(fTot.conditionnelle.montant) },
   }
@@ -1310,6 +1311,43 @@ function exportToExcel(items, fileName, selectedCols = null) {
 // conditionnels), indemnités et pénalités, participations travaux. Toutes les
 // valeurs viennent de computeValeursEnVigueur — LA fonction dont les
 // résultats sont enregistrés en base et qui alimente l'écran.
+// DATE LIMITE DES TRAVAUX — toujours une DATE (jamais une phrase) : la date
+// écrite dans le texte (jj/mm/aaaa ou « 30 septembre 2020 »), à défaut la
+// prise d'effet quand le texte dit « avant la prise d'effet ». Le texte
+// d'origine est gardé pour l'infobulle.
+const MOIS_FR = { janvier: 1, fevrier: 2, mars: 3, avril: 4, mai: 5, juin: 6, juillet: 7, aout: 8, septembre: 9, octobre: 10, novembre: 11, decembre: 12 }
+function dateLimiteTravaux(texte, d) {
+  const t = safeStr(texte)
+  if (!t) return { date: null, texte: null }
+  const n = normalizeDate(t)
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(n)) return { date: n, texte: null }
+  const m1 = t.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/)
+  if (m1) return { date: `${m1[1].padStart(2, '0')}/${m1[2].padStart(2, '0')}/${m1[3]}`, texte: t }
+  const s2 = stripAccents(t).toLowerCase()
+  const m2 = s2.match(/(\d{1,2})(?:er)?\s+(janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)\s+(\d{4})/)
+  if (m2) return { date: `${m2[1].padStart(2, '0')}/${String(MOIS_FR[m2[2]]).padStart(2, '0')}/${m2[3]}`, texte: t }
+  if (/prise d.effet|mise a disposition|entree en jouissance/.test(s2)) {
+    const e = normalizeDate(safeStr(d?.date_effet))
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(e)) return { date: e, texte: t }
+  }
+  return { date: null, texte: t }
+}
+// PARTICIPATION du bailleur aux travaux DU PRENEUR (financement) ≠ travaux
+// RÉALISÉS PAR LE BAILLEUR à ses frais (obligation de délivrance, travaux
+// préalables) — vécu : climatisation et percement de cloison « réalisés par
+// le Bailleur à ses frais exclusifs, montant non chiffré » présentés comme
+// participation, et exportés comme « travaux preneur financés par le bailleur »
+function estTravauxDuBailleur(r) {
+  if (parseAmount(r?.montant)) return false
+  const t = stripAccents(`${safeStr(r?.libelle) || ''} ${safeStr(r?.remarque) || ''}`).toLowerCase()
+  return /realis\w* par le bailleur|a ses frais|aux frais (exclusifs )?du bailleur|a la charge (exclusive )?du bailleur|travaux (du |a la charge du )?bailleur|par le bailleur/.test(t)
+}
+function participationsTravaux(d) {
+  const rows = Array.isArray(d?.participations_travaux) ? d.participations_travaux : []
+  const avecDate = r => { const dl = dateLimiteTravaux(r?.date_limite, d); return { ...r, date_limite: dl.date, date_limite_texte: dl.texte } }
+  return { participations: rows.filter(r => !estTravauxDuBailleur(r)).map(avecDate), travauxBailleur: rows.filter(estTravauxDuBailleur).map(avecDate) }
+}
+
 // EXTRACT POUR CHARGEMENT DANS EVEN — une ligne par bail puis par avenant
 // (ordre chronologique), colonnes du modèle « Extract_pour_chargement_dans_EVEN » ;
 // les codes EVEN restent vides (complétés depuis EVEN). Toutes les valeurs
@@ -6416,6 +6454,12 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   // n'est qu'un rappel — sa fiche n'affiche pas de surfaces, comme la base et
   // les exports, qui conservent celles du bail (garderSurfacesSiModifiees)
   if (isAv) d = garderSurfacesSiModifiees(item, d)
+  // Participation du bailleur aux travaux du preneur ≠ travaux réalisés par le
+  // bailleur ; date limite convertie en date (comme en base et à l'export)
+  {
+    const PT = participationsTravaux({ ...d, date_effet: d.date_effet || item.data?.date_effet })
+    d = { ...d, participations_travaux: PT.participations, _travaux_bailleur: PT.travauxBailleur }
+  }
   // Un avenant qui ne redéfinit pas lui-même duree_ferme/conditions_break
   // n'a, sur SA PROPRE fiche, aucun moyen de savoir ce qui a déjà été établi
   // par le bail d'origine — sans ce repli, le calcul de breaks ci-dessous
@@ -7853,18 +7897,26 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
       )}
 
       {/* Participation travaux */}
+      {d._travaux_bailleur?.length > 0 && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Travaux réalisés par le bailleur (hors participation)</div></div>
+          <BulletField label="" value={d._travaux_bailleur.map(r => `${safeStr(r.libelle) || 'Travaux'}${r.date_limite ? ` — avant le ${r.date_limite}` : ''}`).join('\n')} full />
+        </div>
+      )}
       {(show('travaux_montant') || (d.participations_travaux?.length > 0)) && (d.travaux_montant || d.travaux_modalites || d.participations_travaux?.length > 0) && (
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Participation travaux bailleur</div></div>
           {d.participations_travaux?.length > 0 ? (
             <>
               {(() => {
-                const dates = [...new Set(d.participations_travaux.map(r => safeStr(r.date_limite)).filter(Boolean))]
+                const items = d.participations_travaux.filter(r => r.date_limite)
+                const dates = [...new Set(items.map(r => r.date_limite))]
                 if (!dates.length) return null
+                const textes = [...new Set(items.map(r => r.date_limite_texte).filter(Boolean))]
                 return (
                   <div className="field" style={{ marginBottom: '10px', maxWidth: '280px' }}>
                     <div className="field-lbl">Date limite d'engagement des travaux</div>
-                    <div className="field-val" style={{ fontWeight: 600 }}>{dates.join(' · ')}</div>
+                    <div className="field-val" style={{ fontWeight: 600, cursor: textes.length ? 'help' : 'default' }} title={textes.length ? `Selon le bail : ${textes.join(' · ')}` : undefined}>{dates.join(' · ')}</div>
                   </div>
                 )
               })()}
