@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.24 · EVEN : formats dates et montants'
+const APP_VERSION = '21.25 · pas de section participation vide'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -6811,6 +6811,16 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
     // « Participation travaux bailleur » (présentés dans leur propre section)
     if (d.travaux_montant && !montantTravauxHorsRefacturation({ ...d, participations_travaux: [...PT.participations, ...PT.refacturations] })) d.travaux_montant = null
     if (!PT.participations.length && texteRefacturation(d.travaux_modalites)) { d._modalites_refacturation = d.travaux_modalites; d.travaux_modalites = null }
+    // aucune participation du bailleur (ni ligne, ni montant) : les modalités
+    // décrivent d'autres travaux (réalisés par le bailleur à ses frais, ou par
+    // le preneur à ses frais) — présentées avec ces travaux, pas dans une
+    // section « Participation » vide (vécu : VRV installés par le bailleur à
+    // ses frais, affichés deux fois, dont une avec « Montant : non renseigné »)
+    if (!PT.participations.length && !montantTravauxHorsRefacturation(d) && d.travaux_modalites) {
+      d._modalites_hors_participation = d.travaux_modalites
+      d.travaux_modalites = null
+      d.travaux_montant = null
+    }
     if (!aParticipationBailleur(d, isAv ? parentBailData : null)) delete d.date_limite_travaux
     else if (d.date_limite_travaux || (!isAv && d.travaux_modalites)) {
       const dlt = dateLimiteTravauxEnVigueur(d.date_limite_travaux, safeStr(d.travaux_modalites), { ...d, date_effet: effetTravaux })
@@ -8280,10 +8290,11 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
       )}
 
       {/* Participation travaux */}
-      {d._travaux_bailleur?.length > 0 && (
+      {(d._travaux_bailleur?.length > 0 || d._modalites_hors_participation) && (
         <div className="sec">
-          <div className="sec-hd"><div className="sec-label">Travaux réalisés par le bailleur (hors participation)</div></div>
-          <BulletField label="" value={d._travaux_bailleur.map(r => `${safeStr(r.libelle) || 'Travaux'}${r.date_limite ? ` — avant le ${r.date_limite}` : ''}`).join('\n')} full />
+          <div className="sec-hd"><div className="sec-label">{d._travaux_bailleur?.length > 0 ? 'Travaux réalisés par le bailleur (hors participation)' : 'Travaux (sans participation du bailleur)'}</div></div>
+          {d._travaux_bailleur?.length > 0 && <BulletField label="" value={d._travaux_bailleur.map(r => `${safeStr(r.libelle) || 'Travaux'}${r.date_limite ? ` — avant le ${r.date_limite}` : ''}`).join('\n')} full />}
+          {d._modalites_hors_participation && <Field label="Modalités complètes" value={d._modalites_hors_participation} verbose />}
         </div>
       )}
       {(show('travaux_montant') || (d.participations_travaux?.length > 0)) && (d.travaux_montant || d.travaux_modalites || d.participations_travaux?.length > 0) && (
