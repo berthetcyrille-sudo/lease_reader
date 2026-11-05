@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.28 · EVEN : colonne Commentaire'
+const APP_VERSION = '21.29 · sortie à tout moment'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1656,7 +1656,11 @@ function exportEvenToExcel(tree) {
     const fin = nd(m.date_fin)
     const cond = (() => { try { return dropRenouncedConditional(extractConditionalBreaks(m, breaksBase).filter(c => dropTermBreaks([c.date], fin).length > 0), breaksBase, null) } catch (_) { return [] } })()
     const exits = (() => { const ex = getExitEvents(m); return ex && fin ? ex.filter(e => !e.date || dropTermBreaks([e.date], fin).length > 0) : ex })()
-    const sorties = exits ? exits.map(e => nd(e.date)).filter(Boolean) : [...breaksBase, ...cond.map(c => nd(c.date))]
+    // une faculté de sortie À TOUT MOMENT n'est pas une date de break : sa date
+    // n'est que le point de départ (vécu : « à tout moment à compter de la
+    // 4e année » sorti en Break au 14/11/2028) — précisée en commentaire
+    const aToutMoment = exits ? exits.filter(e => e.type === 'a_tout_moment') : []
+    const sorties = exits ? exits.filter(e => e.type !== 'a_tout_moment').map(e => nd(e.date)).filter(Boolean) : [...breaksBase, ...cond.map(c => nd(c.date))]
     let indem = []
     try { indem = computeIndemnitesTerme({ ...m, break_options: breaksBase }, exits) } catch (_) { indem = [] }
     const triees = [...new Set(sorties)].sort((x, y) => toSort(x) - toSort(y))
@@ -1665,7 +1669,7 @@ function exportEvenToExcel(tree) {
     const surBreak = dt => { const t = toSort(dt); const b = triees.find(x => Math.abs(toSort(x) - t) <= 3 * 86400000); return b || dt }
     const penalites = indem.filter(r => !/bailleur/i.test(safeStr(r.due_par)) && /^\d{2}\/\d{2}\/\d{4}$/.test(nd(r.terme)))
       .map(r => ({ date: surBreak(nd(r.terme)), montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null, montant_calcule: r.montant_calcule || null }))
-    return { sorties: triees, penalites }
+    return { sorties: triees, penalites, aToutMoment }
   }
   const chronos = new Map()
   // pénalités EN VIGUEUR sur la ligne précédente du même bail : une ligne
@@ -1680,7 +1684,7 @@ function exportEvenToExcel(tree) {
     // nom du preneur comme à l'écran : le nom SAISI À LA MAIN (substitution)
     // s'il existe, sinon le nom extrait (vécu : « Affiché comme Q-PARK » absent)
     const nomSaisi = safeStr(bailData.preneur_substitution)
-    let preneur = nomSaisi || safeStr(bailData.preneur) || '', dateEffet = '', dateFin = '', sorties = [], penalites = [], surface = vv.surface_totale_louee
+    let preneur = nomSaisi || safeStr(bailData.preneur) || '', dateEffet = '', dateFin = '', sorties = [], penalites = [], aToutMoment = [], surface = vv.surface_totale_louee
     let loyerBase = '', indice = null
     try {
       if (!isAv) {
@@ -1691,7 +1695,7 @@ function exportEvenToExcel(tree) {
         dateFin = et.date_fin || ''
         loyerBase = structureLoyer(sig).loyer_base ?? ''
         indice = indiceDeBase(sig)
-        ;({ sorties, penalites } = sortiesEtPenalites(sig, et.breaks || []))
+        ;({ sorties, penalites, aToutMoment } = sortiesEtPenalites(sig, et.breaks || []))
         surface = surfaceTotaleLouee(sig).m2 ?? surface
       } else if (parent) {
         // état après cet avenant
@@ -1706,7 +1710,7 @@ function exportEvenToExcel(tree) {
         dateFin = ch?.apres?.date_fin || nd(etat.date_fin)
         loyerBase = structureLoyer(etat).loyer_base ?? ''
         indice = indiceDeBase(etat)
-        ;({ sorties, penalites } = sortiesEtPenalites(etat, ch?.apres?.breaks || breaksDeLaClause(etat)))
+        ;({ sorties, penalites, aToutMoment } = sortiesEtPenalites(etat, ch?.apres?.breaks || breaksDeLaClause(etat)))
       }
       const enVigueur = penalites
       if (isAv && parent) {
@@ -1739,6 +1743,7 @@ function exportEvenToExcel(tree) {
     const fmtE = n => { try { return fmtEur(n) } catch (_) { return `${n} €` } }
     const enSus = txt => { const m = /en sus (?:d[eu']\s*|des\s+)?([^.;]{3,140})/i.exec(safeStr(txt) || ''); return m ? m[1].trim() : null }
     const commentaires = []
+    aToutMoment.forEach(e => commentaires.push(`Faculté de sortie à tout moment${nd(e.date) ? ` à partir du ${nd(e.date)}` : ''}${safeStr(e.preavis) ? ` (préavis : ${safeStr(e.preavis)})` : ''} — non reportée en colonne Break`))
     penalites.forEach(p => {
       if (p.supprimee) { commentaires.push(`Pénalité du ${p.date} supprimée par cet avenant`); return }
       const c = p.montant_calcule
@@ -7117,7 +7122,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   const exitCards = exitEvents ? exitEvents.map((e, i) => {
     const hasIndem = !!(safeStr(e.indemnite_sortie) || e.montant_indemnite)
     const hasComp = !!safeStr(e.compensation_maintien)
-    const kind = e.type === 'a_tout_moment' ? 'Faculté de résiliation'
+    const kind = e.type === 'a_tout_moment' ? 'Faculté de sortie à tout moment'
       : hasIndem ? 'Break avec indemnité'
       : hasComp ? 'Break avec compensation si maintien'
       : 'Break option'
@@ -7535,7 +7540,10 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                     ) : (
                       <>
                         {isEffetCond ? 'Non connue'
-                          : isExit ? (f.val || (f.exit.type === 'a_tout_moment' ? 'À tout moment' : (safeStr(f.exit.libelle) || 'Date non déterminée')))
+                          : isExit ? (f.exit.type === 'a_tout_moment'
+                            // faculté à tout moment : la date n'est que le point de départ
+                            ? (f.val ? <span>À tout moment <span style={{ fontSize: '0.75em', fontWeight: 500 }}>à partir du {f.val}</span></span> : 'À tout moment')
+                            : (f.val || safeStr(f.exit.libelle) || 'Date non déterminée'))
                           : (f.val || d[f.key])}
                         <PageJumpIcon item={srcItem} pages={sp} page={resolvedPage}
                           title={pageFromAvenant ? `Voir la page ${resolvedPage} de l'avenant (${srcAv.file_name || 'document source'})` : undefined} />
