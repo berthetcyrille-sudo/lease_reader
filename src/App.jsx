@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.23 · EVEN : date puis montant'
+const APP_VERSION = '21.24 · EVEN : formats dates et montants'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1749,6 +1749,28 @@ function exportEvenToExcel(tree) {
     ]
   })
   const ws = XLSX.utils.aoa_to_sheet([COLONNES_EVEN, ...data])
+  // MISE EN FORME (ce que la bibliothèque Excel actuelle sait écrire) :
+  // vraies dates Excel (tri et filtre possibles) au format jj/mm/aaaa,
+  // montants et surfaces en nombres formatés, filtre sur l'en-tête. Les
+  // cellules à plusieurs valeurs (« a ; b ») restent du texte. Les valeurs
+  // ne changent pas : seul leur type Excel change.
+  const estColDate = h => /^date|^break|date d'exercice|date limite|d'expiration/i.test(h)
+  const estColMontant = h => /montant|loyer de base/i.test(h)
+  const estColSurface = h => /^surface$/i.test(h)
+  const serialExcel = txt => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(txt || '').trim()); return m ? (Date.UTC(+m[3], +m[2] - 1, +m[1]) - Date.UTC(1899, 11, 30)) / 86400000 : null }
+  data.forEach((l, i) => {
+    COLONNES_EVEN.forEach((h, c) => {
+      const ref = XLSX.utils.encode_cell({ r: i + 1, c })
+      const cell = ws[ref]
+      if (!cell || cell.v === '' || cell.v == null) return
+      if (estColDate(h)) { const n = serialExcel(cell.v); if (n != null) ws[ref] = { t: 'n', v: n, z: 'dd/mm/yyyy' }; return }
+      const num = typeof cell.v === 'number' ? cell.v : (/^-?\d+(?:[.,]\d+)?$/.test(String(cell.v).trim()) ? parseFloat(String(cell.v).replace(',', '.')) : null)
+      if (num == null) return
+      if (estColMontant(h)) ws[ref] = { t: 'n', v: num, z: '#,##0.00 "€"' }
+      else if (estColSurface(h)) ws[ref] = { t: 'n', v: num, z: '#,##0.00 "m²"' }
+    })
+  })
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: data.length, c: COLONNES_EVEN.length - 1 } }) }
   const colLien = COLONNES_EVEN.length - 1
   data.forEach((l, i) => {
     const ref = XLSX.utils.encode_cell({ r: i + 1, c: colLien })
