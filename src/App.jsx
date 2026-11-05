@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.10 · extract EVEN : loyer et indice'
+const APP_VERSION = '21.10 · rappels exclus de l’extraction'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -181,6 +181,8 @@ BATIMENT (surfaces_delta, surfaces_avant, surfaces_apres, et surfaces_detail le 
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie DANS LE MEME BATIMENT (ex: 2 lignes Bureaux du meme batiment → une seule ligne avec la surface totale) — ne jamais fusionner des surfaces de batiments differents, elles restent sur des lignes distinctes. NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
 {"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"numero_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
+
+RAPPELS ≠ MODIFICATIONS (champs_modifies) : un avenant reprend souvent, dans son expose ou sa designation, des elements du bail qu'il NE modifie PAS (surfaces, parkings, participation du bailleur aux travaux, depot de garantie, indice, loyer d'origine…). Un element simplement RAPPELE, identique a ce qui etait deja en vigueur, va a null dans champs_modifies. N'y mettre que ce que l'avenant CHANGE ou AJOUTE. Ex : un avenant de renouvellement qui rappelle « 228 m² + mezzanine 205 m², 5 emplacements » et la participation de 85.000 € du bail, sans les modifier → surface_totale_m2, surfaces_detail, parking_nb_places et participations_travaux a null ; seuls le loyer, la duree, le depot de garantie ou les charges modifies y figurent.
 
 REGLES POUR date_effet_avenant / date_signature_avenant (champs top-level, PAS dans champs_modifies) :
 - date_signature_avenant: chercher SYSTEMATIQUEMENT cette date dans TOUT le document, meme quand l'avenant ne modifie pas date_effet — c'est elle qui sert a classer chronologiquement les avenants d'un meme bail entre eux quand aucune date d'effet propre n'est disponible (voir date_effet_avenant ci-dessous). Se trouve generalement en toute fin d'acte (bloc de signature "Fait a ..., le [date]", juste avant les annexes), mais peut aussi figurer sur un certificat de signature electronique separe (DocuSign, Yousign ou equivalent) si le PDF en contient un. Si les parties signent a des dates differentes, retenir la DERNIERE date de signature. null UNIQUEMENT si aucune date n'est identifiable nulle part dans le document (ligne "Fait le" laissee vierge, page de signature absente du PDF fourni).
@@ -907,6 +909,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
   const eff = !isAv
     ? ((Array.isArray(item.avenants) && item.avenants.length) ? mergedBailData(item) : raw)
     : (parentRow ? mergedBailData(parentRow, { throughAvenantId: item.id }) : d)
+  // travaux d'un avenant : seulement ce qu'il change (pas les rappels du bail)
+  const modsTravaux = isAv ? travauxModifiesParAvenant(mods, parentRow ? mergedBailData(parentRow, { beforeAvenantId: item.id }) : parentData) : null
   const exits = getExitEvents(eff)
   const breaks = dropTermBreaks(exits
     ? exits.map(e => e.date).filter(Boolean)
@@ -1067,12 +1071,12 @@ function computeValeursEnVigueur(item, parentRow = null) {
       typeof r === 'object' && r ? Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'page').map(([k, v2]) => [k, typeof v2 === 'object' ? safeStr(v2) : v2])) : { texte: safeStr(r) }
     )),
     // Participation travaux bailleur, telle qu'affichée
-    participations_travaux: participationsTravaux({ ...(isAv ? mods : raw), date_effet: eff.date_effet }).participations.map(r => ({
+    participations_travaux: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: eff.date_effet }).participations.map(r => ({
       libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null,
     })),
-    travaux_bailleur: participationsTravaux(isAv ? mods : raw).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, remarque: cleanTxt(r.remarque) || null })),
-    travaux_montant: parseAmount((isAv ? mods : raw).travaux_montant),
-    date_limite_travaux: dateLimiteTravaux((isAv ? mods : raw).date_limite_travaux, eff).date || null,
+    travaux_bailleur: participationsTravaux(isAv ? modsTravaux : raw).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, remarque: cleanTxt(r.remarque) || null })),
+    travaux_montant: parseAmount((isAv ? modsTravaux : raw).travaux_montant),
+    date_limite_travaux: dateLimiteTravaux((isAv ? modsTravaux : raw).date_limite_travaux, eff).date || null,
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: arrondi2(fTot.acquise.montant) },
     franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: arrondi2(fTot.conditionnelle.montant) },
   }
@@ -1332,6 +1336,26 @@ function dateLimiteTravaux(texte, d) {
   }
   return { date: null, texte: t }
 }
+// Travaux portés par un AVENANT : seulement ce qu'il CHANGE par rapport à
+// l'état d'avant (participation nouvelle ou modifiée : montant, objet, date) —
+// une participation simplement RAPPELÉE ne doit pas apparaître une seconde
+// fois (vécu : participation du bail reprise sur la ligne de l'avenant)
+function travauxModifiesParAvenant(mods, avant) {
+  const cle = r => `${Math.round(parseAmount(r?.montant) || 0)}|${normalizeDate(safeStr(r?.date_limite)) || ''}`
+  const lib = r => stripAccents(safeStr(r?.libelle) || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  const avantRows = Array.isArray(avant?.participations_travaux) ? avant.participations_travaux : []
+  const memeQue = r => avantRows.some(a => (parseAmount(a?.montant) || 0) && Math.abs((parseAmount(a.montant) || 0) - (parseAmount(r?.montant) || 0)) <= 1
+    && (!normalizeDate(safeStr(r?.date_limite)) || !normalizeDate(safeStr(a?.date_limite)) || normalizeDate(safeStr(r.date_limite)) === normalizeDate(safeStr(a.date_limite))))
+    || avantRows.some(a => lib(a) && lib(a) === lib(r) && cle(a) === cle(r))
+  const out = { ...(mods || {}) }
+  if (Array.isArray(out.participations_travaux)) out.participations_travaux = out.participations_travaux.filter(r => !memeQue(r))
+  const ma = parseAmount(avant?.travaux_montant), mm = parseAmount(out.travaux_montant)
+  if (mm != null && ma != null && Math.abs(ma - mm) <= 1) delete out.travaux_montant
+  const da = normalizeDate(safeStr(avant?.date_limite_travaux)), dm = normalizeDate(safeStr(out.date_limite_travaux))
+  if (dm && da && dm === da) delete out.date_limite_travaux
+  return out
+}
+
 // PARTICIPATION du bailleur aux travaux DU PRENEUR (financement) ≠ travaux
 // RÉALISÉS PAR LE BAILLEUR à ses frais (obligation de délivrance, travaux
 // préalables) — vécu : climatisation et percement de cloison « réalisés par
