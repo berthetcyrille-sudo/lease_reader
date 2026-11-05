@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.13 · date limite déduite des modalités'
+const APP_VERSION = '21.14 · délai travaux BEFA'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -912,6 +912,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
     ? ((Array.isArray(item.avenants) && item.avenants.length) ? mergedBailData(item) : raw)
     : (parentRow ? mergedBailData(parentRow, { throughAvenantId: item.id }) : d)
   // travaux d'un avenant : seulement ce qu'il change (pas les rappels du bail)
+  // prise d'effet de référence des délais de travaux (BEFA compris)
+  const priseEffetTravaux = priseEffetPourTravaux(item, parentRow) || eff.date_effet
   const modsTravaux = isAv ? travauxModifiesParAvenant(mods, parentRow ? mergedBailData(parentRow, { beforeAvenantId: item.id }) : parentData) : null
   const exits = getExitEvents(eff)
   const breaks = dropTermBreaks(exits
@@ -1074,12 +1076,12 @@ function computeValeursEnVigueur(item, parentRow = null) {
       typeof r === 'object' && r ? Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'page').map(([k, v2]) => [k, typeof v2 === 'object' ? safeStr(v2) : v2])) : { texte: safeStr(r) }
     )),
     // Participation travaux bailleur, telle qu'affichée
-    participations_travaux: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: eff.date_effet }).participations.map(r => ({
+    participations_travaux: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).participations.map(r => ({
       libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null,
     })),
     travaux_bailleur: participationsTravaux(isAv ? modsTravaux : raw).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, remarque: cleanTxt(r.remarque) || null })),
     travaux_montant: parseAmount((isAv ? modsTravaux : raw).travaux_montant),
-    date_limite_travaux: dateLimiteTravauxEnVigueur((isAv ? modsTravaux : raw).date_limite_travaux, safeStr((isAv ? modsTravaux : raw).travaux_modalites), eff).date || null,
+    date_limite_travaux: dateLimiteTravauxEnVigueur((isAv ? modsTravaux : raw).date_limite_travaux, safeStr((isAv ? modsTravaux : raw).travaux_modalites), { ...eff, date_effet: priseEffetTravaux }).date || null,
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: arrondi2(fTot.acquise.montant) },
     franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: arrondi2(fTot.conditionnelle.montant) },
   }
@@ -1356,6 +1358,38 @@ function dateCorrigeeALaMain(texte) {
   let best = null
   dates.forEach(x => marques.forEach(k => { const dist = Math.abs(k - x.i); if (dist <= 80 && (!best || dist < best.dist)) best = { d: x.d, dist } }))
   return best ? best.d : null
+}
+// PRISE D'EFFET DE RÉFÉRENCE pour les délais de travaux (« N mois à compter
+// de la prise d'effet ») : pour un bail, celle de la SIGNATURE — y compris
+// quand elle n'est fixée que par un avenant (BEFA, condition suspensive :
+// donneesSignature) — et non une date provisoire ni celle d'un renouvellement
+// ultérieur ; pour un avenant, celle en vigueur juste avant lui.
+function priseEffetPourTravaux(item, parentRow = null) {
+  const estDate = x => /^\d{2}\/\d{2}\/\d{4}$/.test(x || '')
+  const nd = x => normalizeDate(safeStr(x)) || null
+  try {
+    if (item?.document_type === 'avenant') {
+      const own = nd(item.data?.champs_modifies?.date_effet)
+      if (estDate(own)) return own
+      const avant = parentRow ? nd(mergedBailData(parentRow, { beforeAvenantId: item.id }).date_effet) : null
+      return estDate(avant) ? avant : null
+    }
+    const raw = item?.data || {}
+    const o = nd(raw.date_effet)
+    if (estDate(o)) {
+      // date du bail (éventuellement provisoire) : décalée si un avenant la
+      // reporte ou l'avance dans le même bail, gardée en cas de renouvellement
+      const eff = (Array.isArray(item.avenants) && item.avenants.length) ? mergedBailData(item) : raw
+      const v = dateEffetEnVigueur(raw, eff)
+      return estDate(v) ? v : o
+    }
+    // prise d'effet inconnue au bail (BEFA, condition suspensive) : celle que
+    // fixe le premier avenant qui la donne — pas celle d'un renouvellement
+    const sig = nd(donneesSignature(item).data.date_effet)
+    if (estDate(sig)) return sig
+    const av = [...(item.avenants || [])].sort(compareAvenants).find(x => estDate(nd(x.data?.champs_modifies?.date_effet)))
+    return av ? nd(av.data.champs_modifies.date_effet) : null
+  } catch (_) { return null }
 }
 // Date limite des travaux en vigueur : celle du champ, sauf correction
 // manuscrite signalée dans les modalités ou la remarque
@@ -6632,10 +6666,12 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   // Participation du bailleur aux travaux du preneur ≠ travaux réalisés par le
   // bailleur ; date limite convertie en date (comme en base et à l'export)
   {
-    const PT = participationsTravaux({ ...d, date_effet: d.date_effet || item.data?.date_effet })
+    // même prise d'effet de référence que la base (BEFA : fixée par avenant)
+    const effetTravaux = priseEffetPourTravaux(item, parentRow) || d.date_effet || item.data?.date_effet
+    const PT = participationsTravaux({ ...d, date_effet: effetTravaux })
     d = { ...d, participations_travaux: PT.participations, _travaux_bailleur: PT.travauxBailleur }
     if (d.date_limite_travaux || (!isAv && d.travaux_modalites)) {
-      const dlt = dateLimiteTravauxEnVigueur(d.date_limite_travaux, safeStr(d.travaux_modalites), { ...d, date_effet: d.date_effet || item.data?.date_effet })
+      const dlt = dateLimiteTravauxEnVigueur(d.date_limite_travaux, safeStr(d.travaux_modalites), { ...d, date_effet: effetTravaux })
       if (dlt.date) d.date_limite_travaux = dlt.date
     }
   }
