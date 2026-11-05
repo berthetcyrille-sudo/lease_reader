@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.19 · date limite seulement si montant'
+const APP_VERSION = '21.20 · travaux refacturés au preneur'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -148,6 +148,7 @@ REGLES PAR CHAMP:
 - franchise: OBLIGATOIRE DES QUE franchise_periodes CONTIENT AU MOINS UNE ENTREE — ne jamais laisser ce champ a null si franchise_periodes n'est pas vide (verification mecanique : si l'un est rempli, l'autre doit l'etre aussi). Texte VERBEUX reprenant fidelement la redaction de la clause de franchise telle qu'ecrite dans le bail (contrairement a franchise_periodes, qui est structure et chiffre, ce champ est un resume en langage courant, proche du texte original, sans etre un copier-coller integral) — sert de verification visuelle en regard du detail chiffre de franchise_periodes, pour que l'utilisateur puisse reperer un ecart ENTRE LE TEXTE DU BAIL ET LE TABLEAU STRUCTURE : ce champ doit donc etre redige INDEPENDAMMENT, a partir de ta propre lecture de la clause, PAS en reformulant ou en resumant les lignes que tu as toi-meme mises dans franchise_periodes — sinon il ne peut plus jamais reveler un desaccord entre les deux, ce qui annule son utilite. Inclure le montant total et la decomposition telle que redigee (ex: "Franchise initiale de 14 mois, soit un total de 39.135,83 € HT/HC, appliquee en 4 tranches de 3,5 mois a la prise d'effet puis a chaque date anniversaire du bail pendant 3 ans"). null UNIQUEMENT si franchise_periodes est aussi vide (aucune franchise dans le bail).
 - date_limite_travaux: UNIQUEMENT la date limite de REALISATION des travaux du preneur FINANCES en tout ou partie par le bailleur (participation financiere ci-dessous) ; null si le bailleur ne participe pas financierement aux travaux du preneur (travaux realises par le preneur a ses frais), et jamais une date de demarrage des travaux, de communication d'un planning ou de remise de documents.
 - participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux DU PRENEUR (financement par le bailleur des amenagements du preneur ; JAMAIS des travaux REALISES PAR LE BAILLEUR lui-meme a ses frais, ex: climatisation, renovation ou percement realises par le bailleur avant la prise d'effet). date_limite = une DATE jj/mm/aaaa (si le bail dit « avant la prise d'effet », mettre la date de prise d'effet) (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. libelle OBLIGATOIRE.
+- REFACTURATION AU PRENEUR ≠ participation : des travaux realises par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur doit REMBOURSER au bailleur (ex : raccordement realise par le bailleur, refacture au preneur sur facture), ne vont NI dans participations_travaux NI dans travaux_montant — l'argent va du preneur au bailleur, pas l'inverse.
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
   STATIONNEMENT — TOTAL ET SOUS-CATEGORIES: un total suivi de « dont » / « comprenant » INCLUT toutes les sous-categories citees (PMR, places electriques, places reservees…) : elles detaillent le total, elles ne s'y ajoutent pas et ne s'en retranchent pas. Ventiler surfaces_detail (lignes Stationnement) par LOCALISATION ou par PRIX uniquement, et la somme des lignes doit egaler le total annonce. Ex: « 99 emplacements dont 2 places reservees au local de sprinklage, et comprenant 2 PMR en sous-sol, 16 places pour vehicules electriques en sous-sol et 3 PMR en exterieur » → parking_nb_places = \"99 places (96 en sous-sol + 3 en exterieur)\" ; lignes : Stationnement sous-sol 96, Stationnement exterieur 3 — JAMAIS 99 − 16 = 83.
   DEUX-ROUES: les places pour deux-roues / velos / motos ont leur propre ligne surfaces_detail avec categorie \"Stationnement deux-roues\" (jamais confondues avec les places voitures), et parking_nb_places les distingue : ex \"42 places voitures + 9 places deux-roues\".
@@ -205,6 +206,7 @@ REGLES PAR CHAMP (champs_modifies):
 - conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","date_limite_levee":"jj/mm/aaaa ou null","statut":"levee/en cours/non precise","page":2}]. date_limite_levee: meme regle que dans le prompt d'extraction du bail — chercher systematiquement cette date (ou la calculer si exprimee en delai relatif depuis la date de l'avenant). Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
 - date_limite_travaux: UNIQUEMENT la date limite de REALISATION des travaux du preneur FINANCES en tout ou partie par le bailleur (participation financiere ci-dessous) ; null si le bailleur ne participe pas financierement aux travaux du preneur (travaux realises par le preneur a ses frais), et jamais une date de demarrage des travaux, de communication d'un planning ou de remise de documents.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux DU PRENEUR (financement par le bailleur des amenagements du preneur ; JAMAIS des travaux REALISES PAR LE BAILLEUR lui-meme a ses frais, ex: climatisation, renovation ou percement realises par le bailleur avant la prise d'effet). date_limite = une DATE jj/mm/aaaa (si le bail dit « avant la prise d'effet », mettre la date de prise d'effet) avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
+- REFACTURATION AU PRENEUR ≠ participation : des travaux realises par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur doit REMBOURSER au bailleur (ex : raccordement realise par le bailleur, refacture au preneur sur facture), ne vont NI dans participations_travaux NI dans travaux_montant — l'argent va du preneur au bailleur, pas l'inverse.
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
 - numero_avenant: numero de l'avenant tel qu'ecrit dans son titre ou en tete (ex: \"Avenant n°3 au bail\" → 3), en chiffre. null si l'avenant n'est pas numerote. Ne pas le deduire de l'ordre des autres avenants.
 - _pages: objet AU MEME NIVEAU que champs_modifies (pas dedans) avec le numero de PAGE du PDF ou se trouve chaque champ RENSEIGNE (non-null) de champs_modifies, plus objet_avenant, date_effet_avenant et date_signature_avenant si applicable. Format: {"loyer_signature_montant":2,"date_effet_avenant":1,"objet_avenant":1}. Ne pas inclure les champs restes null.`
@@ -1082,7 +1084,9 @@ function computeValeursEnVigueur(item, parentRow = null) {
       libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null,
     })),
     travaux_bailleur: participationsTravaux(isAv ? modsTravaux : raw).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, remarque: cleanTxt(r.remarque) || null })),
-    travaux_montant: parseAmount((isAv ? modsTravaux : raw).travaux_montant),
+    travaux_montant: montantTravauxHorsRefacturation(isAv ? modsTravaux : raw),
+    // travaux réalisés par le bailleur aux frais du preneur (dus par le preneur)
+    travaux_refactures_preneur: participationsTravaux(isAv ? modsTravaux : raw).refacturations.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), remarque: cleanTxt(r.remarque) || null })),
     date_limite_travaux: !aParticipationBailleur(isAv ? modsTravaux : raw, isAv ? eff : null) ? null : dateLimiteTravauxEnVigueur((isAv ? modsTravaux : raw).date_limite_travaux, safeStr((isAv ? modsTravaux : raw).travaux_modalites), { ...eff, date_effet: priseEffetTravaux }).date || null,
     franchise_totale_acquise: { mois: fTot.acquise.mois, montant: arrondi2(fTot.acquise.montant) },
     franchise_totale_conditionnelle: { mois: fTot.conditionnelle.mois, montant: arrondi2(fTot.conditionnelle.montant) },
@@ -1208,7 +1212,7 @@ function buildExcelRow(item, bailParentName, bailParentData, parentRow = null) {
     v(d.franchise), v(d.charges),
     amt(d.depot_garantie_montant), v(d.depot_garantie_duree_mois), v(d.depot_garantie),
     amt(d.gapd_montant), v(d.gapd_duree_mois), v(d.gapd),
-    amt(d.travaux_montant), v(d.travaux_date_factures), v(d.travaux_modalites),
+    amt(VV.travaux_montant), v(d.travaux_date_factures), v(d.travaux_modalites),
     ...travVals,
     ...indemVals,
     v(d.article_606), v(d.conformite), v(d.remise_en_etat), v(d.sous_location), v(d.cession), v(d.destination), v(d.maintenance), v(d.accession),
@@ -1390,7 +1394,7 @@ function dateCorrigeeALaMain(texte) {
 function aParticipationBailleur(...sources) {
   return sources.some(src => {
     if (!src) return false
-    if (parseAmount(src.travaux_montant)) return true
+    if (montantTravauxHorsRefacturation(src)) return true
     try { return participationsTravaux(src).participations.some(r => parseAmount(r.montant)) } catch (_) { return false }
   })
 }
@@ -1542,6 +1546,34 @@ function estTravauxDuBailleur(r) {
   const t = stripAccents(`${safeStr(r?.libelle) || ''} ${safeStr(r?.remarque) || ''}`).toLowerCase()
   return /realis\w* par le bailleur|a ses frais|aux frais (exclusifs )?du bailleur|a la charge (exclusive )?du bailleur|travaux (du |a la charge du )?bailleur|par le bailleur/.test(t)
 }
+// REFACTURATION AU PRENEUR — le cas INVERSE d'une participation : travaux
+// réalisés par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur rembourse
+// (vécu : raccordement des eaux usées réalisé par le bailleur, 3 729 € HT à
+// rembourser par le preneur, affiché et exporté comme une participation du
+// bailleur). Ni participation, ni montant de travaux financés par le
+// bailleur : section à part sur la fiche, hors extract EVEN.
+const RE_REFACTURATION = /aux frais (exclusifs )?du preneur|rembours\w*\s+(a|au|le)\s+bailleur|preneur\w*\s+(s.engage\w*\s+(donc\s+)?a\s+|devra\s+|doit\s+)?rembours\w*\s+(a|au)\s+bailleur|refactur\w*\s+au\s+preneur|a la charge du preneur\s*\(?\s*rembours/
+const RE_PARTICIPATION_REELLE = /bailleur\w*\s+(participe\w*|versera|verse|financera|finance|prend\w* en charge|rembourse\w*\s+(au|le)\s+preneur)|participation (financiere )?du bailleur/
+function texteRefacturation(t) {
+  const x = stripAccents(safeStr(t) || '').toLowerCase()
+  return RE_REFACTURATION.test(x) && !RE_PARTICIPATION_REELLE.test(x)
+}
+function estRefacturationAuPreneur(r) {
+  return texteRefacturation(`${safeStr(r?.libelle) || ''} ${safeStr(r?.remarque) || ''}`)
+}
+// Montant global de travaux hors refacturation : écarté s'il n'est que le
+// montant refacturé au preneur (ou si les modalités ne décrivent qu'une
+// refacturation, sans participation chiffrée)
+function montantTravauxHorsRefacturation(d) {
+  const m = parseAmount(d?.travaux_montant)
+  if (!m) return null
+  const rows = Array.isArray(d?.participations_travaux) ? d.participations_travaux : []
+  const refac = rows.filter(estRefacturationAuPreneur)
+  const somme = refac.reduce((t, r) => t + (parseAmount(r.montant) || 0), 0)
+  if (refac.some(r => Math.abs((parseAmount(r.montant) || 0) - m) <= 1) || (somme && Math.abs(somme - m) <= 1)) return null
+  if (!rows.some(r => !estRefacturationAuPreneur(r) && parseAmount(r.montant)) && texteRefacturation(d?.travaux_modalites)) return null
+  return m
+}
 function participationsTravaux(d) {
   const rows = Array.isArray(d?.participations_travaux) ? d.participations_travaux : []
   const effet = normalizeDate(safeStr(d?.date_effet))
@@ -1560,7 +1592,13 @@ function participationsTravaux(d) {
     if (!parseAmount(r?.montant)) return { ...r, date_limite: null, date_limite_texte: dl.date ? `Date écrite (${dl.date}) non retenue : aucun montant de participation du bailleur` : dl.texte }
     return { ...r, date_limite: dl.date, date_limite_texte: dl.texte }
   }
-  return { participations: rows.filter(r => !estTravauxDuBailleur(r)).map(avecDate), travauxBailleur: rows.filter(estTravauxDuBailleur).map(avecDate) }
+  const refac = rows.filter(estRefacturationAuPreneur)
+  const autres = rows.filter(r => !estRefacturationAuPreneur(r))
+  return {
+    participations: autres.filter(r => !estTravauxDuBailleur(r)).map(avecDate),
+    travauxBailleur: autres.filter(estTravauxDuBailleur).map(avecDate),
+    refacturations: refac.map(r => ({ ...r, date_limite: null, date_limite_texte: null })),
+  }
 }
 
 // EXTRACT POUR CHARGEMENT DANS EVEN — une ligne par bail puis par avenant
@@ -1801,6 +1839,7 @@ loyer_variable: si le bail contient une clause de loyer variable ou indexe sur l
 franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnelles et complementaires. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"123405","surface_assiette":"ex: LC1 (701 m²)","indexation_incluse":"Non","condition":"null ou texte si conditionnelle ex: si non-delivrance de conge au 31/08/2030","page":3}]. montant: calculer si non explicite (loyer_annuel_assiette * duree_mois / 12). FRANCHISE REPARTIE EN TRANCHES (montants echelonnes): UNE LIGNE PAR TRANCHE LISTEE dans la clause — le nombre de lignes doit egaler le nombre de tranches (ex: 96.080 € a la prise d'effet puis 96.080 € a chacune des 1re a 4e dates anniversaires et 96.083 € a la 5e = 6 lignes) et la somme des montants doit egaler le total annonce (ex: 576.483 €) : verifier avant de repondre. date_debut = date de la tranche (prise d'effet, ou Neme date anniversaire = date d'effet + N ans) ; date_fin = null si la clause ne la precise pas. NE JAMAIS INVENTER de duree : si la clause ne donne que des montants, duree = \"recalcul = <montant / loyer mensuel de l'assiette, arrondi a 0,1> mois\" — l'assiette etant le loyer HORS redevance RIE si la clause le precise. DUREE = NOMBRE DE MOIS DE LOYER EXONERES, PAS la periode d'application (ne concerne QUE les clauses appelees franchise : une \"reduction de loyer\" chiffree par annee va dans abattements, pas ici) : si la franchise est un MONTANT impute sur une periode (ex: "franchise de 5.430 € HT imputee sur les loyers de la premiere annee"), la periode (12 mois) va dans date_debut/date_fin, et duree = equivalent en mois de loyer, ecrit "recalcul = <montant / loyer mensuel arrondi a 0,1> mois" (ex: 5430 / (47060/12) → "recalcul = 1,4 mois") — JAMAIS "12 mois". ATTENTION DISTINCTION AVEC mise_a_disposition: une franchise reduit un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero. NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation avant la date d'effet officielle du bail, "pas de loyer ni charges dus"), meme si le texte l'appelle "franchise" et meme si elle est ventilee par lot avec des dates differentes — cela va dans le champ dedie mise_a_disposition, pas ici. ATTENTION CAS INVERSE FREQUENT: quand plusieurs montants de franchise sont donnes a des dates anniversaires successives (ex: un montant "à compter du" 15/09/2025, un autre "à compter du" 15/09/2026, etc.) SANS duree ni date de fin explicite pour chaque tranche, NE JAMAIS supposer 12 mois entre deux echeances — c'est presque toujours un montant equivalent a quelques semaines/mois de loyer accorde CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an), pas une exoneration continue toute l'annee. Calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)) puis date_fin = date_debut + duree_mois mois - 1 jour. N'utiliser 12 mois que si le texte le dit explicitement. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — (a) si la duree est explicite et le montant manquant: reprendre la duree telle quelle dans "duree", calculer montant = duree_mois * (loyer_annuel_base_HT_HC/12) et ecrire "recalcul = <montant> €" dans "montant" (pas un chiffre brut). (b) si le montant est explicite et la duree manquante: montant reste un chiffre brut normal, calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC/12)) et ecrire "recalcul = <duree_mois> mois" dans "duree" (pas une phrase). Si les deux sont explicites, les reprendre tels quels sans marqueur. Jamais de formule detaillee type "A / B = C".
 
 participations_travaux: TOUTES les enveloppes de participation financiere du bailleur aux travaux du preneur. Format: [{"libelle":"denomination exacte ex: Locaux Initiaux R+5","montant":"822701","date_limite":"31/12/2024","remarque":null,"page":5}]. libelle OBLIGATOIRE, jamais null.
+- REFACTURATION AU PRENEUR ≠ participation : des travaux realises par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur doit REMBOURSER au bailleur (ex : raccordement realise par le bailleur, refacture au preneur sur facture), ne vont NI dans participations_travaux NI dans travaux_montant — l'argent va du preneur au bailleur, pas l'inverse.
 
 indemnites_restitution: tableau des indemnites FORFAITAIRES DE REMISE EN ETAT contractuellement prevues, dont le montant varie selon la date de sortie du preneur (break ou terme). Ce champ cible UNIQUEMENT les clauses du type "le PRENEUR versera au BAILLEUR une indemnite forfaitaire de X euros en cas de depart a compter de la Neme annee". Creer UNE LIGNE PAR TRANCHE DE MONTANT. EXCLURE absolument: penalites d immobilisation pour non-restitution tardive, indemnites d eviction, depots de garantie, penalites de retard, indemnites de non-renouvellement. REGLE terme: calculer la date exacte depuis date_effet + N annees (ex: 29/06/2026 + 6 ans = 28/06/2032). REGLE calcul: indiquer l indexation si prevue. Format: [{"terme":"28/06/2032 (expiration 6eme annee)","due_par":"Preneur","motif":"Indemnite forfaitaire remise en etat","montant":"115840","calcul":"Forfait indexe BT01: indemnite revisee = base x (indice revision / indice base)","page":6}]. null si aucune indemnite forfaitaire de ce type.
 indemnites_break: Sommes dues par le PRENEUR au BAILLEUR UNIQUEMENT en cas d exercice de son droit de CONGE (sortie anticipee par le preneur via l option de break). TROIS CAS A DISTINGUER:
@@ -6723,7 +6762,11 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
     // même prise d'effet de référence que la base (BEFA : fixée par avenant)
     const effetTravaux = priseEffetPourTravaux(item, parentRow) || d.date_effet || item.data?.date_effet
     const PT = participationsTravaux({ ...d, date_effet: effetTravaux })
-    d = { ...d, participations_travaux: PT.participations, _travaux_bailleur: PT.travauxBailleur }
+    d = { ...d, participations_travaux: PT.participations, _travaux_bailleur: PT.travauxBailleur, _refacturations: PT.refacturations }
+    // refacturation au preneur : ni montant ni modalités dans la section
+    // « Participation travaux bailleur » (présentés dans leur propre section)
+    if (d.travaux_montant && !montantTravauxHorsRefacturation({ ...d, participations_travaux: [...PT.participations, ...PT.refacturations] })) d.travaux_montant = null
+    if (!PT.participations.length && texteRefacturation(d.travaux_modalites)) { d._modalites_refacturation = d.travaux_modalites; d.travaux_modalites = null }
     if (!aParticipationBailleur(d, isAv ? parentBailData : null)) delete d.date_limite_travaux
     else if (d.date_limite_travaux || (!isAv && d.travaux_modalites)) {
       const dlt = dateLimiteTravauxEnVigueur(d.date_limite_travaux, safeStr(d.travaux_modalites), { ...d, date_effet: effetTravaux })
@@ -8160,6 +8203,34 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
         <div className="sec">
           <div className="sec-hd"><div className="sec-label">Frais de rédaction d'actes</div></div>
           <FraisActesTable frais={d.frais_redaction_actes} />
+        </div>
+      )}
+
+      {/* Travaux réalisés par le bailleur AUX FRAIS DU PRENEUR : flux du
+          preneur vers le bailleur, hors participation et hors extract EVEN */}
+      {d._refacturations?.length > 0 && (
+        <div className="sec">
+          <div className="sec-hd"><div className="sec-label">Travaux refacturés au preneur (dus par le preneur au bailleur)</div></div>
+          <div className="table-wrap" style={{ marginBottom: '8px' }}>
+            <table className="indemnites-table">
+              <thead><tr><th>Travaux</th><th style={{ textAlign: 'right' }}>Montant dû par le preneur</th><th>Remarque</th></tr></thead>
+              <tbody>
+                {d._refacturations.map((row, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 500, minWidth: '200px' }}>{safeStr(row.libelle) || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                        {row.montant ? fmtEur(row.montant) : '—'}
+                        <PageJumpIcon item={item} page={row.page} />
+                      </span>
+                    </td>
+                    <td style={{ color: 'var(--text2)' }}>{safeStr(row.remarque) || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {d._modalites_refacturation && <Field label="Modalités complètes" value={d._modalites_refacturation} verbose />}
         </div>
       )}
 
