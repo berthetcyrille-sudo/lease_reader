@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.30 · commentaire : régime du bail'
+const APP_VERSION = '21.31 · dédit estimé'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1073,7 +1073,7 @@ function computeValeursEnVigueur(item, parentRow = null) {
       return computeIndemnitesTerme(dI, ex).map(r => ({
         terme: safeStr(r.terme) || null, due_par: safeStr(r.due_par) || null, motif: safeStr(r.motif) || null,
         montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null,
-        montant_calcule: r.montant_calcule ? { mois: r.montant_calcule.mois, loyer_base: r.montant_calcule.loyer, partiel: !!r.montant_calcule.partiel } : undefined,
+        montant_calcule: r.montant_calcule ? { detail: r.montant_calcule.detail || null, partiel: !!r.montant_calcule.partiel } : undefined,
       }))
     })(),
     // Autres indemnités et pénalités (section "Indemnités")
@@ -1759,8 +1759,8 @@ function exportEvenToExcel(tree) {
       if (p.supprimee) { commentaires.push(`Pénalité du ${p.date} supprimée par cet avenant`); return }
       const c = p.montant_calcule
       if (c) {
-        const sus = c.partiel ? enSus(p.calcul) : null
-        commentaires.push(`Pénalité du ${p.date} calculée : ${String(c.mois).replace('.', ',')} mois × loyer de base ${fmtE(c.loyer)}/an = ${fmtE(p.montant)}, indexation en sus${c.partiel ? ` ; s'y ajoute${sus ? ` ${sus}` : ' une somme prévue en sus'} (non chiffré)` : ''}`)
+        const sus = c.partiel && !/dedit|dédit/i.test(c.detail || '') ? enSus(p.calcul) : null
+        commentaires.push(`Pénalité du ${p.date} ${p.montant ? `estimée à ${fmtE(p.montant)}` : 'non chiffrable'} : ${c.detail}${sus ? ` ; s'y ajoute ${sus} (non chiffré)` : ''}`)
       } else if (p.montant == null && p.calcul) commentaires.push(`Pénalité du ${p.date} non chiffrée : ${p.calcul.slice(0, 160)}`)
     })
     parts.forEach(r => { if (r.date_limite && r.date_limite_texte && /corrig|délai compté|déduite/.test(r.date_limite_texte)) commentaires.push(`Date limite travaux : ${r.date_limite_texte.slice(0, 200)}`) })
@@ -2713,6 +2713,46 @@ function montantIndemniteEnMois(texte, d) {
   if (!n || !loyer) return null
   return { montant: Math.round(loyer * n / 12 * 100) / 100, mois: n, loyer, partiel: /en sus|dedit|avantages? consentis|en plus de|s.ajout/.test(t) }
 }
+// DÉDIT ÉGAL AUX AVANTAGES CONSENTIS (« une somme équivalente au cumul des
+// avantages consentis : franchise, réduction de loyer, participation aux
+// travaux ») : ESTIMÉ avec ce que l'appli connaît du bail — franchises et
+// abattements acquis (dont paliers), participations du bailleur chiffrées.
+// Ce qui ne se chiffre pas (prêt / mise à disposition des locaux, franchises
+// conditionnelles) est signalé. null si le texte ne prévoit pas un tel dédit.
+function estimationDedit(texte, d) {
+  const t = stripAccents(safeStr(texte) || '').toLowerCase()
+  if (!/avantages?\s+(financiers?\s+|commerciaux\s+)?(consentis|accordes|octroyes)|remboursement\s+des\s+(avantages|mesures d.accompagnement)|mesures d.accompagnement/.test(t)) return null
+  let franchise = 0, conditionnelle = 0, participation = 0
+  try {
+    const loyer = parseAmount(loyerFacial(d).montant) || 0
+    const rie = (() => { try { return rieLoyerAnnuel(d.surfaces_detail, d.parking_nb_places, d.loyer_signature_montant) || 0 } catch (_) { return 0 } })()
+    const ab = [...(Array.isArray(d.abattements) ? d.abattements : []), ...(() => { try { return abattementsDesPaliers(d) || [] } catch (_) { return [] } })()]
+    const T = franchiseTotals(mergeLoyerReductions(d.franchise_periodes, ab, d.date_effet), loyer, rie)
+    franchise = Math.round((T.acquise.montant || 0) * 100) / 100
+    conditionnelle = Math.round((T.conditionnelle.montant || 0) * 100) / 100
+  } catch (_) {}
+  try { participation = participationsTravaux(d).participations.reduce((x, r) => x + (parseAmount(r.montant) || 0), 0) } catch (_) {}
+  const total = Math.round((franchise + participation) * 100) / 100
+  const fmt = n => { try { return fmtEur(n) } catch (_) { return `${n} €` } }
+  const postes = [franchise ? `franchises et réductions de loyer ${fmt(franchise)}` : null, participation ? `participation aux travaux ${fmt(participation)}` : null].filter(Boolean)
+  const nonChiffre = [/pret des locaux|mise a disposition|occupation anticipee|locaux pretes/.test(t) ? 'prêt / mise à disposition des locaux' : null, conditionnelle ? `franchises conditionnelles ${fmt(conditionnelle)} (comptées seulement si acquises)` : null].filter(Boolean)
+  return { montant: total || null, detail: `dédit estimé${total ? ` ${fmt(total)}` : ' (aucun avantage chiffré dans la fiche)'}${postes.length ? ` = ${postes.join(' + ')}` : ''}${nonChiffre.length ? ` ; non compris : ${nonChiffre.join(', ')}` : ''}` }
+}
+// MONTANT D'UNE INDEMNITÉ NON CHIFFRÉE DANS LE BAIL : mois de loyer et/ou dédit
+// égal aux avantages consentis. { montant, detail, partiel } ou null.
+function chiffrerIndemnite(texte, d) {
+  const mois = montantIndemniteEnMois(texte, d)
+  const dedit = estimationDedit(texte, d)
+  if (!mois && !(dedit && dedit.montant)) return dedit ? { montant: null, detail: dedit.detail, partiel: true } : null
+  const fmt = n => { try { return fmtEur(n) } catch (_) { return `${n} €` } }
+  const parts = []
+  if (mois) parts.push(`${String(mois.mois).replace('.', ',')} mois × loyer de base ${fmt(mois.loyer)}/an = ${fmt(mois.montant)}, indexation en sus`)
+  if (dedit) parts.push(dedit.detail)
+  const montant = Math.round(((mois?.montant || 0) + (dedit?.montant || 0)) * 100) / 100
+  // reste partiel si une somme en sus n'est ni le dédit estimé ni chiffrable
+  const partiel = !!(mois?.partiel && !dedit) || /non compris/.test(dedit?.detail || '')
+  return { montant, detail: parts.join(' + '), partiel, mois: mois?.mois, loyer: mois?.loyer }
+}
 function getExitEvents(d) {
   if (!d || !Array.isArray(d.echeances_sortie)) return null
   const toDate = v => { const s = normalizeDate(safeStr(v)); return s && /^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s : null }
@@ -2730,8 +2770,9 @@ function getExitEvents(d) {
       const triDate = (e.type === 'triennale' && !e._date_lue && triennialOrdinalFromText(e.libelle)) ? resolveEcheanceDateFromText(e.libelle, d.date_effet) : null
       const o = { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: sansIndemniteReelle(e.indemnite_sortie, e.montant_indemnite) ? null : empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
       if (o.indemnite_sortie && !parseAmount(o.montant_indemnite)) {
-        const c = montantIndemniteEnMois(o.indemnite_sortie, d)
-        if (c) { o.montant_indemnite = c.montant; o._montant_calcule = c }
+        const c = chiffrerIndemnite(o.indemnite_sortie, d)
+        if (c && c.montant) { o.montant_indemnite = c.montant; o._montant_calcule = c }
+        else if (c) o._montant_calcule = c
       }
       return o
     })
@@ -4266,8 +4307,8 @@ function computeIndemnitesTerme(d, exitEvents) {
     !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul)) &&
     !sansIndemniteReelle(`${safeStr(row.motif) || ''} ${safeStr(row.calcul) || ''}`, row.montant)
   ).map(row => {
-    const c = !parseAmount(row.montant) ? montantIndemniteEnMois(`${safeStr(row.calcul) || ''} ${safeStr(row.motif) || ''}`, d) : null
-    return { terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: c ? c.montant : row.montant, montant_calcule: c || undefined, calcul: row.calcul, page: row.page }
+    const c = !parseAmount(row.montant) ? chiffrerIndemnite(`${safeStr(row.calcul) || ''} ${safeStr(row.motif) || ''}`, d) : null
+    return { terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: c?.montant ? c.montant : row.montant, montant_calcule: c || undefined, calcul: row.calcul, page: row.page }
   })
   // Quand les échéances de sortie sont disponibles (lues avec leur texte),
   // elles remplacent indemnites_break : indemnité si départ (due par le
@@ -7574,7 +7615,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '4px', fontSize: '11px', lineHeight: 1.4 }}>
                       {f.val && safeStr(f.exit.libelle) && <div style={{ color: 'var(--text3)' }}>{safeStr(f.exit.libelle)}</div>}
                       {(safeStr(f.exit.preavis) || d.notice) && <div style={{ color: 'var(--text3)' }}>Préavis : {safeStr(f.exit.preavis) || d.notice}</div>}
-                      {f.hasIndem && <div style={{ color: '#B8860B' }}><strong>Si départ :</strong> {safeStr(f.exit.indemnite_sortie) || ''}{f.exit.montant_indemnite ? `${safeStr(f.exit.indemnite_sortie) ? ' — ' : ''}${f.exit._montant_calcule ? '≈ ' : ''}${fmtEur(f.exit.montant_indemnite)}` : ''}{f.exit._montant_calcule ? <span style={{ color: 'var(--text3)', fontSize: '10.5px' }}>{` (calculé : ${String(f.exit._montant_calcule.mois).replace('.', ',')} mois × loyer de base ${fmtEur(f.exit._montant_calcule.loyer)}/an, hors indexation${f.exit._montant_calcule.partiel ? ' ; somme prévue en sus non chiffrée' : ''})`}</span> : null}</div>}
+                      {f.hasIndem && <div style={{ color: '#B8860B' }}><strong>Si départ :</strong> {safeStr(f.exit.indemnite_sortie) || ''}{f.exit.montant_indemnite ? `${safeStr(f.exit.indemnite_sortie) ? ' — ' : ''}${f.exit._montant_calcule ? '≈ ' : ''}${fmtEur(f.exit.montant_indemnite)}` : ''}{f.exit._montant_calcule ? <span style={{ color: 'var(--text3)', fontSize: '10.5px' }}>{` (${f.exit.montant_indemnite ? 'estimation' : 'non chiffrable'} : ${f.exit._montant_calcule.detail}${f.exit._montant_calcule.partiel && !/non compris/.test(f.exit._montant_calcule.detail) ? ' ; somme prévue en sus non chiffrée' : ''})`}</span> : null}</div>}
                       {f.hasComp && <div style={{ color: 'var(--success)' }}><strong>Si maintien :</strong> {safeStr(f.exit.compensation_maintien)}</div>}
                       {safeStr(f.exit.conditions) && <div style={{ color: 'var(--text2)' }}><strong>Conditions :</strong> {safeStr(f.exit.conditions)}</div>}
                     </div>
@@ -8483,7 +8524,8 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
                       <td style={{ fontWeight: 500 }}>{safeStr(row.motif) || '—'}</td>
                       <td style={{ textAlign: 'right' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                          {row.montant ? <span title={row.montant_calcule ? `Calculé par l'appli : ${String(row.montant_calcule.mois).replace('.', ',')} mois × loyer de base ${fmtEur(row.montant_calcule.loyer)}/an, hors indexation${row.montant_calcule.partiel ? ' — la somme prévue en sus (dédit, avantages consentis…) n\'est pas comprise' : ''}` : undefined} style={row.montant_calcule ? { cursor: 'help' } : undefined}>{row.montant_calcule ? '≈ ' : ''}{fmtEur(row.montant)}{row.montant_calcule?.partiel ? ' + en sus' : ''}</span> : '—'}
+                          {row.montant ? <span style={row.montant_calcule ? { cursor: 'help' } : undefined} title={row.montant_calcule ? `Estimation de l'appli : ${row.montant_calcule.detail}` : undefined}>{row.montant_calcule ? '≈ ' : ''}{fmtEur(row.montant)}{row.montant_calcule?.partiel ? ' + non chiffré' : ''}</span> : '—'}
+                          {row.montant_calcule ? <div style={{ fontSize: '10.5px', color: 'var(--text3)', fontWeight: 400, marginTop: '2px', maxWidth: '260px', whiteSpace: 'normal', textAlign: 'right' }}>{row.montant ? 'Estimation' : 'Non chiffrable'} : {row.montant_calcule.detail}</div> : null}
                           <PageJumpIcon item={item} page={row.page} />
                         </span>
                       </td>
