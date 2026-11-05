@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.32 · travaux préfinancés par surloyer'
+const APP_VERSION = '21.33 · franchise acquise malgré dédit'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1779,6 +1779,13 @@ function exportEvenToExcel(tree) {
         if (apres !== avant && apres !== 'Bail') commentaires.push(`Régime modifié par cet avenant : ${LIB_REGIME[apres] || 'bail commercial'}`)
       }
     } catch (_) {}
+    try {
+      const src = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
+      deditsAvantEcheance(src).forEach(x => {
+        const est = (() => { try { return estimationDedit(x.texte, isAv && parent ? mergedBailData(parent, { throughAvenantId: item.id }) : (item.data || {})) } catch (_) { return null } })()
+        commentaires.push(`Dédit si le bail prend fin avant le ${x.avant} (ne s'applique pas à une sortie à cette date ou après)${est ? ` — ${est.detail}` : ` : ${x.texte.slice(0, 160)}`}`)
+      })
+    } catch (_) {}
     aToutMoment.forEach(e => commentaires.push(`Faculté de sortie à tout moment${nd(e.date) ? ` à partir du ${nd(e.date)}` : ''}${safeStr(e.preavis) ? ` (préavis : ${safeStr(e.preavis)})` : ''} — non reportée en colonne Break`))
     penalites.forEach(p => {
       if (p.supprimee) { commentaires.push(`Pénalité du ${p.date} supprimée par cet avenant`); return }
@@ -2780,6 +2787,29 @@ function chiffrerIndemnite(texte, d) {
   const partiel = !!(mois?.partiel && !dedit) || /non compris/.test(dedit?.detail || '')
   return { montant, detail: parts.join(' + '), partiel, mois: mois?.mois, loyer: mois?.loyer }
 }
+// SOMME DUE SI LE BAIL PREND FIN « AVANT LE X » : elle ne s'applique pas à une
+// sortie exercée LE X ou après (vécu : dédit « si le Preneur met fin au bail
+// avant le 14/04/2029 » affiché comme indemnité de la break du 14/04/2029).
+function dateAvantDans(texte) {
+  const t = stripAccents(safeStr(texte) || '').toLowerCase()
+  const m = t.match(/\bavant\s+(?:le\s+|l.expiration[^.;]{0,80}?|la fin[^.;]{0,60}?|le terme[^.;]{0,60}?)\(?\s*(\d{1,2}[\/.]\d{1,2}[\/.]\d{4}|\d{1,2}(?:er)?\s+(?:janvier|fevrier|mars|avril|mai|juin|juillet|aout|septembre|octobre|novembre|decembre)\s+\d{4})/)
+  return m ? normalizeDate(m[1]) : null
+}
+function indemniteAvantEcheance(texte, dateSortie) {
+  const avant = parseFR(dateAvantDans(texte)), sortie = parseFR(normalizeDate(safeStr(dateSortie)))
+  if (!avant || !sortie) return false
+  return sortie.getTime() >= avant.getTime() - 3 * 86400000
+}
+// Dédits / restitutions dus en cas de fin AVANT une date, écartés des
+// indemnités de sortie : repris en commentaire de l'extract EVEN
+function deditsAvantEcheance(d) {
+  const out = []
+  const vus = new Set()
+  const ajoute = (texte, sortie) => { const av = dateAvantDans(texte); if (av && indemniteAvantEcheance(texte, sortie) && !vus.has(av)) { vus.add(av); out.push({ avant: av, texte: safeStr(texte) }) } }
+  ;(Array.isArray(d?.indemnites_break) ? d.indemnites_break : []).forEach(r => ajoute(`${safeStr(r?.motif) || ''} ${safeStr(r?.calcul) || ''}`, (() => { try { return resolveIndemnityBreakDate(r, d) || r?.break_date } catch (_) { return r?.break_date } })()))
+  ;(Array.isArray(d?.echeances_sortie) ? d.echeances_sortie : []).forEach(e => ajoute(e?.indemnite_sortie, e?.date))
+  return out
+}
 function getExitEvents(d) {
   if (!d || !Array.isArray(d.echeances_sortie)) return null
   const toDate = v => { const s = normalizeDate(safeStr(v)); return s && /^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s : null }
@@ -2795,7 +2825,8 @@ function getExitEvents(d) {
       // vécu : 2e triennale comptée à partir d'une échéance exceptionnelle à 4
       // ans (2032) au lieu de la date d'effet (2031).
       const triDate = (e.type === 'triennale' && !e._date_lue && triennialOrdinalFromText(e.libelle)) ? resolveEcheanceDateFromText(e.libelle, d.date_effet) : null
-      const o = { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: sansIndemniteReelle(e.indemnite_sortie, e.montant_indemnite) ? null : empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+      const o = { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: (sansIndemniteReelle(e.indemnite_sortie, e.montant_indemnite) || indemniteAvantEcheance(e.indemnite_sortie, triDate || toDate(e.date))) ? null : empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+      if (!o.indemnite_sortie && e.indemnite_sortie && indemniteAvantEcheance(e.indemnite_sortie, o.date)) o.montant_indemnite = null
       if (o.indemnite_sortie && !parseAmount(o.montant_indemnite)) {
         const c = chiffrerIndemnite(o.indemnite_sortie, d)
         if (c && c.montant) { o.montant_indemnite = c.montant; o._montant_calcule = c }
@@ -4334,7 +4365,8 @@ function computeIndemnitesTerme(d, exitEvents) {
   const cleanBreakIndem = (d.indemnites_break || []).filter((row) =>
     !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
     !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul)) &&
-    !sansIndemniteReelle(`${safeStr(row.motif) || ''} ${safeStr(row.calcul) || ''}`, row.montant)
+    !sansIndemniteReelle(`${safeStr(row.motif) || ''} ${safeStr(row.calcul) || ''}`, row.montant) &&
+    !indemniteAvantEcheance(`${safeStr(row.motif) || ''} ${safeStr(row.calcul) || ''}`, resolveIndemnityBreakDate(row, d) || row.break_date)
   ).map(row => {
     const c = !parseAmount(row.montant) ? chiffrerIndemnite(`${safeStr(row.calcul) || ''} ${safeStr(row.motif) || ''}`, d) : null
     return { terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: c?.montant ? c.montant : row.montant, montant_calcule: c || undefined, calcul: row.calcul, page: row.page }
@@ -4444,7 +4476,15 @@ function isConditionalFranchise(row) {
   // renvoi à une condition déjà énoncée (vécu : tranches des 7e et 8e
   // anniversaires « même condition que ci-dessus », classées acquises)
   if (/\bmemes? conditions?\b|\bconditions? (identiques?|precitees?|susvisees?|ci-dessus|ci-avant|enoncees? ci-dessus)\b/.test(c)) return true
-  return /\b(si|sous reserve|a condition|en cas de|sauf|renonc\w*|ne delivre pas|ne delivrerait pas|faute de conge)\b/.test(c)
+  // DÉDIT / RESTITUTION en cas de fin du bail AVANT une date (« si le Preneur
+  // met fin au bail avant le 14/04/2029 ») : sanction d'une sortie anticipée
+  // hors des facultés prévues, pas une condition d'octroi — la franchise reste
+  // acquise (vécu : 27 mois lissés, tous classés conditionnels). Une
+  // restitution liée à l'EXERCICE d'une faculté (« en cas de congé à la
+  // première échéance triennale ») garde la franchise conditionnelle.
+  const morceaux = c.split(/[;.]/).filter(m => !(/dedit|avantages? consentis|restitu\w*|rembours\w*/.test(m) && /\bavant\s+(le\b|l.expiration|la fin|le terme|l.echeance|\d)/.test(m) && !/conge|faculte|exerc|echeance triennale/.test(m.replace(/avant\s+l.echeance/, ''))))
+  if (!morceaux.join(' ').trim()) return false
+  return /\b(si|sous reserve|a condition|en cas de|sauf|renonc\w*|ne delivre pas|ne delivrerait pas|faute de conge)\b/.test(morceaux.join(' ; '))
 }
 // Mois de loyer exonérés d'une franchise : l'équivalent calculé quand la durée
 // extraite ne colle pas au montant, sinon la durée extraite.
@@ -7178,6 +7218,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
     .filter(ib => !/cession/i.test(safeStr(ib.motif) || '') && !/cession/i.test(safeStr(ib.calcul) || ''))
     .filter(ib => !/non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(safeStr(ib.motif) || '') && !/non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(safeStr(ib.calcul) || ''))
     .filter(ib => !sansIndemniteReelle(`${safeStr(ib.motif) || ''} ${safeStr(ib.calcul) || ''}`, ib.montant))
+    .filter(ib => !indemniteAvantEcheance(`${safeStr(ib.motif) || ''} ${safeStr(ib.calcul) || ''}`, resolveIndemnityBreakDate(ib, d) || ib.break_date))
   function findIndemniteForBreak(breakDateStr) {
     const bd = parseFR(breakDateStr)
     if (!bd) return null
