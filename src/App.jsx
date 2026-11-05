@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.25 · pas de section participation vide'
+const APP_VERSION = '21.26 · « aucune indemnité » ignorée'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2644,6 +2644,20 @@ function dropRenouncedConditional(entries, breaks, avenant) {
 // indemnites_break appariés par date). Quand le champ existe, il fait foi :
 // aucun calcul arithmétique ni filtre par durée ferme n'est appliqué par
 // dessus — tout vient du texte.
+// « INDEMNITÉ » QUI N'EN EST PAS UNE : texte qui dit qu'aucune indemnité n'est
+// due ou chiffrée, sans montant ni base de calcul (vécu : « Le PRENEUR devra
+// prévenir le BAILLEUR six mois avant… Aucun montant d'indemnité spécifique
+// de sortie anticipée n'est chiffré » affiché en « Indemnité si exercée »).
+// Ni carte, ni tableau, ni base, ni extract EVEN.
+function sansIndemniteReelle(texte, montant) {
+  if (parseAmount(montant)) return false
+  const t = stripAccents(safeStr(texte) || '').toLowerCase()
+  if (!t) return false
+  const negation = /(aucun\w*|pas d.|sans|ni)\s+(montant\s+d.|somme\s+d.)?(indemnit|penalit)|aucun montant|aucune somme|n.est\s+(pas\s+)?chiffr|non chiffr|n.est (pas )?(prevu|stipule)e? (aucun|d.indemnit)/.test(t)
+  if (!negation) return false
+  const montantEcrit = /\d[\d\s.\u00a0\u202f]*(,\d+)?\s*(€|euros?\b)|\d+(?:[.,]\d+)?\s*mois\s+de\s+loyer|\b(un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|douze)\s+(\(\d+\)\s+)?mois\s+de\s+loyer/.test(t)
+  return !montantEcrit
+}
 function getExitEvents(d) {
   if (!d || !Array.isArray(d.echeances_sortie)) return null
   const toDate = v => { const s = normalizeDate(safeStr(v)); return s && /^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s : null }
@@ -2659,7 +2673,7 @@ function getExitEvents(d) {
       // vécu : 2e triennale comptée à partir d'une échéance exceptionnelle à 4
       // ans (2032) au lieu de la date d'effet (2031).
       const triDate = (e.type === 'triennale' && !e._date_lue && triennialOrdinalFromText(e.libelle)) ? resolveEcheanceDateFromText(e.libelle, d.date_effet) : null
-      return { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
+      return { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: sansIndemniteReelle(e.indemnite_sortie, e.montant_indemnite) ? null : empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
     })
     // Renonciation à la faculté triennale "pour la durée ferme" + première
     // faculté de congé à la fin de celle-ci ("pour la première fois") : les
@@ -4189,7 +4203,8 @@ function computeIndemnitesTerme(d, exitEvents) {
   const isDefaultBoilerplateRow2 = txt => /non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(txt || '')
   const cleanBreakIndem = (d.indemnites_break || []).filter((row) =>
     !/cession/i.test(safeStr(row.motif) || '') && !/cession/i.test(safeStr(row.calcul) || '') &&
-    !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul))
+    !isDefaultBoilerplateRow2(safeStr(row.motif)) && !isDefaultBoilerplateRow2(safeStr(row.calcul)) &&
+    !sansIndemniteReelle(`${safeStr(row.motif) || ''} ${safeStr(row.calcul) || ''}`, row.montant)
   ).map(row => ({ terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: row.montant, calcul: row.calcul, page: row.page }))
   // Quand les échéances de sortie sont disponibles (lues avec leur texte),
   // elles remplacent indemnites_break : indemnité si départ (due par le
@@ -7028,6 +7043,7 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
   const rawIndemnitesBreak = (Array.isArray(d.indemnites_break) ? d.indemnites_break : [])
     .filter(ib => !/cession/i.test(safeStr(ib.motif) || '') && !/cession/i.test(safeStr(ib.calcul) || ''))
     .filter(ib => !/non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(safeStr(ib.motif) || '') && !/non[\s-]?respect|ne\s+prendrait\s+pas\s+possession|manquement/i.test(safeStr(ib.calcul) || ''))
+    .filter(ib => !sansIndemniteReelle(`${safeStr(ib.motif) || ''} ${safeStr(ib.calcul) || ''}`, ib.montant))
   function findIndemniteForBreak(breakDateStr) {
     const bd = parseFR(breakDateStr)
     if (!bd) return null
