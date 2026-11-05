@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.16 · délai travaux recalculé'
+const APP_VERSION = '21.17 · pénalité supprimée si écrite'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1639,7 +1639,14 @@ function exportEvenToExcel(tree) {
         const ligne = p => ({ terme: p.date, due_par: 'Preneur', montant: p.montant, calcul: p.calcul })
         const changees = penalites.filter(p => !prec.some(q => memeIndemniteSortie(ligne(q), ligne(p))))
         const supprimees = prec.filter(q => !penalites.some(p => memeIndemniteSortie(ligne(q), ligne(p))))
-        penalites = changees.length ? changees : supprimees.map(q => ({ date: q.date, montant: 0, calcul: null }))
+        // une pénalité absente de l'état après l'avenant n'est montrée comme
+        // SUPPRIMÉE (montant 0) que si l'avenant le dit en toutes lettres : son
+        // échéancier relu omet souvent les indemnités sans les supprimer (vécu :
+        // avenant fixant la prise d'effet d'un BEFA, « 09/03/2031 · 0 » qui
+        // laissait croire à la suppression de la pénalité de 52 227,83 €)
+        const texteAv = stripAccents(`${safeStr(item.data?.objet_avenant) || ''} ${JSON.stringify(item.data?.champs_modifies || {})}`).toLowerCase()
+        const suppressionEcrite = /(suppr\w*|renonc\w*|annul\w*|n.est plus due|ne sera plus due)[^."]{0,60}(indemnit|penalit)|(indemnit|penalit)\w*[^."]{0,60}(suppr\w*|renonc\w*|annul\w*|n.est plus due|ne sera plus due)|sans indemnit|aucune indemnit|aucune penalit/.test(texteAv)
+        penalites = changees.length ? changees : (suppressionEcrite ? supprimees.map(q => ({ date: q.date, montant: 0, calcul: null })) : [])
       }
       penalitesPrec.set(isAv ? parent?.id : item.id, enVigueur)
     } catch (e) { console.warn('Extract EVEN : état non calculable', item.id, e) }
