@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.20 · travaux refacturés au preneur'
+const APP_VERSION = '21.22 · travaux refacturés : champ dédié'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -102,7 +102,7 @@ CORRECTIONS MANUSCRITES : une mention imprimee BARREE (raturee) et remplacee par
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent. INTERDIT: ne JAMAIS concatener une annotation, precision ou commentaire entre parentheses dans un champ date (format strict JJ/MM/AAAA, rien d'autre) ou dans un champ duree (ex: "1 an", "9 ans" — rien d'autre). Si une information complementaire existe (ex: reconduction, plafond de duree, condition), elle DOIT aller dans son champ dedie (ex: reconduction_tacite) et nulle part ailleurs — jamais annexee en texte libre dans date_fin, date_effet ou duree_totale. Exemple INTERDIT: date_fin="31/12/2023 (renouvelable, terme absolu 31/12/2034)" — la valeur correcte est date_fin="31/12/2023" avec reconduction_tacite.date_limite_absolue="31/12/2034" ; duree_totale="1 an renouvelable par tacite reconduction, duree maximale 12 ans" est egalement INTERDIT — la valeur correcte est duree_totale="1 an".
 
 CHAMPS:
-{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"charges_impots_taxes":[],"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
+{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":[],"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":[],"conditions_suspensives":[],"charges_impots_taxes":[],"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":[],"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"indexation_indice":null,"indexation_trimestre_base":null,"indexation_valeur_base":null,"franchise_periodes":[],"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":[],"travaux_refactures_preneur":[],"indemnites":[],"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{},"_pages":{}}
 
 REGLES PAR CHAMP:
 - duree_totale: duree totale du bail (date_effet a date_fin). REGLE CP/CG POUR LA DUREE TOTALE: les Conditions Particulieres derogent TOUJOURS aux Conditions Generales. Si une CP fixe la duree DU BAIL lui-meme (ex: "le present bail est consenti pour une duree de neuf (9) annees", "par derogation a l'article CG-X, la duree du bail est de 9 ans"), c'est cette duree CP qui est duree_totale, meme si les CG indiquent une autre duree (ex: 12 ans) — et date_fin = date_effet + cette duree CP (veille de l'anniversaire). La duree des CG ne s'applique que si les CP ne fixent AUCUNE duree totale du bail. duree_ferme: duree pendant laquelle le preneur ne peut pas resilier ; si mentionne explicitement (chiffre en toutes lettres), utiliser cette valeur ; si break_options, c'est l'intervalle date_effet->premiere break. IMPORTANT: si duree_ferme < duree_totale et break_options est vide, ajouter dans break_options la date correspondant a date_effet + duree_ferme (premiere sortie possible).
@@ -148,7 +148,7 @@ REGLES PAR CHAMP:
 - franchise: OBLIGATOIRE DES QUE franchise_periodes CONTIENT AU MOINS UNE ENTREE — ne jamais laisser ce champ a null si franchise_periodes n'est pas vide (verification mecanique : si l'un est rempli, l'autre doit l'etre aussi). Texte VERBEUX reprenant fidelement la redaction de la clause de franchise telle qu'ecrite dans le bail (contrairement a franchise_periodes, qui est structure et chiffre, ce champ est un resume en langage courant, proche du texte original, sans etre un copier-coller integral) — sert de verification visuelle en regard du detail chiffre de franchise_periodes, pour que l'utilisateur puisse reperer un ecart ENTRE LE TEXTE DU BAIL ET LE TABLEAU STRUCTURE : ce champ doit donc etre redige INDEPENDAMMENT, a partir de ta propre lecture de la clause, PAS en reformulant ou en resumant les lignes que tu as toi-meme mises dans franchise_periodes — sinon il ne peut plus jamais reveler un desaccord entre les deux, ce qui annule son utilite. Inclure le montant total et la decomposition telle que redigee (ex: "Franchise initiale de 14 mois, soit un total de 39.135,83 € HT/HC, appliquee en 4 tranches de 3,5 mois a la prise d'effet puis a chaque date anniversaire du bail pendant 3 ans"). null UNIQUEMENT si franchise_periodes est aussi vide (aucune franchise dans le bail).
 - date_limite_travaux: UNIQUEMENT la date limite de REALISATION des travaux du preneur FINANCES en tout ou partie par le bailleur (participation financiere ci-dessous) ; null si le bailleur ne participe pas financierement aux travaux du preneur (travaux realises par le preneur a ses frais), et jamais une date de demarrage des travaux, de communication d'un planning ou de remise de documents.
 - participations_travaux: UNIQUEMENT si le bail prevoit une enveloppe financiere DISTINCTE de la franchise, specifiquement dediee aux travaux DU PRENEUR (financement par le bailleur des amenagements du preneur ; JAMAIS des travaux REALISES PAR LE BAILLEUR lui-meme a ses frais, ex: climatisation, renovation ou percement realises par le bailleur avant la prise d'effet). date_limite = une DATE jj/mm/aaaa (si le bail dit « avant la prise d'effet », mettre la date de prise d'effet) (ex: "le BAILLEUR verse X euros pour les travaux" avec un calendrier de facturation propre). EXCLURE: les franchises de loyer qualifiees de participation aux travaux (ex: "franchise accordee au titre de la participation aux travaux") — ces franchises doivent figurer UNIQUEMENT dans franchise_periodes. En cas de doublon franchise/travaux sur le meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. libelle OBLIGATOIRE.
-- REFACTURATION AU PRENEUR ≠ participation : des travaux realises par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur doit REMBOURSER au bailleur (ex : raccordement realise par le bailleur, refacture au preneur sur facture), ne vont NI dans participations_travaux NI dans travaux_montant — l'argent va du preneur au bailleur, pas l'inverse.
+- REFACTURATION AU PRENEUR ≠ participation : des travaux realises par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur doit REMBOURSER au bailleur (ex : raccordement realise par le bailleur, refacture au preneur sur facture), ne vont NI dans participations_travaux NI dans travaux_montant (l'argent va du preneur au bailleur, pas l'inverse) mais dans travaux_refactures_preneur, a NE PAS OMETTRE : [{"libelle":"objet des travaux","montant":"chiffres bruts HT","remarque":"modalites de remboursement","page":16}].
 - parking_nb_places: ex: "114 places (98 interieures + 16 exterieures)"
   STATIONNEMENT — TOTAL ET SOUS-CATEGORIES: un total suivi de « dont » / « comprenant » INCLUT toutes les sous-categories citees (PMR, places electriques, places reservees…) : elles detaillent le total, elles ne s'y ajoutent pas et ne s'en retranchent pas. Ventiler surfaces_detail (lignes Stationnement) par LOCALISATION ou par PRIX uniquement, et la somme des lignes doit egaler le total annonce. Ex: « 99 emplacements dont 2 places reservees au local de sprinklage, et comprenant 2 PMR en sous-sol, 16 places pour vehicules electriques en sous-sol et 3 PMR en exterieur » → parking_nb_places = \"99 places (96 en sous-sol + 3 en exterieur)\" ; lignes : Stationnement sous-sol 96, Stationnement exterieur 3 — JAMAIS 99 − 16 = 83.
   DEUX-ROUES: les places pour deux-roues / velos / motos ont leur propre ligne surfaces_detail avec categorie \"Stationnement deux-roues\" (jamais confondues avec les places voitures), et parking_nb_places les distingue : ex \"42 places voitures + 9 places deux-roues\".
@@ -184,7 +184,7 @@ surfaces_avant: tableau EXACT des surfaces telles qu'elles etaient AVANT cet ave
 BATIMENT (surfaces_delta, surfaces_avant, surfaces_apres, et surfaces_detail le cas echeant): chaque ligne porte un champ "batiment" = nom ou identifiant du batiment auquel appartient la surface, UNIQUEMENT si l'ensemble immobilier comprend plusieurs batiments distincts nommes (ex: "Pascal", "Batiment A") — null sinon, ne jamais inventer. Independant de "niveau" (l'etage au sein du batiment).
 surfaces_apres: tableau EXACT des surfaces APRES cet avenant. REGLE STRICTE: regrouper par categorie si plusieurs lignes de meme categorie DANS LE MEME BATIMENT (ex: 2 lignes Bureaux du meme batiment → une seule ligne avec la surface totale) — ne jamais fusionner des surfaces de batiments differents, elles restent sur des lignes distinctes. NE PAS INVENTER de lignes. NE PAS dupliquer. La surface totale de surfaces_apres doit etre egale a surface_totale_m2. categorie JAMAIS null. null si surface_change_type="inchangee".
 
-{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"numero_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
+{"bail_reference":{"preneur":null,"bailleur":null,"date_bail_origine":null,"adresse":null,"immeuble":null},"date_effet_avenant":null,"date_signature_avenant":null,"objet_avenant":null,"numero_avenant":null,"surface_change_type":"inchangee","surfaces_delta":null,"surfaces_avant":null,"surfaces_apres":null,"champs_modifies":{"adresse":null,"immeuble":null,"ville":null,"classification_batiment":null,"type_bail":null,"duree_totale":null,"duree_ferme":null,"preneur":null,"bailleur":null,"garant":null,"date_effet":null,"date_effet_condition":null,"date_signature":null,"break_options":null,"echeances_sortie":null,"notice":null,"date_conge":null,"date_fin":null,"date_limite_travaux":null,"conditions_break":null,"reconduction_tacite":null,"frais_redaction_actes":null,"conditions_suspensives":null,"charges_impots_taxes":null,"charges_vetuste":null,"charges_force_majeure":null,"surface_totale_m2":null,"surfaces_detail":null,"parking_nb_places":null,"parking":null,"rie":null,"loyer_signature_montant":null,"loyer_signature":null,"loyer_cours":null,"indexation":null,"franchise_periodes":null,"franchise":null,"charges":null,"depot_garantie_montant":null,"depot_garantie_duree_mois":null,"depot_garantie":null,"gapd_montant":null,"gapd_duree_mois":null,"gapd":null,"travaux_montant":null,"travaux_date_factures":null,"travaux_modalites":null,"participations_travaux":null,"travaux_refactures_preneur":null,"indemnites":null,"indemnites_detail":null,"article_606":null,"conformite":null,"accession":null,"remise_en_etat":null,"restitution_etat":null,"restitution_delai_edl":null,"restitution_conditions_specifiques":null,"maintenance":null,"destination":null,"sous_location":null,"cession":null,"mise_a_disposition":null,"indemnites_restitution":[],"_sources":{}},"_pages":{}}
 
 RAPPELS ≠ MODIFICATIONS (champs_modifies) : un avenant reprend souvent, dans son expose ou sa designation, des elements du bail qu'il NE modifie PAS (surfaces, parkings, participation du bailleur aux travaux, depot de garantie, indice, loyer d'origine…). Un element simplement RAPPELE, identique a ce qui etait deja en vigueur, va a null dans champs_modifies. N'y mettre que ce que l'avenant CHANGE ou AJOUTE. Ex : un avenant de renouvellement qui rappelle « 228 m² + mezzanine 205 m², 5 emplacements » et la participation de 85.000 € du bail, sans les modifier → surface_totale_m2, surfaces_detail, parking_nb_places et participations_travaux a null ; seuls le loyer, la duree, le depot de garantie ou les charges modifies y figurent.
 
@@ -206,7 +206,7 @@ REGLES PAR CHAMP (champs_modifies):
 - conditions_suspensives: UNIQUEMENT si cet avenant leve une condition suspensive du bail initial, en ajoute une nouvelle, ou en modifie une existante. Format: [{"libelle":"texte concis","date_limite_levee":"jj/mm/aaaa ou null","statut":"levee/en cours/non precise","page":2}]. date_limite_levee: meme regle que dans le prompt d'extraction du bail — chercher systematiquement cette date (ou la calculer si exprimee en delai relatif depuis la date de l'avenant). Si l'avenant leve une condition deja listee au bail initial, la reprendre ici avec statut="levee" (ce champ ecrase completement l'ancien tableau, donc il faut reprendre TOUTES les conditions encore pertinentes, pas seulement celle qui vient d'etre levee). null si non aborde par cet avenant.
 - date_limite_travaux: UNIQUEMENT la date limite de REALISATION des travaux du preneur FINANCES en tout ou partie par le bailleur (participation financiere ci-dessous) ; null si le bailleur ne participe pas financierement aux travaux du preneur (travaux realises par le preneur a ses frais), et jamais une date de demarrage des travaux, de communication d'un planning ou de remise de documents.
 - participations_travaux: UNIQUEMENT si enveloppe financiere DISTINCTE de la franchise, dediee aux travaux DU PRENEUR (financement par le bailleur des amenagements du preneur ; JAMAIS des travaux REALISES PAR LE BAILLEUR lui-meme a ses frais, ex: climatisation, renovation ou percement realises par le bailleur avant la prise d'effet). date_limite = une DATE jj/mm/aaaa (si le bail dit « avant la prise d'effet », mettre la date de prise d'effet) avec calendrier de facturation propre. Ne JAMAIS y mettre une franchise de loyer meme si qualifiee "au titre des travaux" — celle-ci va dans franchise_periodes. En cas de doute sur meme montant, privilegier franchise_periodes. Format: [{\"libelle\":\"denomination exacte\",\"montant\":\"822701\",\"date_limite\":\"31/12/2024\",\"remarque\":null,\"page\":5}]. null si non concerne.
-- REFACTURATION AU PRENEUR ≠ participation : des travaux realises par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur doit REMBOURSER au bailleur (ex : raccordement realise par le bailleur, refacture au preneur sur facture), ne vont NI dans participations_travaux NI dans travaux_montant — l'argent va du preneur au bailleur, pas l'inverse.
+- REFACTURATION AU PRENEUR ≠ participation : des travaux realises par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur doit REMBOURSER au bailleur (ex : raccordement realise par le bailleur, refacture au preneur sur facture), ne vont NI dans participations_travaux NI dans travaux_montant (l'argent va du preneur au bailleur, pas l'inverse) mais dans travaux_refactures_preneur, a NE PAS OMETTRE : [{"libelle":"objet des travaux","montant":"chiffres bruts HT","remarque":"modalites de remboursement","page":16}].
 - surfaces_detail: tableau complet post-avenant UNIQUEMENT si l'avenant redefinit completement l'assiette. null sinon (utiliser surfaces_apres a la place).
 - numero_avenant: numero de l'avenant tel qu'ecrit dans son titre ou en tete (ex: \"Avenant n°3 au bail\" → 3), en chiffre. null si l'avenant n'est pas numerote. Ne pas le deduire de l'ordre des autres avenants.
 - _pages: objet AU MEME NIVEAU que champs_modifies (pas dedans) avec le numero de PAGE du PDF ou se trouve chaque champ RENSEIGNE (non-null) de champs_modifies, plus objet_avenant, date_effet_avenant et date_signature_avenant si applicable. Format: {"loyer_signature_montant":2,"date_effet_avenant":1,"objet_avenant":1}. Ne pas inclure les champs restes null.`
@@ -1465,6 +1465,10 @@ function travauxModifiesParAvenant(mods, avant) {
     || avantRows.some(a => lib(a) && lib(a) === lib(r) && cle(a) === cle(r))
   const out = { ...(mods || {}) }
   if (Array.isArray(out.participations_travaux)) out.participations_travaux = out.participations_travaux.filter(r => !memeQue(r))
+  if (Array.isArray(out.travaux_refactures_preneur)) {
+    const avantRefac = [...(Array.isArray(avant?.travaux_refactures_preneur) ? avant.travaux_refactures_preneur : []), ...avantRows.filter(estRefacturationAuPreneur)]
+    out.travaux_refactures_preneur = out.travaux_refactures_preneur.filter(r => !avantRefac.some(a => Math.abs((parseAmount(a?.montant) || 0) - (parseAmount(r?.montant) || 0)) <= 1))
+  }
   const ma = parseAmount(avant?.travaux_montant), mm = parseAmount(out.travaux_montant)
   if (mm != null && ma != null && Math.abs(ma - mm) <= 1) delete out.travaux_montant
   const da = normalizeDate(safeStr(avant?.date_limite_travaux)), dm = normalizeDate(safeStr(out.date_limite_travaux))
@@ -1568,8 +1572,8 @@ function montantTravauxHorsRefacturation(d) {
   const m = parseAmount(d?.travaux_montant)
   if (!m) return null
   const rows = Array.isArray(d?.participations_travaux) ? d.participations_travaux : []
-  const refac = rows.filter(estRefacturationAuPreneur)
-  const somme = refac.reduce((t, r) => t + (parseAmount(r.montant) || 0), 0)
+  const refac = [...rows.filter(estRefacturationAuPreneur), ...(Array.isArray(d?.travaux_refactures_preneur) ? d.travaux_refactures_preneur : [])]
+  const somme = refac.reduce((t, r) => t + (parseAmount(r?.montant) || 0), 0)
   if (refac.some(r => Math.abs((parseAmount(r.montant) || 0) - m) <= 1) || (somme && Math.abs(somme - m) <= 1)) return null
   if (!rows.some(r => !estRefacturationAuPreneur(r) && parseAmount(r.montant)) && texteRefacturation(d?.travaux_modalites)) return null
   return m
@@ -1592,7 +1596,11 @@ function participationsTravaux(d) {
     if (!parseAmount(r?.montant)) return { ...r, date_limite: null, date_limite_texte: dl.date ? `Date écrite (${dl.date}) non retenue : aucun montant de participation du bailleur` : dl.texte }
     return { ...r, date_limite: dl.date, date_limite_texte: dl.texte }
   }
-  const refac = rows.filter(estRefacturationAuPreneur)
+  // champ dédié (extractions récentes) + lignes rangées à tort parmi les
+  // participations (extractions antérieures)
+  const dedies = (Array.isArray(d?.travaux_refactures_preneur) ? d.travaux_refactures_preneur : []).filter(r => r && typeof r === 'object')
+  const malRangees = rows.filter(estRefacturationAuPreneur)
+  const refac = [...dedies, ...malRangees.filter(r => !dedies.some(x => Math.abs((parseAmount(x.montant) || 0) - (parseAmount(r.montant) || 0)) <= 1))]
   const autres = rows.filter(r => !estRefacturationAuPreneur(r))
   return {
     participations: autres.filter(r => !estTravauxDuBailleur(r)).map(avecDate),
@@ -1611,8 +1619,11 @@ const COLONNES_EVEN = [
   'Break 1', 'Break 2', 'Break 3', 'Break 4', "Date d'expiration",
   'Montant des travaux preneur financés par le bailleur', 'Date limite pour réaliser ces travaux preneur financé par le bailleur',
   "Pénalité en cas de départ à une échéance - Date d'exercice", 'Pénalité en cas de départ à une échéance - Montant de la pénalité',
-  // hors modèle EVEN (à la fin, pour ne pas décaler ses colonnes) : retrouver
-  // le document dans Lease Reader pour les contrôles visuels
+  // hors modèle EVEN (à la fin, pour ne pas décaler ses colonnes) :
+  // travaux réalisés par le bailleur AUX FRAIS DU PRENEUR (sommes dues par le
+  // preneur au bailleur — à ne pas perdre, mais jamais confondues avec une
+  // participation), puis de quoi retrouver le document dans Lease Reader
+  'Travaux refacturés au preneur - Montant dû au bailleur', 'Travaux refacturés au preneur - Libellé',
   'ID Lease Reader', 'Lien fiche Lease Reader',
 ]
 // Lien direct vers la fiche d'un document dans Lease Reader
@@ -1712,6 +1723,11 @@ function exportEvenToExcel(tree) {
     const sommeParts = parts.reduce((t, r) => t + (r.montant || 0), 0)
     const montantTravaux = sommeParts || vv.travaux_montant || ''
     const dateLimite = [...new Set([...parts.map(r => nd(r.date_limite)), vv.date_limite_travaux].filter(Boolean))].join(' ; ')
+    // travaux refacturés au preneur : ceux du document lui-même (un avenant ne
+    // reprend pas ceux qu'il ne fait que rappeler)
+    const refac = Array.isArray(vv.travaux_refactures_preneur) ? vv.travaux_refactures_preneur : []
+    const montantRefac = refac.reduce((t, r) => t + (r.montant || 0), 0) || ''
+    const libelleRefac = refac.map(r => r.libelle).filter(Boolean).join(' ; ')
     const sansVide = v => (v === null || v === undefined) ? '' : v
     return [
       // nom d'ACTIF (regroupement du dashboard), à défaut le nom extrait
@@ -1724,6 +1740,7 @@ function exportEvenToExcel(tree) {
       montantTravaux, dateLimite,
       penalites.map(r => r.date).join(' ; '),
       penalites.length === 1 ? sansVide(penalites[0].montant) : penalites.map(r => r.montant != null ? r.montant : (r.calcul || '—')).join(' ; '),
+      montantRefac, libelleRefac,
       String(item.id || '').slice(0, 8),
       lienFiche(item.id),
     ]
@@ -1734,7 +1751,7 @@ function exportEvenToExcel(tree) {
     const ref = XLSX.utils.encode_cell({ r: i + 1, c: colLien })
     if (ws[ref] && l[colLien]) ws[ref].l = { Target: l[colLien], Tooltip: 'Ouvrir la fiche dans Lease Reader' }
   })
-  const largeurs = { 0: 24.5, 1: 25.4, 8: 16, 9: 18, 10: 12, 16: 16, 17: 30.4, 18: 38.4, 19: 36.5, 20: 42.2, 21: 14, 22: 60 }
+  const largeurs = { 0: 24.5, 1: 25.4, 8: 16, 9: 18, 10: 12, 16: 16, 17: 30.4, 18: 38.4, 19: 36.5, 20: 42.2, 21: 30, 22: 45, 23: 14, 24: 60 }
   ws['!cols'] = COLONNES_EVEN.map((h, i) => ({ wch: largeurs[i] || Math.min(30, Math.max(12, h.length + 2)) }))
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Feuil1')
@@ -1822,7 +1839,7 @@ EXEMPLE (bail de 10 ans dont 9 fermes, effet 12/05/2026) : "Le Preneur renonce a
 const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
 CORRECTIONS MANUSCRITES : une mention imprimee BARREE (raturee) et remplacee par une mention ecrite A LA MAIN (souvent paraphee en marge) n'est plus en vigueur : retenir UNIQUEMENT la valeur manuscrite (date, montant, duree, surface…) dans TOUS les champs, jamais la valeur barree. Ex : « au plus tard le 30 septembre 2018 » barre et « 15 novembre 2018 » ecrit a la main → 15/11/2018.
 
-{"loyer_signature_montant":null,"loyer_signature":null,"paliers_loyer":[],"abattements":[],"loyer_variable":null,"franchise_periodes":[],"participations_travaux":[],"indemnites_break":[]}
+{"loyer_signature_montant":null,"loyer_signature":null,"paliers_loyer":[],"abattements":[],"loyer_variable":null,"franchise_periodes":[],"participations_travaux":[],"travaux_refactures_preneur":[],"indemnites_break":[]}
 
 REGLES PAR CHAMP:
 
@@ -1839,7 +1856,7 @@ loyer_variable: si le bail contient une clause de loyer variable ou indexe sur l
 franchise_periodes: TOUTES les franchises SANS EXCEPTION, y compris conditionnelles et complementaires. Format: [{"date_debut":"jj/mm/aaaa","date_fin":"jj/mm/aaaa","duree":"6 mois","montant":"123405","surface_assiette":"ex: LC1 (701 m²)","indexation_incluse":"Non","condition":"null ou texte si conditionnelle ex: si non-delivrance de conge au 31/08/2030","page":3}]. montant: calculer si non explicite (loyer_annuel_assiette * duree_mois / 12). FRANCHISE REPARTIE EN TRANCHES (montants echelonnes): UNE LIGNE PAR TRANCHE LISTEE dans la clause — le nombre de lignes doit egaler le nombre de tranches (ex: 96.080 € a la prise d'effet puis 96.080 € a chacune des 1re a 4e dates anniversaires et 96.083 € a la 5e = 6 lignes) et la somme des montants doit egaler le total annonce (ex: 576.483 €) : verifier avant de repondre. date_debut = date de la tranche (prise d'effet, ou Neme date anniversaire = date d'effet + N ans) ; date_fin = null si la clause ne la precise pas. NE JAMAIS INVENTER de duree : si la clause ne donne que des montants, duree = \"recalcul = <montant / loyer mensuel de l'assiette, arrondi a 0,1> mois\" — l'assiette etant le loyer HORS redevance RIE si la clause le precise. DUREE = NOMBRE DE MOIS DE LOYER EXONERES, PAS la periode d'application (ne concerne QUE les clauses appelees franchise : une \"reduction de loyer\" chiffree par annee va dans abattements, pas ici) : si la franchise est un MONTANT impute sur une periode (ex: "franchise de 5.430 € HT imputee sur les loyers de la premiere annee"), la periode (12 mois) va dans date_debut/date_fin, et duree = equivalent en mois de loyer, ecrit "recalcul = <montant / loyer mensuel arrondi a 0,1> mois" (ex: 5430 / (47060/12) → "recalcul = 1,4 mois") — JAMAIS "12 mois". ATTENTION DISTINCTION AVEC mise_a_disposition: une franchise reduit un loyer NORMALEMENT DU pendant une periode ou le bail a deja pris effet — elle a donc TOUJOURS un montant exonere superieur a zero. NE JAMAIS inclure ici une periode de MISE A DISPOSITION ANTICIPEE GRATUITE (occupation avant la date d'effet officielle du bail, "pas de loyer ni charges dus"), meme si le texte l'appelle "franchise" et meme si elle est ventilee par lot avec des dates differentes — cela va dans le champ dedie mise_a_disposition, pas ici. ATTENTION CAS INVERSE FREQUENT: quand plusieurs montants de franchise sont donnes a des dates anniversaires successives (ex: un montant "à compter du" 15/09/2025, un autre "à compter du" 15/09/2026, etc.) SANS duree ni date de fin explicite pour chaque tranche, NE JAMAIS supposer 12 mois entre deux echeances — c'est presque toujours un montant equivalent a quelques semaines/mois de loyer accorde CHAQUE ANNEE a la date anniversaire (ex: 1 mois de franchise par an), pas une exoneration continue toute l'annee. Calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC / 12)) puis date_fin = date_debut + duree_mois mois - 1 jour. N'utiliser 12 mois que si le texte le dit explicitement. FORMAT SYMETRIQUE POUR duree ET montant (jamais de phrase verbeuse) — (a) si la duree est explicite et le montant manquant: reprendre la duree telle quelle dans "duree", calculer montant = duree_mois * (loyer_annuel_base_HT_HC/12) et ecrire "recalcul = <montant> €" dans "montant" (pas un chiffre brut). (b) si le montant est explicite et la duree manquante: montant reste un chiffre brut normal, calculer duree_mois = round(montant / (loyer_annuel_base_HT_HC/12)) et ecrire "recalcul = <duree_mois> mois" dans "duree" (pas une phrase). Si les deux sont explicites, les reprendre tels quels sans marqueur. Jamais de formule detaillee type "A / B = C".
 
 participations_travaux: TOUTES les enveloppes de participation financiere du bailleur aux travaux du preneur. Format: [{"libelle":"denomination exacte ex: Locaux Initiaux R+5","montant":"822701","date_limite":"31/12/2024","remarque":null,"page":5}]. libelle OBLIGATOIRE, jamais null.
-- REFACTURATION AU PRENEUR ≠ participation : des travaux realises par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur doit REMBOURSER au bailleur (ex : raccordement realise par le bailleur, refacture au preneur sur facture), ne vont NI dans participations_travaux NI dans travaux_montant — l'argent va du preneur au bailleur, pas l'inverse.
+- REFACTURATION AU PRENEUR ≠ participation : des travaux realises par le BAILLEUR AUX FRAIS DU PRENEUR, que le preneur doit REMBOURSER au bailleur (ex : raccordement realise par le bailleur, refacture au preneur sur facture), ne vont NI dans participations_travaux NI dans travaux_montant (l'argent va du preneur au bailleur, pas l'inverse) mais dans travaux_refactures_preneur, a NE PAS OMETTRE : [{"libelle":"objet des travaux","montant":"chiffres bruts HT","remarque":"modalites de remboursement","page":16}].
 
 indemnites_restitution: tableau des indemnites FORFAITAIRES DE REMISE EN ETAT contractuellement prevues, dont le montant varie selon la date de sortie du preneur (break ou terme). Ce champ cible UNIQUEMENT les clauses du type "le PRENEUR versera au BAILLEUR une indemnite forfaitaire de X euros en cas de depart a compter de la Neme annee". Creer UNE LIGNE PAR TRANCHE DE MONTANT. EXCLURE absolument: penalites d immobilisation pour non-restitution tardive, indemnites d eviction, depots de garantie, penalites de retard, indemnites de non-renouvellement. REGLE terme: calculer la date exacte depuis date_effet + N annees (ex: 29/06/2026 + 6 ans = 28/06/2032). REGLE calcul: indiquer l indexation si prevue. Format: [{"terme":"28/06/2032 (expiration 6eme annee)","due_par":"Preneur","motif":"Indemnite forfaitaire remise en etat","montant":"115840","calcul":"Forfait indexe BT01: indemnite revisee = base x (indice revision / indice base)","page":6}]. null si aucune indemnite forfaitaire de ce type.
 indemnites_break: Sommes dues par le PRENEUR au BAILLEUR UNIQUEMENT en cas d exercice de son droit de CONGE (sortie anticipee par le preneur via l option de break). TROIS CAS A DISTINGUER:
@@ -2724,12 +2741,14 @@ function sanitizeExtracted(data) {
   d.indemnites         = ensureArray(d.indemnites)
   d.surfaces_delta          = cs(ensureArray(d.surfaces_delta))
   d.participations_travaux  = ensureArray(d.participations_travaux)
+  d.travaux_refactures_preneur = ensureArray(d.travaux_refactures_preneur)
   d.paliers_loyer           = ensureArray(d.paliers_loyer)
   d.abattements             = ensureArray(d.abattements)
   d.indemnites_break        = ensureArray(d.indemnites_break)
   d.indemnites_restitution  = ensureArray(d.indemnites_restitution)
   if (d.champs_modifies) {
     d.champs_modifies.participations_travaux = ensureArray(d.champs_modifies?.participations_travaux)
+    d.champs_modifies.travaux_refactures_preneur = ensureArray(d.champs_modifies?.travaux_refactures_preneur)
     d.champs_modifies.paliers_loyer          = ensureArray(d.champs_modifies?.paliers_loyer)
     d.champs_modifies.abattements            = ensureArray(d.champs_modifies?.abattements)
     d.champs_modifies.indemnites_break       = ensureArray(d.champs_modifies?.indemnites_break)
@@ -9616,6 +9635,7 @@ async function reextractOne(row, onProgress) {
           if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
           if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
           if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) extracted.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
           if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
           if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
@@ -9632,6 +9652,7 @@ async function reextractOne(row, onProgress) {
           if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
           if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
           if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) mods.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
           if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
           if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
@@ -9752,6 +9773,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
               if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
               if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) extracted.travaux_refactures_preneur = f.travaux_refactures_preneur
               if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
               if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
               if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
@@ -9768,6 +9790,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
               if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
               if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) mods.travaux_refactures_preneur = f.travaux_refactures_preneur
               if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
               if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
               if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
@@ -10640,6 +10663,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
             if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) extracted.travaux_refactures_preneur = f.travaux_refactures_preneur
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
             if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
@@ -10656,6 +10680,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
             if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) mods.travaux_refactures_preneur = f.travaux_refactures_preneur
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
             if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
@@ -12775,6 +12800,7 @@ export default function App() {
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) extracted.franchise_periodes = f.franchise_periodes
             if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) extracted.travaux_refactures_preneur = f.travaux_refactures_preneur
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
             if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
@@ -12834,6 +12860,7 @@ export default function App() {
             if (Array.isArray(f.franchise_periodes) && f.franchise_periodes.length > 0) mods.franchise_periodes = f.franchise_periodes
             if (f?._json_repare) { extracted._json_repare = true; extracted._json_repare_lectures = [...new Set([...(extracted._json_repare_lectures || []), ...(f._json_repare_lectures || [])])]; if (f._json_repare_passage) extracted._json_repare_passage = f._json_repare_passage }
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
+          if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) mods.travaux_refactures_preneur = f.travaux_refactures_preneur
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
             if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
