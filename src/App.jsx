@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.47 · consigne : dédit avant la fin de la période ferme'
+const APP_VERSION = '21.48 · dédit en % du loyer restant à courir'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2928,7 +2928,39 @@ function estimationDedit(texte, d) {
 }
 // MONTANT D'UNE INDEMNITÉ NON CHIFFRÉE DANS LE BAIL : mois de loyer et/ou dédit
 // égal aux avantages consentis. { montant, detail, partiel } ou null.
-function chiffrerIndemnite(texte, d) {
+// DÉDIT EN % DU LOYER « RESTANT À COURIR » JUSQU'À LA FIN DE LA PÉRIODE FERME
+// (vécu : « dédit de 60 % du Loyer TTC, augmenté des charges, restant à courir
+// sur la période ferme initiale de 6 ans », sortie possible à tout moment) :
+// estimé pour un départ à la date de la sortie (le plus tôt possible, donc le
+// montant le plus élevé), sur le loyer de base. Dégressif jusqu'à 0 à la fin
+// de la période ferme ; charges en sus, non chiffrées.
+function montantRestantACourir(texte, d, dateSortie) {
+  const t = stripAccents(safeStr(texte) || '').toLowerCase()
+  const m = t.match(/(\d+(?:[.,]\d+)?)\s*%\s*(?:du|des)\s*loyers?\s*(ttc|ht)?[^.;]{0,120}?restant\s+a\s+courir/)
+  if (!m) return null
+  const pct = parseFloat(m[1].replace(',', '.'))
+  const ttc = (m[2] || '') === 'ttc' || /loyers?\s+ttc/.test(t)
+  const charges = /charges/.test(t)
+  const nTxt = t.match(/periode\s+ferme(?:\s+initiale)?\s+de\s+(\d+)\s+ans/)
+  const nFerme = nTxt ? parseInt(nTxt[1]) : parseInt((safeStr(d?.duree_ferme) || '').match(/(\d+)/)?.[1] || '')
+  const effet = parseFR(normalizeDate(safeStr(d?.date_effet)))
+  if (!pct || !nFerme || !effet) return null
+  const finFerme = new Date(effet.getFullYear() + nFerme, effet.getMonth(), effet.getDate() - 1)
+  const sortie = parseFR(normalizeDate(safeStr(dateSortie))) || effet
+  const mois = Math.max(0, Math.round((finFerme - sortie) / 86400000 / 365.25 * 12 * 10) / 10)  // mois au dixième (36 mois tout ronds)
+  let loyer = null
+  try { loyer = parseAmount(structureLoyer(d).loyer_base) } catch (_) {}
+  if (!loyer) { try { loyer = parseAmount(loyerFacial(d).montant) } catch (_) {} }
+  if (!loyer) return null
+  const montant = Math.round(pct / 100 * loyer * (ttc ? 1.2 : 1) * mois / 12 * 100) / 100
+  const fmt = n => { try { return fmtEur(n) } catch (_) { return `${n} €` } }
+  const echue = finFerme < new Date()
+  const detail = `${String(pct).replace('.', ',')} % du loyer ${ttc ? 'TTC (loyer de base ' + fmt(loyer) + '/an × 1,2)' : 'HT (' + fmt(loyer) + '/an)'} sur ${String(Math.round(mois * 10) / 10).replace('.', ',')} mois restant à courir jusqu'à la fin de la période ferme (${fmtFR(finFerme)}), pour un départ au ${fmtFR(sortie)} = ${fmt(montant)} ; dégressif jusqu'à 0 au ${fmtFR(finFerme)}${charges ? ' ; charges en sus, non chiffrées' : ''}${echue ? ` ; période ferme échue : rien n'est dû pour un départ aujourd'hui` : ''}`
+  return { montant, detail, partiel: charges }
+}
+function chiffrerIndemnite(texte, d, dateSortie = null) {
+  const restant = montantRestantACourir(texte, d, dateSortie)
+  if (restant) return restant
   const mois = montantIndemniteEnMois(texte, d)
   const dedit = estimationDedit(texte, d)
   if (!mois && !(dedit && dedit.montant)) return dedit ? { montant: null, detail: dedit.detail, partiel: true } : null
@@ -2982,7 +3014,7 @@ function getExitEvents(d) {
       const o = { ...e, date: triDate || toDate(e.date) || resolveEcheanceDateFromText(e.libelle, d.date_effet) || resolveEcheanceDateFromText(e.conditions, d.date_effet), indemnite_sortie: (sansIndemniteReelle(e.indemnite_sortie, e.montant_indemnite) || indemniteAvantEcheance(e.indemnite_sortie, triDate || toDate(e.date))) ? null : empty(e.indemnite_sortie), compensation_maintien: empty(e.compensation_maintien), conditions: empty(e.conditions) }
       if (!o.indemnite_sortie && e.indemnite_sortie && indemniteAvantEcheance(e.indemnite_sortie, o.date)) o.montant_indemnite = null
       if (o.indemnite_sortie && !parseAmount(o.montant_indemnite)) {
-        const c = chiffrerIndemnite(o.indemnite_sortie, d)
+        const c = chiffrerIndemnite(`${o.indemnite_sortie} ${safeStr(o.conditions) || ''}`, d, o.date)
         if (c && c.montant) { o.montant_indemnite = c.montant; o._montant_calcule = c }
         else if (c) o._montant_calcule = c
       }
@@ -4542,7 +4574,7 @@ function computeIndemnitesTerme(d, exitEvents) {
     !sansIndemniteReelle(`${safeStr(row.motif) || ''} ${safeStr(row.calcul) || ''}`, row.montant) &&
     !indemniteAvantEcheance(`${safeStr(row.motif) || ''} ${safeStr(row.calcul) || ''}`, resolveIndemnityBreakDate(row, d) || row.break_date)
   ).map(row => {
-    const c = !parseAmount(row.montant) ? chiffrerIndemnite(`${safeStr(row.calcul) || ''} ${safeStr(row.motif) || ''}`, d) : null
+    const c = !parseAmount(row.montant) ? chiffrerIndemnite(`${safeStr(row.calcul) || ''} ${safeStr(row.motif) || ''}`, d, resolveIndemnityBreakDate(row, d) || row.break_date) : null
     return { terme: resolveIndemnityBreakDate(row, d) || row.break_date, due_par: 'Preneur', motif: row.motif, montant: c?.montant ? c.montant : row.montant, montant_calcule: c || undefined, calcul: row.calcul, page: row.page }
   })
   // Quand les échéances de sortie sont disponibles (lues avec leur texte),
