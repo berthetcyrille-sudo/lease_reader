@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.46 · consigne : un avantage, une seule écriture'
+const APP_VERSION = '21.47 · consigne : dédit avant la fin de la période ferme'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1092,6 +1092,8 @@ function computeValeursEnVigueur(item, parentRow = null) {
     travaux_montant: montantTravauxHorsRefacturation(isAv ? modsTravaux : raw),
     // participation aux travaux accordée sous forme de franchise (déjà dans les franchises)
     travaux_en_franchise: participationsTravaux(isAv ? modsTravaux : raw).enFranchise.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant) })),
+    // sommes dues en cas de départ AVANT une date / avant la fin de la période ferme (pas une indemnité de break)
+    dedit_sortie_anticipee: (Array.isArray((isAv ? mods : raw).dedit_sortie_anticipee) ? (isAv ? mods : raw).dedit_sortie_anticipee : []).filter(x => x && typeof x === 'object').map(x => ({ evenement: cleanTxt(x.evenement) || null, avant_date: normalizeDate(safeStr(x.avant_date)) || null, calcul: cleanTxt(x.calcul) || null })),
     // travaux préfinancés par le bailleur, remboursés par surloyer
     travaux_prefinances_bailleur: participationsTravaux(isAv ? modsTravaux : raw).prefinancements.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), remboursement: cleanTxt(r.remboursement || r.remarque) || null })),
     // travaux réalisés par le bailleur aux frais du preneur (dus par le preneur)
@@ -1916,6 +1918,7 @@ function exportEvenToExcel(tree) {
         if (apres !== avant && apres !== 'Bail') commentaires.push(`Régime modifié par cet avenant : ${LIB_REGIME[apres] || 'bail commercial'}`)
       }
     } catch (_) {}
+    ;(Array.isArray(vv.dedit_sortie_anticipee) ? vv.dedit_sortie_anticipee : []).forEach(x => commentaires.push(`Dédit si ${x.evenement || 'départ anticipé'}${x.avant_date ? ` (avant le ${x.avant_date})` : ''} — non dû à une sortie exercée à l'échéance prévue${x.calcul ? ` : ${x.calcul.slice(0, 160)}` : ''}`))
     try {
       const src = isAv ? (item.data?.champs_modifies || {}) : (item.data || {})
       deditsAvantEcheance(src).forEach(x => {
@@ -2058,7 +2061,7 @@ Lis l'INTEGRALITE des clauses qui fondent ou restreignent le droit du preneur de
 {"date":"jj/mm/aaaa ou null","type":"triennale|exceptionnelle|a_tout_moment|autre","libelle":"fondement court, ex: Expiration de la 3eme periode triennale / Conge exceptionnel convenu entre les parties","preavis":"ex: 6 mois, par acte extrajudiciaire ou LRAR","indemnite_sortie":"si le preneur PART a cette echeance et doit verser quelque chose : la formule ou le montant TEL QU'ECRIT (ex: 2 derniers mois de loyer factures a la date d'envoi du conge), sinon null (null, jamais un texte du type 'aucune indemnite')","montant_indemnite":"chiffre brut seulement si un montant est ecrit en toutes lettres, sinon null","compensation_maintien":"si le preneur RESTE (ne donne pas conge a cette echeance) et que le bailleur lui accorde quelque chose en contrepartie : franchise supplementaire, reduction de loyer, etc. TEL QU'ECRIT, sinon null","conditions":"autres conditions de validite ou de forme propres a cette sortie (ex: conge delivre entre 9 et 6 mois avant l'echeance, accompagne d'un cheque de banque ; motif a justifier), sinon null","page":numero de page du PDF}
 REGLES :
 1) Une echeance = une entree. Un bail peut cumuler des echeances triennales classiques ET une ou plusieurs echeances exceptionnelles a des dates precises (souvent introduites par "toutefois", "par exception", "en outre", "les parties conviennent que le preneur aura la faculte de delivrer un conge pour le [date]"), eventuellement ANTERIEURES aux echeances triennales ou a la fin de la duree ferme. Elles se cumulent : ne jamais en fusionner deux, ne jamais en omettre une parce qu'une autre clause dit "pour la premiere fois".
-2) Ce qui est rattache a une echeance (indemnite si depart, compensation si maintien, conditions, preavis) vient du MEME paragraphe/de la MEME stipulation que celle qui ouvre cette faculte de sortie. Ne jamais rattacher l'indemnite d'une echeance a une autre date.
+2) Ce qui est rattache a une echeance (indemnite si depart, compensation si maintien, conditions, preavis) vient du MEME paragraphe/de la MEME stipulation que celle qui ouvre cette faculte de sortie. Ne jamais rattacher l'indemnite d'une echeance a une autre date. Une somme due si le preneur part AVANT une date ou AVANT la fin de la periode ferme (remboursement des mesures d'accompagnement, dedit) n'est JAMAIS l'indemnite_sortie de l'echeance qui suit cette date.
 3) Dates : appliquer les regles de calcul ci-dessus (convention jour anniversaire moins 1 jour, multiples de 3 ans depuis date_effet, renonciations). Une date ecrite en toutes lettres dans le texte se reprend telle quelle. Si la date ne peut pas etre calculee (date d'effet inconnue/conditionnelle), date=null et libelle explicite.
 4) Exclure : les echeances auxquelles le preneur a renonce ; la date de fin du bail elle-meme (date_fin n'est pas une sortie anticipee) ; les clauses de resiliation pour faute/manquement, de non-prise de possession, de cession — ce ne sont pas des facultes de sortie.
 4quater) Une faculte de conge SUPPLEMENTAIRE ouverte « a partir de la deuxieme periode triennale » (ex: conge chaque annee a la date anniversaire a partir de la 2e periode triennale) ne supprime PAS la faculte triennale pour la PREMIERE periode : l'expiration de la 1re periode triennale reste une sortie (echeances_sortie, type triennale), sauf renonciation expresse. Ex: effet 05/10/2009, bail 3/6/9, conge annuel « a partir de la deuxieme periode triennale » aux 14/10/2013 … 14/10/2017 → sorties : 04/10/2012 (1re triennale) PUIS 14/10/2013, 14/10/2014, 14/10/2015, 14/10/2016, 14/10/2017. Une date listee posterieure au terme (ex: 14/10/2018 pour une fin au 04/10/2018) n'est pas une sortie : ne pas la retenir.
@@ -2072,7 +2075,7 @@ EXEMPLE (bail de 10 ans dont 9 fermes, effet 12/05/2026) : "Le Preneur renonce a
 const FINANCIAL_PROMPT = `Expert baux commerciaux français. Extrais UNIQUEMENT les données financières critiques de ce bail ou avenant. JSON minifié UNE SEULE LIGNE, sans markdown. Guillemets droits ASCII. Montants=chiffres bruts sans symbole.
 CORRECTIONS MANUSCRITES : une mention imprimee BARREE (raturee) et remplacee par une mention ecrite A LA MAIN (souvent paraphee en marge) n'est plus en vigueur : retenir UNIQUEMENT la valeur manuscrite (date, montant, duree, surface…) dans TOUS les champs, jamais la valeur barree. Ex : « au plus tard le 30 septembre 2018 » barre et « 15 novembre 2018 » ecrit a la main → 15/11/2018.
 
-{"loyer_signature_montant":null,"loyer_signature":null,"paliers_loyer":[],"abattements":[],"loyer_variable":null,"franchise_periodes":[],"participations_travaux":[],"travaux_refactures_preneur":[],"travaux_prefinances_bailleur":[],"indemnites_break":[]}
+{"loyer_signature_montant":null,"loyer_signature":null,"paliers_loyer":[],"abattements":[],"loyer_variable":null,"franchise_periodes":[],"participations_travaux":[],"travaux_refactures_preneur":[],"travaux_prefinances_bailleur":[],"indemnites_break":[],"dedit_sortie_anticipee":[]}
 
 REGLES PAR CHAMP:
 
@@ -2097,8 +2100,10 @@ indemnites_restitution: tableau des indemnites FORFAITAIRES DE REMISE EN ETAT co
 indemnites_break: Sommes dues par le PRENEUR au BAILLEUR UNIQUEMENT en cas d exercice de son droit de CONGE (sortie anticipee par le preneur via l option de break). TROIS CAS A DISTINGUER:
 1) FORFAIT CHIFFRE PAR DATE DE BREAK: montant ou formule specifique par echéance (ex: "6 mois de loyer si conge au 31/08/2028") -> une ligne par break date. CAS FREQUENT A NE PAS MANQUER: une indemnite exprimee en FORMULE DE LOYER plutot qu'en montant fixe (ex: "le Preneur aura la faculte de delivrer un conge pour le 30 septembre 2033 ; dans une telle situation, le Preneur devra verser au Bailleur une indemnite d'un montant correspondant aux deux derniers mois de loyer factures a la date d'envoi du conge") est TOUJOURS une ligne valide de ce cas 1, meme sans chiffre brut explicite — montant reste null (ou "recalcul = <montant> €" si calculable a partir du loyer connu), et calcul="2 derniers mois de loyer factures a la date d'envoi du conge" (reprendre la formule telle quelle, PAS un chiffre invente). Cette clause est une faculte de conge VALIDE du preneur (pas un cas 2 a exclure) des lors que le texte dit explicitement "aura la faculte de delivrer un conge" — ne jamais la confondre avec une clause de resiliation fautive/hors cadre sous pretexte qu'une indemnite est due : une indemnite associee a l'exercice REGULIER d'un conge prevu au bail n'est PAS une sanction, c'est le prix normal de la sortie anticipee.
 2) INDEMNITE DE RESTITUTION/REMISE EN ETAT: si le bail prevoit une indemnite forfaitaire due a la restitution en cas de sortie anticipee (ex: "indemnite forfaitaire de remise en etat de 115 840 € en cas de depart a compter de la 6eme annee") -> inclure avec break_date=date de la premiere break concernee et calcul=formule.
-3) REMBOURSEMENT DES MESURES D ACCOMPAGNEMENT SI CONGE: clause generale de remboursement des avantages (franchises, MDA, travaux) si le preneur exerce son conge avant terme -> une ligne sans break_date specifique.
+3) REMBOURSEMENT DES MESURES D ACCOMPAGNEMENT SI CONGE: UNIQUEMENT si le bail dit que ce remboursement est du QUAND le preneur EXERCE une faculte de conge prevue (ex: "en cas de conge pour la premiere echeance triennale, le Preneur remboursera 2 mois de franchise") -> une ligne par echeance concernee. JAMAIS pour une clause visant un depart AVANT une date ou AVANT la fin de la periode ferme (voir A EXCLURE (3)).
 A EXCLURE de indemnites_break: (1) clauses de remboursement uniquement en cas de CESSION du bail ou du fonds — MEME si la clause mentionne un remboursement "au prorata temporis" ou des "mesures d'accompagnement", des lors que le fait generateur est une cession a un tiers (notamment hors du Groupe du Preneur) et NON l'exercice d'une option de conge/break par le preneur lui-meme. Exemple a EXCLURE: "remboursement des mesures d'accompagnement (franchise de loyer) accordees intuitu personae au prorata temporis en cas de cession du droit au bail ou du fonds de commerce au benefice d'une societe ne faisant pas partie du Groupe du Preneur" → ceci est une clause de cession, PAS une indemnite de break, NE JAMAIS lui attribuer de break_date ni l'inclure dans indemnites_break, meme partiellement; (2) penalites dues en cas de depart FAUTIF ou de resiliation anticipee HORS option de break (clause resolutoire, indemnite d'immobilisation) — ATTENTION CAS FREQUENT ET FACILEMENT CONFONDU AVEC LE CAS 3: une clause "boilerplate" du type "remboursement des mesures d'accompagnement (franchises de loyer) et versement des loyers et charges dus jusqu'a la prochaine date de conge en cas de resiliation anticipee ou de non-prise de possession des locaux" N'EST PAS une indemnite due pour l'exercice VALIDE d'une option de break — c'est un garde-fou/une sanction applicable UNIQUEMENT si le Preneur part EN DEHORS du cadre normal des breaks prevus (resiliation anticipee non autorisee, ou non-prise de possession des locaux). Le simple fait que le texte mentionne "mesures d'accompagnement"/"remboursement des franchises" NE SUFFIT PAS a la classer en cas 3 — il faut lire le FAIT GENERATEUR precis: si c'est "en cas de resiliation anticipee" (departement hors break) ou "non-prise de possession", EXCLURE entierement (ne pas creer de ligne indemnites_break du tout pour cette clause, meme sans break_date) ; le cas 3 ne s'applique QUE si le texte dit explicitement que le remboursement est du en cas d'EXERCICE d'une option de conge/break VALABLEMENT PREVUE au bail (fait generateur = usage normal d'un break contractuel, pas un depart anticipe hors cadre); (3) indemnites dues entre deux dates de break. Inclure UNIQUEMENT les sommes dues lorsque le preneur EXERCE VALABLEMENT une option de break prevue au bail.
+A EXCLURE AUSSI (3) — DEPART AVANT UNE DATE OU AVANT LA FIN DE LA PERIODE FERME : une somme due si le preneur "quitte les Locaux avant la fin de la periode ferme (six ans)", "de maniere anticipee", "avant le 14/04/2029", "avant le terme de la periode ferme" n'est PAS due quand il exerce sa premiere faculte de conge, puisque cette faculte s'exerce justement A la fin de la periode ferme (ex : bail de 9 ans dont 6 fermes, premier conge possible au 31/05/2030 « sans indemnite » au CP2, et ailleurs « si le PRENEUR quitte les Locaux avant la fin de la periode ferme (six ans), il rembourse les mesures d'accompagnement » → AUCUNE ligne dans indemnites_break pour le 31/05/2030 ; la clause va dans dedit_sortie_anticipee). La page citee doit etre celle de la clause qui contient la somme, jamais celle de la clause de conge.
+dedit_sortie_anticipee: sommes dues si le preneur part AVANT une date, avant la fin de la periode ferme, en cas de cession ou de resiliation fautive (remboursement des mesures d'accompagnement, dedit…). Format: [{"evenement":"ex: depart avant la fin de la periode ferme / cession avant le terme de la periode ferme","avant_date":"jj/mm/aaaa si le bail la donne ou si elle se deduit (fin de la periode ferme), sinon null","calcul":"formule condensee, ex: remboursement des mesures d'accompagnement (franchise de 2.146.230 €)","page":26}].
 REPARTITION STRICTE ENTRE motif ET calcul (evite la redondance : le motif donne deja le "quand"/"dans quel cas", calcul ne doit QUE donner le "combien") :
 - motif: contexte resume ("Conge delivre par le Preneur pour l'expiration de la Neme periode triennale") — c'est ici et dans break_date que vit le "quand"/"dans quel cas", jamais dans calcul.
 - calcul: EXCLUSIVEMENT la formule ou la valeur chiffree du remboursement, condensee, JAMAIS de phrase complete recopiant le motif/la condition. Ne jamais commencer par "En cas de..."/"Si le Preneur...": aller directement au montant/formule. Exemples CORRECTS (courts, chiffres/formule seuls): "2 mois de franchise de loyer", "6 mois de loyer HT/HC", "cumul des avantages consentis (franchise, reduction de loyer, participation travaux)", "115 840 € indexes BT01". Exemples INCORRECTS (a ne jamais produire, trop verbeux/redondants avec motif): "En cas de conge delivre par le Preneur pour l'expiration de la premiere periode triennale, il devra rembourser au Bailleur l'equivalent de 2 (deux) mois de franchise" (repete le motif) → devrait etre juste "2 mois de franchise de loyer".
@@ -3090,6 +3095,7 @@ function sanitizeExtracted(data) {
   d.participations_travaux  = ensureArray(d.participations_travaux)
   d.travaux_refactures_preneur = ensureArray(d.travaux_refactures_preneur)
   d.travaux_prefinances_bailleur = ensureArray(d.travaux_prefinances_bailleur)
+  d.dedit_sortie_anticipee = ensureArray(d.dedit_sortie_anticipee)
   d.paliers_loyer           = ensureArray(d.paliers_loyer)
   d.abattements             = ensureArray(d.abattements)
   d.indemnites_break        = ensureArray(d.indemnites_break)
@@ -10081,6 +10087,7 @@ async function reextractOne(row, onProgress) {
           if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
           if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) extracted.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.travaux_prefinances_bailleur) && f.travaux_prefinances_bailleur.length > 0) extracted.travaux_prefinances_bailleur = f.travaux_prefinances_bailleur
+          if (Array.isArray(f.dedit_sortie_anticipee) && f.dedit_sortie_anticipee.length > 0) extracted.dedit_sortie_anticipee = f.dedit_sortie_anticipee
           if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
           if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
           if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
@@ -10099,6 +10106,7 @@ async function reextractOne(row, onProgress) {
           if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
           if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) mods.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.travaux_prefinances_bailleur) && f.travaux_prefinances_bailleur.length > 0) mods.travaux_prefinances_bailleur = f.travaux_prefinances_bailleur
+          if (Array.isArray(f.dedit_sortie_anticipee) && f.dedit_sortie_anticipee.length > 0) mods.dedit_sortie_anticipee = f.dedit_sortie_anticipee
           if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
           if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
           if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
@@ -10221,6 +10229,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
           if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) extracted.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.travaux_prefinances_bailleur) && f.travaux_prefinances_bailleur.length > 0) extracted.travaux_prefinances_bailleur = f.travaux_prefinances_bailleur
+          if (Array.isArray(f.dedit_sortie_anticipee) && f.dedit_sortie_anticipee.length > 0) extracted.dedit_sortie_anticipee = f.dedit_sortie_anticipee
               if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
               if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
               if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
@@ -10239,6 +10248,7 @@ function BulkAttachModal({ candidateRows, allRows, onClose, onRefresh }) {
               if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
           if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) mods.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.travaux_prefinances_bailleur) && f.travaux_prefinances_bailleur.length > 0) mods.travaux_prefinances_bailleur = f.travaux_prefinances_bailleur
+          if (Array.isArray(f.dedit_sortie_anticipee) && f.dedit_sortie_anticipee.length > 0) mods.dedit_sortie_anticipee = f.dedit_sortie_anticipee
               if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
               if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
               if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
@@ -11113,6 +11123,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
           if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) extracted.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.travaux_prefinances_bailleur) && f.travaux_prefinances_bailleur.length > 0) extracted.travaux_prefinances_bailleur = f.travaux_prefinances_bailleur
+          if (Array.isArray(f.dedit_sortie_anticipee) && f.dedit_sortie_anticipee.length > 0) extracted.dedit_sortie_anticipee = f.dedit_sortie_anticipee
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
             if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
@@ -11131,6 +11142,7 @@ function Dashboard({ tree, totalCounts, onSelect, onDelete, onArchive, onClear, 
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
           if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) mods.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.travaux_prefinances_bailleur) && f.travaux_prefinances_bailleur.length > 0) mods.travaux_prefinances_bailleur = f.travaux_prefinances_bailleur
+          if (Array.isArray(f.dedit_sortie_anticipee) && f.dedit_sortie_anticipee.length > 0) mods.dedit_sortie_anticipee = f.dedit_sortie_anticipee
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
             if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
@@ -13252,6 +13264,7 @@ export default function App() {
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) extracted.participations_travaux = f.participations_travaux
           if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) extracted.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.travaux_prefinances_bailleur) && f.travaux_prefinances_bailleur.length > 0) extracted.travaux_prefinances_bailleur = f.travaux_prefinances_bailleur
+          if (Array.isArray(f.dedit_sortie_anticipee) && f.dedit_sortie_anticipee.length > 0) extracted.dedit_sortie_anticipee = f.dedit_sortie_anticipee
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) extracted.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) extracted.abattements = f.abattements
             if (f.loyer_variable) extracted.loyer_variable = f.loyer_variable
@@ -13313,6 +13326,7 @@ export default function App() {
             if (Array.isArray(f.participations_travaux) && f.participations_travaux.length > 0) mods.participations_travaux = f.participations_travaux
           if (Array.isArray(f.travaux_refactures_preneur) && f.travaux_refactures_preneur.length > 0) mods.travaux_refactures_preneur = f.travaux_refactures_preneur
           if (Array.isArray(f.travaux_prefinances_bailleur) && f.travaux_prefinances_bailleur.length > 0) mods.travaux_prefinances_bailleur = f.travaux_prefinances_bailleur
+          if (Array.isArray(f.dedit_sortie_anticipee) && f.dedit_sortie_anticipee.length > 0) mods.dedit_sortie_anticipee = f.dedit_sortie_anticipee
             if (Array.isArray(f.paliers_loyer) && f.paliers_loyer.length > 0) mods.paliers_loyer = f.paliers_loyer
             if (Array.isArray(f.abattements) && f.abattements.length > 0) mods.abattements = f.abattements
             if (f.loyer_variable) mods.loyer_variable = f.loyer_variable
