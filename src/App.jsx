@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.48 · dédit en % du loyer restant à courir'
+const APP_VERSION = '21.49 · EVEN : résumé des clauses en commentaire'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -1086,18 +1086,18 @@ function computeValeursEnVigueur(item, parentRow = null) {
     )),
     // Participation travaux bailleur, telle qu'affichée
     participations_travaux: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).participations.map(r => ({
-      libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, date_limite_texte: r.date_limite_texte || undefined, remarque: cleanTxt(r.remarque) || null,
+      libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, date_limite_texte: r.date_limite_texte || undefined, remarque: cleanTxt(r.remarque) || null, page: r.page ?? null,
     })),
-    travaux_bailleur: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null })),
+    travaux_bailleur: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).travauxBailleur.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null, page: r.page ?? null })),
     travaux_montant: montantTravauxHorsRefacturation(isAv ? modsTravaux : raw),
     // participation aux travaux accordée sous forme de franchise (déjà dans les franchises)
     travaux_en_franchise: participationsTravaux(isAv ? modsTravaux : raw).enFranchise.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant) })),
     // sommes dues en cas de départ AVANT une date / avant la fin de la période ferme (pas une indemnité de break)
     dedit_sortie_anticipee: (Array.isArray((isAv ? mods : raw).dedit_sortie_anticipee) ? (isAv ? mods : raw).dedit_sortie_anticipee : []).filter(x => x && typeof x === 'object').map(x => ({ evenement: cleanTxt(x.evenement) || null, avant_date: normalizeDate(safeStr(x.avant_date)) || null, calcul: cleanTxt(x.calcul) || null })),
     // travaux préfinancés par le bailleur, remboursés par surloyer
-    travaux_prefinances_bailleur: participationsTravaux(isAv ? modsTravaux : raw).prefinancements.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), remboursement: cleanTxt(r.remboursement || r.remarque) || null })),
+    travaux_prefinances_bailleur: participationsTravaux(isAv ? modsTravaux : raw).prefinancements.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), remboursement: cleanTxt(r.remboursement || r.remarque) || null, page: r.page ?? null })),
     // travaux réalisés par le bailleur aux frais du preneur (dus par le preneur)
-    travaux_refactures_preneur: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).refacturations.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null })),
+    travaux_refactures_preneur: participationsTravaux({ ...(isAv ? modsTravaux : raw), date_effet: priseEffetTravaux }).refacturations.map(r => ({ libelle: safeStr(r.libelle) || null, montant: parseAmount(r.montant), date_limite: r.date_limite || null, remarque: cleanTxt(r.remarque) || null, page: r.page ?? null })),
     // date limite GLOBALE : seulement si le bail l'écrit en propre, ou si aucune
     // ligne de participation n'a sa date (sinon une mention générale des
     // modalités ajoutait une seconde date)
@@ -1830,7 +1830,7 @@ function exportEvenToExcel(tree) {
     // lendemain vs break la veille — vécu : 10/03/2031 pour une break au 09/03)
     const surBreak = dt => { const t = toSort(dt); const b = triees.find(x => Math.abs(toSort(x) - t) <= 3 * 86400000); return b || dt }
     const penalites = indem.filter(r => !/bailleur/i.test(safeStr(r.due_par)) && /^\d{2}\/\d{2}\/\d{4}$/.test(nd(r.terme)))
-      .map(r => ({ date: surBreak(nd(r.terme)), montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null, montant_calcule: r.montant_calcule || null }))
+      .map(r => ({ date: surBreak(nd(r.terme)), montant: parseAmount(r.montant), calcul: safeStr(r.calcul) || null, montant_calcule: r.montant_calcule || null, page: r.page ?? null }))
     return { sorties: triees, penalites, aToutMoment }
   }
   const chronos = new Map()
@@ -1927,20 +1927,32 @@ function exportEvenToExcel(tree) {
       })
     } catch (_) {}
     aToutMoment.forEach(e => commentaires.push(`Faculté de sortie à tout moment${nd(e.date) ? ` à partir du ${nd(e.date)}` : ''}${safeStr(e.preavis) ? ` (préavis : ${safeStr(e.preavis)})` : ''} — non reportée en colonne Break`))
+    // RÉSUMÉ DE CLAUSE pour chaque champ renseigné (pénalité, participation,
+    // travaux refacturés / préfinancés / du bailleur) : ce sont les
+    // reformulations de l'extraction, présentées comme telles (« résumé »),
+    // avec la page — pas la citation exacte de la clause. Chaque entrée est
+    // limitée à 250 caractères, le commentaire entier à 2 000.
+    const cut = (t, n = 250) => { const x = safeStr(t) || ''; return x.length > n ? x.slice(0, n - 1).trimEnd() + '…' : x }
+    const pg = r => (r?.page ? `, p. ${r.page}` : '')
     penalites.forEach(p => {
       if (p.supprimee) { commentaires.push(`Pénalité du ${p.date} supprimée par cet avenant`); return }
       const c = p.montant_calcule
       if (c) {
         const sus = c.partiel && !/dedit|dédit/i.test(c.detail || '') ? enSus(p.calcul) : null
-        commentaires.push(`Pénalité du ${p.date} ${p.montant ? `estimée à ${fmtE(p.montant)}` : 'non chiffrable'} : ${c.detail}${sus ? ` ; s'y ajoute ${sus} (non chiffré)` : ''}`)
-      } else if (p.montant == null && p.calcul) commentaires.push(`Pénalité du ${p.date} non chiffrée : ${p.calcul.slice(0, 160)}`)
+        commentaires.push(`Pénalité du ${p.date} ${p.montant ? `estimée à ${fmtE(p.montant)}` : 'non chiffrable'}${pg(p)} : ${c.detail}${sus ? ` ; s'y ajoute ${sus} (non chiffré)` : ''}`)
+      } else if (p.calcul) commentaires.push(`Pénalité du ${p.date}${p.montant == null ? ' non chiffrée' : ''} (résumé${pg(p)}) : ${cut(p.calcul)}`)
     })
-    parts.forEach(r => { if (r.date_limite && r.date_limite_texte && /corrig|délai compté|déduite/.test(r.date_limite_texte)) commentaires.push(`Date limite travaux : ${r.date_limite_texte.slice(0, 200)}`) })
-    ;(Array.isArray(vv.travaux_bailleur) ? vv.travaux_bailleur : []).filter(r => r.montant || r.date_limite).forEach(r => commentaires.push(`Travaux à la charge du bailleur (non portés en colonne travaux financés)${r.libelle ? ` — ${r.libelle.slice(0, 70)}` : ''}${r.montant ? ` : ${fmtE(r.montant)} HT` : ''}${r.date_limite ? (objectifSeulement(r.remarque) ? `, objectif (meilleurs efforts) : ${r.date_limite}` : `, avant le ${r.date_limite}`) : ''}`))
+    parts.forEach(r => {
+      const txt = [safeStr(r.libelle), safeStr(r.remarque)].filter(Boolean).join(' — ')
+      if (parseAmount(r.montant) && txt) commentaires.push(`Participation travaux (résumé${pg(r)}) : ${cut(txt)}`)
+      if (r.date_limite && r.date_limite_texte && /corrig|délai compté|déduite/.test(r.date_limite_texte)) commentaires.push(`Date limite travaux : ${cut(r.date_limite_texte, 200)}`)
+    })
+    ;(Array.isArray(vv.travaux_bailleur) ? vv.travaux_bailleur : []).filter(r => r.montant || r.date_limite).forEach(r => commentaires.push(`Travaux à la charge du bailleur, non portés en colonne travaux financés (résumé${pg(r)})${r.libelle ? ` — ${cut(r.libelle, 90)}` : ''}${r.montant ? ` : ${fmtE(r.montant)} HT` : ''}${r.date_limite ? (objectifSeulement(r.remarque) ? `, objectif (meilleurs efforts) : ${r.date_limite}` : `, avant le ${r.date_limite}`) : ''}${r.remarque ? ` ; ${cut(r.remarque, 160)}` : ''}`))
     ;(Array.isArray(vv.travaux_en_franchise) ? vv.travaux_en_franchise : []).forEach(r => commentaires.push(`Participation du bailleur aux travaux accordée sous forme de franchise de loyer${r.montant ? ` (${fmtE(r.montant)})` : ''} — non portée en colonne travaux financés`))
-    ;(Array.isArray(vv.travaux_prefinances_bailleur) ? vv.travaux_prefinances_bailleur : []).forEach(r => commentaires.push(`Travaux préfinancés par le bailleur, remboursés par surloyer (non portés en colonne travaux financés)${r.libelle ? ` — ${r.libelle.slice(0, 70)}` : ''}${r.montant ? ` : ${fmtE(r.montant)}` : ''}${r.remboursement ? ` ; ${r.remboursement.slice(0, 160)}` : ''}`))
-    refac.forEach(r => { if (!r.date_limite && r.remarque) commentaires.push(`Travaux refacturés${r.libelle ? ` (${r.libelle.slice(0, 60)})` : ''} : ${r.remarque.slice(0, 160)}`) })
-    const commentaire = commentaires.join(' | ')
+    ;(Array.isArray(vv.travaux_prefinances_bailleur) ? vv.travaux_prefinances_bailleur : []).forEach(r => commentaires.push(`Travaux préfinancés par le bailleur, remboursés par surloyer, non portés en colonne travaux financés (résumé${pg(r)})${r.libelle ? ` — ${cut(r.libelle, 90)}` : ''}${r.montant ? ` : ${fmtE(r.montant)}` : ''}${r.remboursement ? ` ; ${cut(r.remboursement, 160)}` : ''}`))
+    refac.forEach(r => { const txt = [safeStr(r.libelle), safeStr(r.remarque)].filter(Boolean).join(' — '); if (txt) commentaires.push(`Travaux refacturés au preneur (résumé${pg(r)}) : ${cut(txt)}`) })
+    const commentaireComplet = commentaires.join(' | ')
+    const commentaire = commentaireComplet.length > 2000 ? commentaireComplet.slice(0, 1940).trimEnd() + ' … (suite sur la fiche Lease Reader)' : commentaireComplet
     const sansVide = v => (v === null || v === undefined) ? '' : v
     return [
       // nom d'ACTIF (regroupement du dashboard), à défaut le nom extrait
