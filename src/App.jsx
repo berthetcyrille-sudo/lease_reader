@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.54 · garanties versées par le preneur'
+const APP_VERSION = '21.55 · « 3 (trois) mois de loyer » chiffré'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -2930,7 +2930,7 @@ function sansIndemniteReelle(texte, montant) {
 function montantIndemniteEnMois(texte, d) {
   const t = stripAccents(safeStr(texte) || '').toLowerCase()
   const mots = { un: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, douze: 12, dix_huit: 18, vingt_quatre: 24 }
-  const m = t.replace(/-/g, '_').match(/\b(\d+(?:[.,]\d+)?|un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|douze|dix_huit|vingt_quatre)\s*(?:\(\s*\d+(?:[.,]\d+)?\s*\)\s*)?mois\s+(?:de\s+franchise\s+)?de\s+loyers?\b/)
+  const m = t.replace(/-/g, '_').match(/\b(\d+(?:[.,]\d+)?|un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|douze|dix_huit|vingt_quatre)\s*(?:\(\s*[a-z0-9_ ,.\-]+\s*\)\s*)?mois\s+(?:de\s+franchise\s+)?de\s+loyers?\b/)
   if (!m) return null
   const n = mots[m[1]] ?? parseFloat(m[1].replace(',', '.'))
   let loyer = null
