@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.59 · consigne : loyer = somme des composantes (RIE comprise)'
+const APP_VERSION = '21.60 · modale de réextraction'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -8999,9 +8999,15 @@ function ResultsView({ item, parentBailData, parentRow = null, onOpenItem = null
 }
 
 function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, danger }) {
+  // Échap annule, Entrée confirme
+  useEffect(() => {
+    const k = e => { if (e.key === 'Escape') onCancel?.(); else if (e.key === 'Enter') onConfirm?.() }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [onCancel, onConfirm])
   return (
     <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal" style={{ maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
           <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: danger ? 'var(--danger-bg)' : 'var(--accent-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={danger ? 'var(--danger)' : 'var(--accent)'} strokeWidth="2">
@@ -12813,6 +12819,7 @@ export default function App() {
   // Réextraction lancée depuis la fiche (bail ou avenant)
   const [ficheReextract, setFicheReextract] = useState(null) // { label } pendant l'opération
   const [ficheReextractMsg, setFicheReextractMsg] = useState(null) // { type, text } après
+  const [confirmFicheReextract, setConfirmFicheReextract] = useState(null) // document à réextraire, en attente de confirmation
   const [choixReextract, setChoixReextract] = useState(null) // { row, nbAvenants } : fenêtre « bail seul / bail et avenants »
   const [showQualityCheck, setShowQualityCheck] = useState(false)
   const [showPortfolioChat, setShowPortfolioChat] = useState(false)
@@ -13574,7 +13581,8 @@ export default function App() {
   }
 
   async function reextractFromFiche(row, sansConfirmation = false) {
-    if (!sansConfirmation && !window.confirm("Réextraire ce document à partir de son fichier source ?\n\nLes données actuelles seront remplacées, y compris les corrections manuelles (date d'effet saisie, surface, nom de substitution…).")) return
+    // confirmation dans une modale de l'appli (plus de fenêtre du navigateur)
+    if (!sansConfirmation) { setConfirmFicheReextract(row); return }
     setFicheReextractMsg(null)
     const label = row.data?.immeuble || row.data?.adresse || row.file_name
     setFicheReextract({ label, state: 'downloading' })
@@ -13987,6 +13995,21 @@ DATE D'EFFET CONNUE : ${dateEffetStr} (saisie par l'utilisateur — le document 
         )}
 
         {ficheReextract && <ReextractProgressModal progress={ficheReextract} />}
+        {confirmFicheReextract && (
+          <ConfirmModal
+            title="Réextraire ce document ?"
+            message={<>
+              <div style={{ marginBottom: '8px' }}>
+                <strong style={{ color: 'var(--text)' }}>{confirmFicheReextract.data?.preneur_substitution || confirmFicheReextract.data?.preneur || confirmFicheReextract.data?.immeuble || confirmFicheReextract.file_name}</strong>
+                {confirmFicheReextract.document_type === 'avenant' ? ' — avenant' : ''} sera relu à partir de son fichier source, avec les règles d'extraction actuelles.
+              </div>
+              <div>Les données actuelles seront remplacées, <strong style={{ color: 'var(--text)' }}>y compris les corrections manuelles</strong> : date d'effet saisie, surface, nom de substitution…</div>
+            </>}
+            confirmLabel="Réextraire"
+            onConfirm={() => { const r = confirmFicheReextract; setConfirmFicheReextract(null); reextractFromFiche(r, true) }}
+            onCancel={() => setConfirmFicheReextract(null)}
+          />
+        )}
         {choixReextract && (
           <ChoixReextractionModal nbAvenants={choixReextract.nbAvenants}
             onBailSeul={() => { const r = choixReextract.row; setChoixReextract(null); reextractFromFiche(r, true) }}
