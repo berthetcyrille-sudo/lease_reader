@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 // Version affichée dans la barre du haut — à changer à chaque livraison pour
 // pouvoir vérifier en un coup d'œil que le déploiement a bien été pris en
 // compte (cache navigateur, build Vercel en échec...).
-const APP_VERSION = '21.60 · modale de réextraction'
+const APP_VERSION = '21.61 · clés JSON à demi-guillemetées'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -97,7 +97,7 @@ const ALL_FIELDS = SECTIONS.flatMap(s => s.fields)
 // ─── Prompts ─────────────────────────────────────────────────────────────────
 
 const EXTRACTION_PROMPT = `Expert baux commerciaux français. Extrais les données du bail. JSON minifié UNE SEULE LIGNE, sans markdown.
-SYNTAXE JSON STRICTE : CHAQUE cle entre guillemets doubles ("cession":"…", jamais cession:"…"), y compris les dernieres cles d'une longue reponse ; guillemets internes aux textes echappes (\").
+SYNTAXE JSON STRICTE : CHAQUE cle entre guillemets doubles ("cession":"…", jamais cession: ni cession": ni "cession:"…") — guillemet OUVRANT et guillemet FERMANT, y compris les dernieres cles d'une longue reponse ; guillemets internes aux textes echappes (\").
 CORRECTIONS MANUSCRITES : une mention imprimee BARREE (raturee) et remplacee par une mention ecrite A LA MAIN (souvent paraphee en marge) n'est plus en vigueur : retenir UNIQUEMENT la valeur manuscrite (date, montant, duree, surface…) dans TOUS les champs, jamais la valeur barree. Ex : « au plus tard le 30 septembre 2018 » barre et « 15 novembre 2018 » ecrit a la main → 15/11/2018.
 
 REGLES: Guillemets droits ASCII. Pas de retour a la ligne dans les valeurs. Champs _montant=chiffres bruts sans symbole (ex: 123405.50). null si absent. INTERDIT: ne JAMAIS concatener une annotation, precision ou commentaire entre parentheses dans un champ date (format strict JJ/MM/AAAA, rien d'autre) ou dans un champ duree (ex: "1 an", "9 ans" — rien d'autre). Si une information complementaire existe (ex: reconduction, plafond de duree, condition), elle DOIT aller dans son champ dedie (ex: reconduction_tacite) et nulle part ailleurs — jamais annexee en texte libre dans date_fin, date_effet ou duree_totale. Exemple INTERDIT: date_fin="31/12/2023 (renouvelable, terme absolu 31/12/2034)" — la valeur correcte est date_fin="31/12/2023" avec reconduction_tacite.date_limite_absolue="31/12/2034" ; duree_totale="1 an renouvelable par tacite reconduction, duree maximale 12 ans" est egalement INTERDIT — la valeur correcte est duree_totale="1 an".
@@ -181,7 +181,7 @@ ${JSON.stringify(values)}`
 }
 
 const AVENANT_PROMPT = `Expert baux commerciaux français. Ce document est un AVENANT. JSON minifié UNE SEULE LIGNE, sans markdown.
-SYNTAXE JSON STRICTE : CHAQUE cle entre guillemets doubles ("cession":"…", jamais cession:"…"), y compris les dernieres cles d'une longue reponse ; guillemets internes aux textes echappes (\").
+SYNTAXE JSON STRICTE : CHAQUE cle entre guillemets doubles ("cession":"…", jamais cession: ni cession": ni "cession:"…") — guillemet OUVRANT et guillemet FERMANT, y compris les dernieres cles d'une longue reponse ; guillemets internes aux textes echappes (\").
 CORRECTIONS MANUSCRITES : une mention imprimee BARREE (raturee) et remplacee par une mention ecrite A LA MAIN (souvent paraphee en marge) n'est plus en vigueur : retenir UNIQUEMENT la valeur manuscrite (date, montant, duree, surface…) dans TOUS les champs, jamais la valeur barree. Ex : « au plus tard le 30 septembre 2018 » barre et « 15 novembre 2018 » ecrit a la main → 15/11/2018.
 
 REGLES: Guillemets droits ASCII. Champs _montant=chiffres bruts. Dans champs_modifies: null pour les champs NON modifies par l'avenant.
@@ -3372,7 +3372,13 @@ function quoteBareKeys(str) {
     }
     if (c === '"') { inStr = true; out += c; continue }
     if (c === '{' || c === ',') {
-      const m = /^(\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*):/.exec(str.slice(i + 1))
+      const rest = str.slice(i + 1)
+      // clé sans aucun guillemet : cession:"…"
+      let m = /^(\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*):/.exec(rest)
+      // clé sans guillemet ouvrant : restitution_delai_edl":"…"
+      if (!m) m = /^(\s*)([A-Za-z_][A-Za-z0-9_]*)"(\s*):/.exec(rest)
+      // clé sans guillemet fermant : "restitution_delai_edl:"…"
+      if (!m) m = /^(\s*)"([A-Za-z_][A-Za-z0-9_]*)(\s*):(?=\s*["\[{0-9tfn-])/.exec(rest)
       if (m) { out += c + m[1] + '"' + m[2] + '"' + m[3] + ':'; i += m[0].length; continue }
     }
     out += c
